@@ -2,7 +2,7 @@ from collections import OrderedDict
 
 from sqlalchemy import Integer, Text, String
 
-ver = "#version 1.4.2"
+ver = "#version 1.5.0"
 print(f"collector_api Version: {ver}")
 
 import numpy
@@ -13,7 +13,7 @@ import time
 from PyQt5.QtWidgets import *
 from library.daily_buy_list import *
 from pandas import DataFrame
-# from kind_crawling import *
+from kind_crawling import *
 
 MARKET_KOSPI = 0
 MARKET_KOSDAQ = 10
@@ -25,7 +25,7 @@ class collector_api():
         self.open_api = open_api()
         self.engine_JB = self.open_api.engine_JB
         self.variable_setting()
-        # self.kind = KINDCrawler()
+        self.kind = KINDCrawler()
 
     def variable_setting(self):
         self.open_api.py_gubun = "collector"
@@ -82,7 +82,7 @@ class collector_api():
         if rows[0][8] != self.open_api.today:
             self.min_crawler_check()
 
-        # self.kind.craw()
+        self.kind.craw()
 
         logger.debug("collecting 작업을 모두 정상적으로 마쳤습니다.")
 
@@ -90,9 +90,9 @@ class collector_api():
         os.system("@taskkill /f /im cmd.exe")
 
         # # AI 알고리즘 적용
-        # if self.open_api.sf.use_ai:
-        #     path = pathlib.Path(__file__).parent.parent.absolute() / 'bat' / 'ai_filter.bat'
-        #     os.system(f"start {path} {self.open_api.db_name} {self.open_api.simul_num}")
+        if self.open_api.sf.use_ai:
+            path = pathlib.Path(__file__).parent.parent.absolute() / 'bat' / 'ai_filter.bat'
+            os.system(f"start {path} {self.open_api.db_name} {self.open_api.simul_num}")
 
     # 실전 봇, 모의 봇 매수 종목 세팅 + all_item_db 업데이트 함수
     def realtime_daily_buy_list_check(self):
@@ -239,10 +239,75 @@ class collector_api():
         dtypes = dict(zip(list(stock_df.columns), [Text] * len(stock_df.columns)))  # 모든 타입을 Text로
         dtypes['check_item'] = Integer  # check_item만 int로 변경
 
-        stock_df.to_sql(f'stock_{type}', self.open_api.engine_daily_buy_list, if_exists='replace', dtype=dtypes)
+        if len(stock_df) > 0:
+            stock_df.to_sql(f'stock_{type}', self.open_api.engine_daily_buy_list, if_exists='replace', dtype=dtypes)
+        else:  # insincerity와 managing이 비어있는 경우
+            stock_df.to_sql(f'stock_{type}', self.open_api.engine_daily_buy_list, if_exists='replace', dtype=dtypes, index=False)
         return stock_df
 
+    # 종목코드에 숫자가 아닌 타입이 포함되어 있는 경우 해당되는 종목 제거
+    def remove_code_included_char(self, df):
+        return df.drop(list(df.loc[~df['code'].astype(str).str.isdigit(), 'code'].index))
+
+    def get_item_kospi(self):
+        kospi_api = self._get_code_list_by_market(0)
+        while '' in kospi_api:  # 비어있는값 제거
+            kospi_api.remove('')
+        kospi_api_dic = defaultdict(list)
+        for code in kospi_api:
+            kospi_api_dic['code'].append(code)
+            kospi_api_dic['code_name'].append(self.open_api.dynamicCall("GetMasterCodeName(QString)", code))
+        kospi_api_df = DataFrame(kospi_api_dic)
+        # ETF와 ETN 들어간 종목 제거
+        etf_api = self._get_code_list_by_market(8)
+        while '' in etf_api:  # 비어있는값 제거
+            etf_api.remove('')
+        etf_api_dic = defaultdict(list)
+        for code in etf_api:
+            etf_api_dic['code'].append(code)
+            etf_api_dic['code_name'].append(self.open_api.dynamicCall("GetMasterCodeName(QString)", code))
+        etf_api_df = DataFrame(etf_api_dic)
+        temp = kospi_api_df[(kospi_api_df['code'].isin(etf_api_df.code) == False)]
+        self.kospi_api_df = self.remove_code_included_char(temp[temp['code_name'].str.contains('ETN') == False])
+
+    def get_item_kosdaq(self):
+        kosdaq_api = self._get_code_list_by_market(10)
+        while '' in kosdaq_api:  # 비어있는값 제거
+            kosdaq_api.remove('')
+        kosdaq_api_dic = defaultdict(list)
+        for code in kosdaq_api:
+            kosdaq_api_dic['code'].append(code)
+            kosdaq_api_dic['code_name'].append(self.open_api.dynamicCall("GetMasterCodeName(QString)", code))
+        self.kosdaq_api_df = self.remove_code_included_char(DataFrame(kosdaq_api_dic))
+
+    def get_item_konex(self):
+        konex_api = self._get_code_list_by_market(50)
+        while '' in konex_api:  # 비어있는값 제거
+            konex_api.remove('')
+        konex_api_dic = defaultdict(list)
+        for code in konex_api:
+            konex_api_dic['code'].append(code)
+            konex_api_dic['code_name'].append(self.open_api.dynamicCall("GetMasterCodeName(QString)", code))
+        self.konex_api_df = self.remove_code_included_char(DataFrame(konex_api_dic))
+
+    def get_item(self):
+        dfs = [self.kospi_api_df, self.kosdaq_api_df, self.konex_api_df]
+        cols = list(self.kospi_api_df.keys())
+        self.code_df = pd.concat([d.set_index(cols) for d in dfs], axis=1).reset_index()
+
+    def get_item_managing(self):
+        # 데이터는 없지만 테이블 생성을 위해 빈 데이터프레임 저장
+        self.code_df_managing = pd.DataFrame(columns={'code', 'code_name'})
+
+    def get_item_insincerity(self):
+        # 데이터는 없지만 테이블 생성을 위해 빈 데이터프레임 저장
+        self.code_df_insincerity = pd.DataFrame(columns={'code', 'code_name'})
+
     def get_code_list(self):
+        # 아래 부분은 영상 촬영 후 좀 더 효율적으로 업그레이드 되었으므로 강의 영상속의 코드와 다를 수 있습니다.
+
+        # ### KIND 사이트에서 종목 데이터 가져오는 버전 ###
+        # <KIND version start------------------------------------------------------------------------------------------>
         self.dc.cc.get_item()
         self.dc.cc.get_item_kospi()
         self.dc.cc.get_item_kosdaq()
@@ -250,9 +315,6 @@ class collector_api():
         self.dc.cc.get_item_managing()
         self.dc.cc.get_item_insincerity()
 
-        logger.debug("get_code_list")
-
-        # 아래 부분은 영상 촬영 후 좀 더 효율적으로 업그레이드 되었으므로 강의 영상속의 코드와 다를 수 있습니다.
         # OrderedDict를 사용해 순서 보장
         stock_data = OrderedDict(
             kospi=self.dc.cc.code_df_kospi,
@@ -261,10 +323,41 @@ class collector_api():
             insincerity=self.dc.cc.code_df_insincerity,
             managing=self.dc.cc.code_df_managing
         )
+        # <KIND version end------------------------------------------------------------------------------------------>
+
+
+
+
+
+        # ### 키움증권에서 종목 데이터 가져오는 버전 ###
+        # 키움 api로부터 kospi, kosdaq, konex 데이터를 가져온다 (우선주 포함)
+        # 아래 버전은 위와 같이 kind 사이트에서 종목 데이터를 크롤링 하는 방식을 키움증권 OpenAPI로부터 가져오도록 변환된 방식입니다.
+        # (지속적인 kind 사이트 크롤링 시 IP차단 문제 예방 차원 + 우선주 종목 또한 콜렉팅 하기 위함)
+        # 이에 따라 daily_buy_list DB의 stock_managing(관리종목), stock_insincerity(불성실공시법인종목) 테이블은 비어 있게 되며
+        # 고급챕터에서 관리, 위험, 주의 종목 등을 필터링 하는 방법을 다룹니다.
+        # 방법 : 위 <KIND version start---> ~ <KIND version end---> 사이 주석 처리 후 아래 <OPEN_API version start--> ~ <OPEN_API version end--> 사이 주석 해제
+        # <OPEN_API version start------------------------------------------------------------------------------------------>
+        # self.get_item_kospi()
+        # self.get_item_kosdaq()
+        # self.get_item_konex()
+        # self.get_item()
+        # self.get_item_managing()
+        # self.get_item_insincerity()
+        # logger.debug("get_code_list")
+        #
+        # # OrderedDict를 사용해 순서 보장
+        # stock_data = OrderedDict(
+        #     kospi=self.kospi_api_df,
+        #     kosdaq=self.kosdaq_api_df,
+        #     konex=self.konex_api_df,
+        #     insincerity=self.code_df_insincerity,
+        #     managing=self.code_df_managing
+        # )
+        # <OPEN_API version end------------------------------------------------------------------------------------------>
 
         if cf.use_etf:
-            stock_data['etf'] = DataFrame([(c, '') for c in self._get_code_list_by_market(8) if c],
-                                          columns=['code', 'code_name'])
+            stock_data['etf'] = self.remove_code_included_char(DataFrame([(c, '') for c in self._get_code_list_by_market(8) if c],
+                                                                         columns=['code', 'code_name']))
 
         for _type, data in stock_data.items():
             stock_data[_type] = self._stock_to_sql(data, _type)
@@ -276,23 +369,6 @@ class collector_api():
             ignore_index=True
         ).drop_duplicates(subset=['code', 'code_name'])
         self._stock_to_sql(stock_item_all_df, "item_all")
-
-        ### stock_item_all이 제대로 생성되는지 확인하는 코드
-        # union_frags = []
-        # alias_num = 0
-        # for _type, data in stock_data.items():
-        #     if _type not in excluded_tables:
-        #         union_frags.append(f"SELECT a{alias_num}.code_name FROM daily_buy_list.stock_{_type} a{alias_num}")
-        #         alias_num += 1
-        # union_query = '\nUNION ALL\n'.join(union_frags)
-        # testing_query = f"SELECT count(code_name) FROM ({union_query}) b " \
-        #                 f"WHERE code_name != '' or code_name != null"
-        #
-        # stock_union_count = self.engine_JB.execute(testing_query).fetchall()
-        # sia_count = self.engine_JB.execute(f"SELECT count(*) FROM daily_buy_list.stock_item_all").fetchall()
-        #
-        # assert sia_count == stock_union_count, "stock_item_all does not contain all data."
-        ###
 
         sql = "UPDATE setting_data SET code_update='%s' limit 1"
         self.engine_JB.execute(sql % (self.open_api.today))
@@ -440,6 +516,14 @@ class collector_api():
         oldest_row = df.iloc[-1]
         check_row = None
         deleted = False
+        diff = False  # True 인 경우 수정주가 반영하여 업데이트
+
+        # daily_buy_list 테이블 리스트를 추출
+        dbl_dates = self.open_api.engine_daily_buy_list.execute("""
+                SELECT table_name as tname FROM information_schema.tables 
+                WHERE table_schema ='daily_buy_list' AND table_name REGEXP '[0-9]{8}'
+            """).fetchall()
+
         check_daily_crawler_sql = """
             UPDATE daily_buy_list.stock_item_all SET check_daily_crawler = '4' WHERE code = '{}'
         """
@@ -448,11 +532,41 @@ class collector_api():
             check_row = self.open_api.engine_daily_craw.execute(f"""
                 SELECT * FROM `{code_name}` WHERE date = '{oldest_row['date']}' LIMIT 1
             """).fetchall()
+
+            # daily_buy_list 에 저장 된 주가와 daily_craw에 저장 된 주가가 다른 경우 diff를 True로 변경해서 업데이트
+            if dbl_dates:
+                if dbl_dates[0][0] > oldest_row['date']: #daily_buy_list 의 날짜 테이블 중 가장 과거의 날짜테이블이 API로 부터 받는 oldest_row 보다 더 최근 날짜이면
+                    search_date = dbl_dates[0][0]
+                else:
+                    search_date = oldest_row['date']
+
+                dc_item = self.open_api.engine_daily_craw.execute(f"""
+                                SELECT date, close FROM `{code_name}` WHERE date >= '{search_date}' ORDER BY date asc limit 1
+                            """).first() # daily_craw 종목테이블에서 search_date 보다는 과거 데이터이고 가장 오래된 row를 찾는다.
+                if dc_item:
+                    dc_date, dc_close = dc_item
+                    if self.open_api.engine_daily_buy_list.dialect.has_table(self.open_api.engine_daily_buy_list, dc_date):
+                        dbl_close = self.engine_JB.execute(f"""
+                            SELECT close FROM daily_buy_list.`{dc_date}` WHERE code = '{code}'
+                        """).fetchall()
+                        if dbl_close:
+                            if dbl_close[0][0] == dc_close:  # daily_craw, daily_buy_list 의 close 값이 같은 경우
+                                diff = False
+                            else:  # daily_craw, daily_buy_list 의 close 가 다른 경우
+                                diff = True
+                        else:  # daily_buy_list 날짜 테이블에 해당 종목이 없는 경우
+                            diff = True
+                    else:
+                        diff = False  # daily_buy_list를 해당 날짜까지 아직 생성하지 못한 경우, 어차피 날짜테이블은 없으면 다시 생성한다. 비교대상이 없으므로 False
+                else:
+                    diff = True # 분할 재상장 하는 경우 (ex. F&F) daily_buy_list에 분할재상장 이전 데이터가 있을 수 있다. -> 삭제 후 다시 받도록
+            else:
+                diff = False # daily_buy_list에 아무런 날짜 테이블이 없는 경우 (처음 콜렉팅을 하는 경우)
         else:
             self.engine_JB.execute(check_daily_crawler_sql.format(code))
             deleted = True
 
-        if check_row and check_row[0]['close'] != oldest_row['close']:
+        if (check_row and (check_row[0]['close'] != oldest_row['close'])) or diff:
             logger.info(f'{code} {code_name}의 액면분할/증자 등의 이유로 수정주가가 달라져서 처음부터 다시 콜렉팅')
             # daily_craw 삭제
             logger.info('daily_craw와 min_craw 삭제 중..')
@@ -580,29 +694,27 @@ class collector_api():
         if check_daily_crawler == '4':
             logger.info(f'daily_craw.{code_name} 업데이트 완료 {code}')
             logger.info('daily_buy_list 업데이트 중..')
-            dbl_dates = self.open_api.engine_daily_buy_list.execute("""
-                SELECT table_name as tname FROM information_schema.tables 
-                WHERE table_schema ='daily_buy_list' AND table_name REGEXP '[0-9]{8}'
-            """).fetchall()
+
 
             for row in dbl_dates:
                 logger.info(f'{code} {code_name} - daily_buy_list.`{row.tname}` 업데이트')
                 try:
-                    new_data = df_temp.loc[row.tname]
+                    new_data = df_temp[df_temp.date == row.tname]
                 except KeyError:
                     continue
-                self.open_api.engine_daily_buy_list.execute(f"""
-                    DELETE FROM `{row.tname}` WHERE code = {code}
-                """)
-                if not new_data.empty:
-                    new_data.set_index('code')
-                    new_data.to_sql(
-                        name=row.tname,
-                        con=self.open_api.engine_daily_buy_list,
-                        index=True,
-                        if_exists='append',
-                        dtype={'code': String(6)}
-                    )
+                if self.open_api.engine_daily_craw.dialect.has_table(self.open_api.engine_daily_buy_list, row.tname):
+                    self.open_api.engine_daily_buy_list.execute(f"""
+                        DELETE FROM `{row.tname}` WHERE code = '{code}'
+                    """)
+                    if not new_data.empty:
+                        new_data.set_index('code')
+                        new_data.to_sql(
+                            name=row.tname,
+                            con=self.open_api.engine_daily_buy_list,
+                            index=True,
+                            if_exists='append',
+                            dtype={'code': String(6)}
+                        )
 
             logger.info('daily_buy_list 업데이트 완료')
 
@@ -970,7 +1082,3 @@ class collector_api():
             # 	종료일자 = YYYYMMDD (20170101 연도4자리, 월 2자리, 일 2자리 형식)
             self.open_api.set_input_value("종료일자", self.open_api.today)
             self.open_api.comm_rq_data("opt10074_req", "opt10074", 2, "0329")
-
-
-
-

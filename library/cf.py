@@ -12,7 +12,7 @@ db_port='3306'
 # 모의 투자 계좌번호를 넣는다. 모의 투자 계좌는 3개월에 한번씩 만료 되기 때문에 3개월 이용 후 재신청 하게 되면 계좌 번호가 변경된다.
 # 이때 계정이 존재 하지 않는다!!! 는 에러가 뜰텐데 그때 변경 된 계좌번호를 다시 아래 imi1_account 변수에 넣으면 된다.
 # 계좌 번호 쉽게 알아보는법:  콘솔창에 보면 상단 부분에 로그로 "계좌번호 :  " 옆에 출력이 된다
-imi1_accout = "8000820111" # [모의투자 계좌번호를 넣어주세요. 주의! 10자리 계좌번호입니다. 모의투자는 8자리 계좌번호 뒤에 11, 실전은 10이 붙어 있음]
+imi1_accout = "8032914911" # [모의투자 계좌번호를 넣어주세요. 주의! 10자리 계좌번호입니다. 모의투자는 8자리 계좌번호 뒤에 11, 실전은 10이 붙어 있음]
 
 # imi1_simul_num은 알고리즘의 번호이다. 새로운 알고리즘으로 새롭게 database를 구축해서 운영하고 싶을 경우 번호를 2, 3, 4 ... 순차적으로 올려 주면 된다.
 imi1_simul_num=1
@@ -29,7 +29,7 @@ real_daily_craw_db_name = "daily_craw"
 real_daily_buy_list_db_name = "daily_buy_list"
 
 # daily_buy_list database의 날짜 테이블을 과거 어떤 시점 부터 만들 것인지 설정 하는 변수
-start_daily_buy_list='20190102'
+start_daily_buy_list='20200102'
 
 # openapi 1회 조회 시 대기 시간(0.2 보다-> 0.3이 안정적)
 TR_REQ_TIME_INTERVAL = 0.3
@@ -45,3 +45,6 @@ dart_api_key = ''
 
 # etf 사용 여부 (고급클래스에서 소개)
 use_etf = False
+
+# dart api key
+dart_api_key = '8c44ace91948ce4d34b8ba27051836c2c8c35257'

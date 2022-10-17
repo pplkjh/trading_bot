@@ -77,7 +77,7 @@ class Trader(QMainWindow):
             # 종목코드명
             get_sell_code = self.sell_list[i][0]
             # 수익률
-            get_sell_rate = self.sell_list[i][1]
+            get_sell_rate = float(self.sell_list[i][1])
             # 매도 수량
             get_sell_num = self.open_api.get_holding_amount(get_sell_code)
 
