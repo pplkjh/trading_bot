@@ -215,7 +215,7 @@ class simulator_func_mysql:
             # 실전/모의 봇 돌릴 때 매수하는 순간 종목의 최신 종가 보다 -2% 이하로 떨어진 경우 사지 않도록 하는 설정(변경 가능)
             self.invest_min_limit_rate = 0.98
 
-        elif self.simul_num in range(4,15):
+        elif self.simul_num in range(4,17):
             # 시뮬레이팅 시작 일자(분 별 시뮬레이션의 경우 최근 1년 치 데이터만 있기 때문에 start_date 조정 필요)
             self.simul_start_date = "20210102"
 
@@ -263,6 +263,36 @@ class simulator_func_mysql:
                 # AI알고리즘 사용 여부 (고급 챕터에서 소개)
                 self.use_ai = True  # ai 알고리즘 사용 시 True 사용 안하면 False
                 self.ai_filter_num = 1  # ai 알고리즘 선택
+
+            elif self.simul_num == 12:  # 종목 정보 테이블을 활용한 우량주, 고신용 종목 매수 알고리즘
+                # audit이 정상이고 거래정지, 관리종목을 제외한 종목 리스트를 매수
+                self.db_to_realtime_daily_buy_list_num = 12
+
+            # 실시간 조건 매수
+            elif self.simul_num in (13, 14):
+                self.simul_start_date = "20220102"
+                self.use_min = True
+                # 아침 9시에만 매수를 하고 싶은 경우 True, 9시가 아니어도 매수를 하고 싶은 경우 False(분별 시뮬레이션, trader 적용 가능 / 일별 시뮬레이션은 9시에만 매수, 매도)
+                self.only_nine_buy = False
+                # 실시간 조건 매수 옵션 (고급 챕터에서 소개) self.only_nine_buy 옵션을 반드시 False로 설정해야함
+                self.trade_check_num = 1  # 실시간 조건 매수 알고리즘 선택 (1,2,3..)
+                # 특정 거래대금 보다 x배 이상 증가 할 경우 매수
+                self.volume_up = 2
+                #
+                if self.simul_num == 13:
+                    self.trade_check_num = 2
+                    # 매수하는 순간 종목의 최신 종가 보다 1% 이상 오른 경우 사지 않도록 하는 설정(변경 가능)
+                    self.invest_limit_rate = 1.01
+                    # 매수하는 순간 종목의 최신 종가 보다 -2% 이하로 떨어진 경우 사지 않도록 하는 설정(변경 가능)
+                    self.invest_min_limit_rate = 0.98
+
+                # 래리윌리엄스 변동성 돌파 전략
+                elif self.simul_num == 14:
+                    self.trade_check_num = 3
+                    self.rarry_k = 0.5
+            ### ETF
+            elif self.simul_num == 16:
+                self.db_to_realtime_daily_buy_list_num = 11
 
             # 절대 모멘텀 / 상대 모멘텀
             elif self.simul_num in range(7, 10):
@@ -511,7 +541,7 @@ class simulator_func_mysql:
                     continue
 
                 # 촬영 후 아래 if 문 추가 (향후 실시간 조건 매수 시 사용) ###################
-                if self.use_min and not self.only_nine_buy and self.trade_check_num :
+                if self.use_min and not self.only_nine_buy and self. trade_check_num :
                     # 시작가
                     open = self.get_now_open_price_by_date(code, date_rows_today)
                     # 당일 누적 거래량
@@ -781,6 +811,30 @@ class simulator_func_mysql:
 
                 realtime_daily_buy_list = self.engine_daily_buy_list.execute(
                     sql % (self.diff_point, self.invest_unit)).fetchall()
+
+        ### ETF
+        elif self.db_to_realtime_daily_buy_list_num == 11:
+            sql = f"SELECT * from `{date_rows_yesterday}` YES_DAY " \
+                  "WHERE yes_clo20 > yes_clo5 and clo5 > clo20 " \
+                  "AND EXISTS (SELECT null FROM stock_etf ETF WHERE YES_DAY.code=ETF.code) " \
+                  f"AND close < {self.invest_unit} " \
+                  "GROUP BY code"
+            realtime_daily_buy_list = self.engine_daily_buy_list.execute(sql).fetchall()
+
+        ### 종목 정보 테이블을 활용한 우량주, 고신용 종목 매수 알고리즘
+        # audit이 정상이고, 거래정지, 관리종목을 제외한 종목 리스트를 매수
+        elif self.db_to_realtime_daily_buy_list_num == 12:
+            sql = f'''
+                SELECT day.* FROM `{date_rows_yesterday}` day, stock_info info
+                WHERE day.code = info.code
+                AND info.stock_market IN ("거래소", "코스닥")
+                AND info.category0 IN ("우량기업", "신성장기업")
+                AND info.audit = '정상'
+                AND info.margin <= 40
+                AND info.remarks NOT LIKE "%관리종목%"
+                AND info.remarks NOT LIKE "%거래정지%"
+            '''
+            realtime_daily_buy_list = self.engine_daily_buy_list.execute(sql).fetchall()
 
         ######################################################################################################################################################################################
         else:

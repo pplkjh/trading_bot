@@ -45,6 +45,13 @@ class collector_api():
         # 관리종목(stock_managing), 불성실법인종목(stock_insincerity) 업데이트
         if rows[0][0] != self.open_api.today:
             self.get_code_list()  # 촬영 후 일부 업데이트 되었습니다.
+            
+            # stock info 테이블 추가 수집 : 시장 구분, 종목 분류 등 
+            # stcok info 테이블 만드는 방법 text 참고
+            # self._create_stock_info()
+            # check_sql = f"UPDATE setting_data SET code_update='{self.open_api.today}' limit 1"
+            # self.engine_JB.execute(check_sql)
+
 
         # 촬영 후 콜렉팅 순서가 일부 업데이트 되었습니다.
         # 잔고 및 보유종목 현황 db setting  & 당일 종목별 실현 손익

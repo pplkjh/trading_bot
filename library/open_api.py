@@ -1755,3 +1755,27 @@ class open_api(QAxWidget):
             self.engine_JB.execute("""
                 UPDATE setting_data SET code_update = '0';
             """)
+
+    # 테마코드, 테마명 그리고 테마 그룹에 속하는 종목코드를 가져오는 함수
+    def get_theme_info(self):
+        try:
+            thema = defaultdict(list)
+            data = self.dynamicCall("GetThemeGroupList(int)", 1)  # nType – 정렬순서 (0:코드순, 1:테마순)
+            tokens = data.split(';')
+            for token in tokens:
+                thema_code, thema_name = token.split('|')
+                codes = self.get_theme_group_code(thema_code)
+                for code in codes:
+                    thema[code].append((thema_code, thema_name))
+            return thema
+
+        except Exception as e:
+            logger.critical(e)
+
+    # 테마코드에 해당하는 종목코드를 가져오는 함수
+    def get_theme_group_code(self, theme_code):
+        data = self.dynamicCall("GetThemeGroupCode(QString)", theme_code)
+        temp = []
+        for x in data.split(';'):
+            temp.append(x[1:])
+        return temp

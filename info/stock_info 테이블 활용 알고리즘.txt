@@ -1,0 +1,154 @@
+# 전체 출력
+select * from stock_info;
+select * from `20200102`;
+
+# daily_buy_list 날짜 테이블과 stock_info 테이블 join
+# day 는 `20200102` 테이블의 별칭(사용자가 아무거나 정해준다), info는 stock_info의 별칭
+select * from `20200102` day, stock_info info
+where day.code = info.code;
+
+# 코스닥 종목 중 20200102 기준 5일 이동평균값이 10일 이동평균값 보다 높은 종목은?
+select day.code_name, day.date, day.close, info.stock_market
+from `20200102` day, stock_info info
+where day.code = info.code
+and day.clo5 > day.clo10
+and info.stock_market = "코스닥";
+
+# 날짜 테이블의 모든 칼럼을 select 하는 방법
+select day.*
+from `20200102` day, stock_info info
+where day.code = info.code;
+
+
+# 시장구분 활용
+select stock_market, count(*) from stock_info group by stock_market;
+# 코스피, 코스닥만 거래하겠다.
+select day.* from `20200102` day, stock_info info
+where day.code = info.code
+and info.stock_market in ("거래소", "코스닥");
+
+
+# 대분류 활용
+select category0, count(*) from stock_info group by category0;
+# 우량기업, 신성장기업만 거래하겠다.
+select day.* from `20200102` day, stock_info info
+where day.code = info.code
+and info.category0 in ("우량기업", "신성장기업");
+
+
+# 업종구분 활용
+select market_class0, count(*) from stock_info group by market_class0;
+
+
+# 상세 업종구분 활용
+select market_class1, count(*) from stock_info group by market_class1;
+
+
+# 중분류 활용
+select category1, count(*) from stock_info group by category1;
+
+
+# 감리구분 활용
+select audit, count(*) from stock_info group by audit;
+
+
+# 정상 종목만 거래하겠다.
+select day.* from `20200102` day, stock_info info
+where day.code = info.code
+and info.audit = '정상';
+
+
+# 증거금 비율 활용
+# 증거금율 : 투자 상품 매수에 필요한 돈의 비율
+# 증거금 : 신용 거래를 위해 보증 해야할 돈(일종의 보증금)
+# ex. 증거금율 20% : 매수 단가의 20%만 돈이(증거금) 있어도 매수 거래 체결 가능
+# 증거금율 100% : 매수 단가의 100%의 돈이 있어야만 매수 거래 체결 가능
+# 증거금율 20% 종목의 주식을 100만원 매수 하고 싶다. 100만원 * 0.2 = 20만원의 증거금이 있으면
+# 나머지 차액을 증권사에서 대출 해준다.
+# 증거금율을 증권사마다 고객의 신용도와 거래실적을 감안해 제각기 달리 정한다
+# 기업의 신용이 높을 수록 증거금율이 낮다.
+
+# 계좌 증거금률 변경 방법 : 실전 계좌 영웅문 접속 -> 계좌증거금률 변경 등록
+select margin, count(*) from stock_info group by margin;
+# 증거금율 40% 이하의 종목만 거래하겠다.
+select day.* from `20200102` day, stock_info info
+where day.code = info.code
+and info.margin <= 40;
+
+
+# 비고 활용
+select remarks, count(*) from stock_info group by remarks;
+# 거래정지, 관리종목은 제외 하고 거래하겠다.
+select day.* from `20200102` day, stock_info info
+where day.code = info.code
+and info.remarks not like "%관리종목%"
+and info.remarks not like "%거래정지%";
+
+# like 사용법
+select * from stock_info where market_class0 like "철강%";
+select * from stock_info where market_class0 like "%금속";
+select * from stock_info where market_class0 like "%철강%";
+select * from stock_info where market_class0 like "%강금%";
+select * from stock_info where market_class0 not like "%강금%";
+
+
+# 테마 코드 활용
+select thema_code, count(*) from stock_info group by thema_code;
+
+# 테마명 활용
+select thema_name, count(*) from stock_info group by thema_name;
+select day.* from `20200102` day, stock_info info
+where day.code = info.code
+and info.thema_name like "%바이오%";
+
+select * from stock_info where thema_name like "%바이오%";
+
+
+# Q. 코스피, 코스닥 중
+# audit 이 정상이고,
+# 우량기업, 신성장기업 중,
+# 증거금율이 40%이하이며,
+# 거래정지, 관리종목을 제외한 종목리스트를 매수 (날짜 테이블은 어떤 것을 사용해도 무관)
+
+
+
+
+
+
+
+
+# 정답
+SELECT day.* FROM `20190102` day, stock_info info
+WHERE day.code = info.code
+AND info.stock_market IN ("거래소", "코스닥")
+AND info.category0 IN ("우량기업", "신성장기업")
+AND info.audit = '정상'
+AND info.margin <= 40
+AND info.remarks NOT LIKE "%관리종목%"
+AND info.remarks NOT LIKE "%거래정지%";
+
+
+
+# 매수 함수 구현
+#         elif self.db_to_realtime_daily_buy_list_num == 12:
+#             sql = f'''
+#                 SELECT day.* FROM `{date_rows_yesterday}` day, stock_info info
+#                 WHERE day.code = info.code
+#                 AND info.stock_market IN ("거래소", "코스닥")
+#                 AND info.category0 IN ("우량기업", "신성장기업")
+#                 AND info.audit = '정상'
+#                 AND info.margin <= 40
+#                 AND info.remarks NOT LIKE "%관리종목%"
+#                 AND info.remarks NOT LIKE "%거래정지%"
+#             '''
+#             realtime_daily_buy_list = self.engine_daily_buy_list.execute(sql).fetchall()
+
+
+select * from stock_info;
+# stock_info 시뮬레이션의 한계 : 현재 시점에서의 관리종목, 거래정지, 정상, 증거금율 등의 값을 가져오기 때문에
+#  과거 시점에 대한 시뮬레이션을 하기에는 정확한 결과치가 아닐 수 있다.
+#  모의, 실전 투자에 적용 시에는 현재의 상태를 가져오기 때문에 정확하다.
+#  해결책 : stock_info 테이블을 만들 때 date컬럼을 추가해서 콜렉팅한 시점의 날짜를 넣고, replace 대신 append로 데이터를 지속해서 모은다.
+#  시뮬레이션을 돌릴 때 위 12번 쿼리에 AND info.date = {date_rows_yesterday} 조건을 추가한다.
+#  위 방식에서 유의사항 : 1.새로운 컬럼을 stock_info에 추가 후 append를 할 경우 에러 발생
+#                      2.콜렉터로 데이터를 한 달치 쌓았을 때 최근 한 달에 대한 시뮬레이션만 가능
