@@ -14,9 +14,10 @@ import pymysql.cursors
 from library.logging_pack import *
 from library import cf
 from pandas import DataFrame
+import pandas as pd
 import re
 import datetime
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 pymysql.install_as_MySQLdb()
 
@@ -107,6 +108,12 @@ class simulator_func_mysql:
         # self.use_min 옵션이 반드시 True로 설정이 되어야함
         # 실시간 조건 매수 알고리즘 선택 (1,2,3..)
         self.trade_check_num = False
+
+        # === 예측 기반 랭킹 기본값 ===
+        self.use_pred = getattr(cf, 'USE_PRED_SIGNAL', True)
+        self.pred_weight_5 = getattr(cf, 'PRED_WEIGHT_5', 0.6)
+        self.pred_weight_15 = getattr(cf, 'PRED_WEIGHT_15', 0.4)
+        self.min_liquidity = getattr(cf, 'MIN_PRED_LIQUIDITY', 1e9)
 
         print("self.simul_num!!! ", self.simul_num)
 
@@ -615,7 +622,103 @@ class simulator_func_mysql:
                                                              'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
                                                              'vol100', 'vol120'])
 
+        if self.use_pred and not self.df_realtime_daily_buy_list.empty:
+            if 'score_adj' in self.df_realtime_daily_buy_list.columns:
+                self.df_realtime_daily_buy_list = self.df_realtime_daily_buy_list.sort_values(
+                    by='score_adj', ascending=False, na_position='last'
+                ).reset_index(drop=True)
+            elif 'score' in self.df_realtime_daily_buy_list.columns:
+                self.df_realtime_daily_buy_list = self.df_realtime_daily_buy_list.sort_values(
+                    by='score', ascending=False, na_position='last'
+                ).reset_index(drop=True)
+
         self.len_df_realtime_daily_buy_list = len(self.df_realtime_daily_buy_list)
+
+    def _fetch_pred_signal(self, ref_date):
+        if not self.use_pred:
+            return pd.DataFrame()
+
+        try:
+            ref_date_obj = datetime.datetime.strptime(str(ref_date), '%Y%m%d').date()
+        except (ValueError, TypeError):
+            logger.warning("pred_signal 조회를 위한 ref_date 파싱 실패: %s", ref_date)
+            return pd.DataFrame()
+
+        query = text(
+            """
+            SELECT code, pred_ret_5, pred_std_5, pred_ret_15, pred_std_15, regime
+            FROM pred_signal
+            WHERE ref_date = :ref_date
+            """
+        )
+        try:
+            return pd.read_sql_query(query, self.engine_daily_buy_list, params={'ref_date': ref_date_obj})
+        except Exception as exc:
+            logger.warning("pred_signal 조회 실패(ref_date=%s): %s", ref_date, exc)
+            return pd.DataFrame()
+
+    def _apply_prediction_ranking(self, df, ref_date):
+        if not self.use_pred or df.empty:
+            return df
+
+        merged = df.copy()
+        pred_df = self._fetch_pred_signal(ref_date)
+        if pred_df.empty:
+            return merged
+
+        merged = merged.merge(pred_df, how='left', on='code')
+
+        # 유동성 필터
+        if self.min_liquidity and {'close', 'vol20'}.issubset(merged.columns):
+            try:
+                liquidity = merged['close'].astype(float) * merged['vol20'].astype(float)
+                mask = liquidity >= float(self.min_liquidity)
+                if mask.any():
+                    merged = merged.loc[mask].copy()
+            except Exception as exc:
+                logger.warning("유동성 필터 계산 실패: %s", exc)
+
+        pred_cols = ['pred_ret_5', 'pred_ret_15']
+        available_mask = merged[pred_cols].notna().any(axis=1)
+        if not available_mask.any():
+            return merged
+
+        scoring_frame = merged.loc[available_mask].copy()
+
+        for col in pred_cols:
+            if scoring_frame[col].notna().any():
+                mu = scoring_frame[col].mean()
+                sigma = scoring_frame[col].std()
+                if pd.isna(sigma) or sigma < 1e-9:
+                    sigma = 1.0
+                scoring_frame[f'{col}_z'] = (scoring_frame[col] - mu) / sigma
+            else:
+                scoring_frame[f'{col}_z'] = 0.0
+
+        def _confidence(ret_col, std_col):
+            denom = scoring_frame[std_col].abs().where(scoring_frame[std_col].abs() > 1e-6, 1e-6)
+            return scoring_frame[ret_col].abs() / denom
+
+        conf5 = _confidence('pred_ret_5', 'pred_std_5') if 'pred_std_5' in scoring_frame.columns else pd.Series(1.0, index=scoring_frame.index)
+        conf15 = _confidence('pred_ret_15', 'pred_std_15') if 'pred_std_15' in scoring_frame.columns else pd.Series(1.0, index=scoring_frame.index)
+        conf5 = conf5.fillna(1.0)
+        conf15 = conf15.fillna(1.0)
+
+        scoring_frame['score'] = (
+            self.pred_weight_5 * scoring_frame.get('pred_ret_5_z', 0.0)
+            + self.pred_weight_15 * scoring_frame.get('pred_ret_15_z', 0.0)
+        )
+        scoring_frame['score_adj'] = scoring_frame['score'] * 0.5 * (conf5 + conf15)
+        scoring_frame['score_adj'] = scoring_frame['score_adj'].fillna(scoring_frame['score'])
+
+        for column in ['pred_ret_5_z', 'pred_ret_15_z', 'score', 'score_adj']:
+            if column in scoring_frame.columns:
+                merged.loc[scoring_frame.index, column] = scoring_frame[column]
+
+        merged = merged.sort_values(by=['score_adj', 'score'], ascending=[False, False], na_position='last')
+        merged = merged.reset_index(drop=True)
+
+        return merged
 
     # 가장 최근의 daily_buy_list에 담겨 있는 날짜 테이블 이름을 가져오는 함수
     def get_recent_daily_buy_list_date(self):
@@ -860,6 +963,11 @@ class simulator_func_mysql:
                                                             'yes_clo100', 'yes_clo120',
                                                             'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
                                                             'vol100', 'vol120'])
+
+            if self.use_pred:
+                df_realtime_daily_buy_list = self._apply_prediction_ranking(
+                    df_realtime_daily_buy_list, date_rows_today
+                )
 
             # lamda는 익명 함수이다. 여기서 int로 param을 보내야 6d ( 정수) 에서 안걸린다.
             df_realtime_daily_buy_list['code'] = df_realtime_daily_buy_list['code'].apply(

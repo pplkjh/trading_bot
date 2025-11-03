@@ -112,6 +112,7 @@ class open_api(QAxWidget):
     # simulator_func_mysql 에서 설정한 값을 가져오는 함수
     def sf_variable_setting(self):
         self.date_rows_yesterday = self.sf.get_recent_daily_buy_list_date()
+        self.current_buy_row = None
 
         if not self.sf.is_simul_table_exist(self.db_name, "all_item_db"):
             logger.debug("all_item_db 없어서 생성!! init !! ")
@@ -1046,7 +1047,43 @@ class open_api(QAxWidget):
         max_buy_limit = int(self.get_today_buy_list_close) * self.sf.invest_limit_rate
         # 현재가가 매수 가격 최저 범위와 매수 가격 최고 범위 안에 들어와 있다면 매수 한다.
         if min_buy_limit < current_price < max_buy_limit:
-            buy_num = self.buy_num_count(self.invest_unit, int(current_price))
+            base_buy_num = self.buy_num_count(self.invest_unit, int(current_price))
+            buy_num = base_buy_num
+            signal_row = getattr(self, 'current_buy_row', None)
+
+            if getattr(self.sf, 'use_pred', False) and signal_row is not None:
+                def _safe(value, default=0.0):
+                    if pd.isna(value):
+                        return default
+                    try:
+                        return float(value)
+                    except (TypeError, ValueError):
+                        return default
+
+                has_pred = not (pd.isna(signal_row.get('pred_ret_5')) and pd.isna(signal_row.get('pred_ret_15')))
+                score = _safe(signal_row.get('score_adj'), _safe(signal_row.get('score'), 0.0))
+                if has_pred and score > 0:
+                    r5 = _safe(signal_row.get('pred_ret_5'), 0.0)
+                    r15 = _safe(signal_row.get('pred_ret_15'), 0.0)
+                    s5 = max(_safe(signal_row.get('pred_std_5'), 1e-6), 1e-6)
+                    s15 = max(_safe(signal_row.get('pred_std_15'), 1e-6), 1e-6)
+                    confidence = 0.5 * ((abs(r5) / s5) + (abs(r15) / s15))
+                    boost = min(1.5, 0.5 + confidence)
+                    buy_num = int(base_buy_num * score * boost)
+                    logger.debug(
+                        "예측 기반 포지션 사이징 적용 code:%s base:%s score:%.4f boost:%.4f qty:%s",
+                        self.get_today_buy_list_code, base_buy_num, score, boost, buy_num
+                    )
+                elif has_pred:
+                    buy_num = 0
+
+            if buy_num <= 0:
+                logger.debug("예측 스코어/유동성 조건을 충족하지 않아 매수를 건너뜁니다. code:%s", self.get_today_buy_list_code)
+                sql = "UPDATE realtime_daily_buy_list SET check_item='%s' WHERE code='%s'"
+                self.engine_JB.execute(sql % (0, self.get_today_buy_list_code))
+                self.current_buy_row = None
+                return False
+
             logger.debug(
                 "매수!!!!+-+-+-+-+-+-+-+-+-+-+-+-+-+-+- code :%s, 목표가: %s, 현재가: %s, 매수량: %s, min_buy_limit: %s, max_buy_limit: %s , invest_limit_rate: %s,예수금: %s , today : %s, today_min : %s, date_rows_yesterday : %s, invest_unit : %s, real_invest_unit : %s +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-",
                 self.get_today_buy_list_code, self.get_today_buy_list_close, current_price, buy_num, min_buy_limit,
@@ -1057,9 +1094,10 @@ class open_api(QAxWidget):
             # 4번째 인자: 1: 신규매수 / 2: 신규매도 / 3:매수취소 / 4:매도취소 / 5: 매수정정 / 6:매도정정
             self.send_order("send_order_req", "0101", self.account_number, 1, self.get_today_buy_list_code, buy_num, 0,
                             "03", "")
+            self.current_buy_row = None
 
             # 만약 sf.only_nine_buy가 False 이면 즉, 한번 매수하고 금일 매수를 중단하는 것이 아니라면, 매도 후에 잔액이 생기면 다시 매수를 시작
-            # sf.only_nine_buy가 True이면 1회만 매수, 1회 매수 시 잔액이 부족해지면 바로 매수 중단 
+            # sf.only_nine_buy가 True이면 1회만 매수, 1회 매수 시 잔액이 부족해지면 바로 매수 중단
             if not self.jango_check() and self.sf.only_nine_buy:
                 logger.debug("하나 샀더니 잔고가 부족해진 구간!!!!!")
                 # setting_data에 today_buy_stop을 1 로 설정
@@ -1119,6 +1157,7 @@ class open_api(QAxWidget):
 
                 self.get_today_buy_list_code = code
                 self.get_today_buy_list_close = close
+                self.current_buy_row = self.sf.df_realtime_daily_buy_list.loc[i].copy()
                 # 매수 하기 전에 해당 종목의 check_item을 1로 변경. 즉, 이미 매수 했으니까 다시 매수 하지말라고 체크 하는 로직
                 sql = "UPDATE realtime_daily_buy_list SET check_item='%s' WHERE code='%s'"
                 self.engine_JB.execute(sql % (1, self.get_today_buy_list_code))

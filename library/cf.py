@@ -48,3 +48,9 @@ use_etf = False
 
 # dart api key
 dart_api_key = '8c44ace91948ce4d34b8ba27051836c2c8c35257'
+
+# prediction signal 설정
+USE_PRED_SIGNAL = True
+PRED_WEIGHT_5 = 0.6
+PRED_WEIGHT_15 = 0.4
+MIN_PRED_LIQUIDITY = 1_000_000_000
