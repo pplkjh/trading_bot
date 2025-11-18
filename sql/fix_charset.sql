@@ -20,17 +20,9 @@ ALTER TABLE all_item_db CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode
 ALTER TABLE possessed_item CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ALTER TABLE realtime_daily_buy_list CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- JackBot1 데이터베이스 (실전)
-ALTER DATABASE JackBot1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
-USE JackBot1;
-
--- 테이블이 존재하면 변경
-ALTER TABLE setting_data CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-ALTER TABLE jango_data CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-ALTER TABLE all_item_db CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-ALTER TABLE possessed_item CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-ALTER TABLE realtime_daily_buy_list CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- JackBot1 데이터베이스 (실전) - 테이블 없어도 에러 방지
+-- 주의: 실전 투자용 DB는 나중에 설정하므로 에러 무시
+-- ALTER DATABASE JackBot1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- daily_buy_list 데이터베이스
 ALTER DATABASE daily_buy_list CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
