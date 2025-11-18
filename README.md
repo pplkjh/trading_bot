@@ -13,11 +13,13 @@
 | **[⚡ QUICK_START.md](QUICK_START.md)** | 처음 시작하는 분 | 10분 안에 시작하는 빠른 가이드 |
 | **[📚 USER_MANUAL.md](USER_MANUAL.md)** | 모든 사용자 | 완전한 사용 설명서 (초기 설정 ~ 실전 투자) |
 | **[🚀 ADVANCED_STRATEGY_GUIDE.md](ADVANCED_STRATEGY_GUIDE.md)** | 고급 사용자 | 멀티팩터 전략, 리스크 관리 고급 기능 |
+| **[🤖 AUTOMATION_GUIDE.md](AUTOMATION_GUIDE.md)** | 자동화 원하는 분 | 완전 무인 자동화 (컴퓨터 자동 켜기/끄기) |
 
 **👉 추천 시작 순서:**
 1. `QUICK_START.md` - 빠르게 시작
 2. `USER_MANUAL.md` - 자세히 학습
 3. `ADVANCED_STRATEGY_GUIDE.md` - 전략 최적화
+4. `AUTOMATION_GUIDE.md` - 완전 자동화 (선택)
 
 ---
 
