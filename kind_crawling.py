@@ -23,6 +23,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 from sqlalchemy import create_engine, VARCHAR, DATE
 from sqlalchemy.engine.url import URL
 from sqlalchemy.exc import InternalError, OperationalError
@@ -238,10 +240,11 @@ class KINDCrawler:
         # Selenium이 띄운 크롬창의 다운로드 폴더 경로를 지정 (bot 프로젝트 폴더안의 KIND_xls 폴더)
         options.add_experimental_option("prefs", {"download.default_directory": str(self.download_path)})
 
-        path = self.chrome_driver_update() # 크롬 드라이버를 자동으로 path 위치에 설치합니다
+        # webdriver_manager를 사용하여 자동으로 크롬드라이버 설치 및 경로 관리
+        service = Service(ChromeDriverManager().install())
 
         '''자동으로 크롬드라이버가 설치 되도록 업데이트 되었습니다. 따로 C드라이브에 크롬드라이버를 설치 하지 않으셔도 됩니다.'''
-        self.driver = webdriver.Chrome(path, options=options)
+        self.driver = webdriver.Chrome(service=service, options=options)
         self.driver.implicitly_wait(10)  # get(url)로 요청한 페이지 내용들이 모두 로딩이 완료될 때까지 int(초) 만큼 암묵적으로 기다린다
 
         self.actions = ActionChains(self.driver)  # 스크롤 이동을 위한 ActionChains 객체
