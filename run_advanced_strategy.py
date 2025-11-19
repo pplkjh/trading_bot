@@ -16,11 +16,12 @@ import pymysql
 from library.cf import *
 from library.advanced_strategy_system import AdvancedStrategySystem, create_optimized_buy_list
 from library.performance_analytics import analyze_backtest_from_db
+from library.date_based_strategy import generate_buy_signals as generate_buy_signals_date_based
 
 
 def scan_buy_candidates(portfolio_value: float = 10000000, top_n: int = 20):
     """
-    매수 후보 종목 스캔
+    매수 후보 종목 스캔 (날짜별 테이블 기반)
 
     Parameters:
     -----------
@@ -33,27 +34,23 @@ def scan_buy_candidates(portfolio_value: float = 10000000, top_n: int = 20):
     print("🔍 매수 후보 종목 스캔 시작")
     print("=" * 80)
 
-    # 전략 시스템 초기화
-    system = AdvancedStrategySystem(
-        portfolio_value=portfolio_value,
-        risk_profile='aggressive'
-    )
-
     print(f"\n💼 포트폴리오 설정:")
     print(f"  총 자산: {portfolio_value:,}원")
-    print(f"  리스크 프로필: {system.risk_profile.upper()}")
-    print(f"  최대 포지션 수: {system.config['max_positions']}개")
-    print(f"  일일 최대 손실: {system.config['max_daily_loss_pct']*100:.0f}%")
+    print(f"  리스크 프로필: AGGRESSIVE")
+    print(f"  최대 포지션 수: {top_n}개")
+    print(f"  일일 최대 손실: -8%")
 
     # 매수 시그널 생성
     print(f"\n📊 전체 종목 스캔 중... (Top {top_n})")
     print("-" * 80)
 
     try:
-        buy_list = system.generate_buy_signals(
-            current_positions=[],
-            today_pnl=0.0,
-            top_n=top_n
+        # 날짜별 테이블 기반 스캔 사용
+        buy_list = generate_buy_signals_date_based(
+            portfolio_value=portfolio_value,
+            top_n=top_n,
+            min_score=70.0,
+            risk_per_position=0.15
         )
 
         if buy_list.empty:
@@ -65,7 +62,7 @@ def scan_buy_candidates(portfolio_value: float = 10000000, top_n: int = 20):
 
         # 결과 출력
         for idx, row in buy_list.iterrows():
-            print(f"\n[{idx+1}] {row['code']}")
+            print(f"\n[{idx+1}] {row['code']} - {row['code_name']}")
             print(f"  현재가:         {row['current_price']:>10,.0f}원")
             print(f"  종합 스코어:    {row['composite_score']:>10.1f}/100")
             print(f"  전략 타입:      {row['strategy_type']}")
@@ -76,9 +73,9 @@ def scan_buy_candidates(portfolio_value: float = 10000000, top_n: int = 20):
             print(f"  손익비:         {row['risk_reward_ratio']:>10.2f}:1")
             print(f"  리스크 스코어:  {row['risk_score']:>10.1f}/100")
             print(f"  ATR:            {row['atr']:>10,.0f}원")
-            print(f"  모멘텀:         {row['momentum_score']:>10.1f}")
-            print(f"  평균회귀:       {row['mean_reversion_score']:>10.1f}")
-            print(f"  RSI:            {row['rsi']:>10.1f}")
+            print(f"  모멘텀:         {row['momentum_score']:>10.1f}%")
+            print(f"  평균회귀:       {row['mean_reversion_score']:>10.1f}%")
+            print(f"  전일 대비:      {row['d1_diff_rate']:>10.2f}%")
             print(f"  거래량 비율:    {row['volume_ratio']:>10.2f}x")
 
         print("\n" + "=" * 80)
