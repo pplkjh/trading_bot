@@ -241,10 +241,15 @@ class KINDCrawler:
         options.add_experimental_option("prefs", {"download.default_directory": str(self.download_path)})
 
         # webdriver_manager를 사용하여 자동으로 크롬드라이버 설치 및 경로 관리
-        service = Service(ChromeDriverManager().install())
-
         '''자동으로 크롬드라이버가 설치 되도록 업데이트 되었습니다. 따로 C드라이브에 크롬드라이버를 설치 하지 않으셔도 됩니다.'''
-        self.driver = webdriver.Chrome(service=service, options=options)
+        try:
+            # Selenium 4.x 방식
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=options)
+        except TypeError:
+            # Selenium 3.x 방식 (하위 호환성)
+            driver_path = ChromeDriverManager().install()
+            self.driver = webdriver.Chrome(executable_path=driver_path, options=options)
         self.driver.implicitly_wait(10)  # get(url)로 요청한 페이지 내용들이 모두 로딩이 완료될 때까지 int(초) 만큼 암묵적으로 기다린다
 
         self.actions = ActionChains(self.driver)  # 스크롤 이동을 위한 ActionChains 객체
