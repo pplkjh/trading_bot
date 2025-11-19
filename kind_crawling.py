@@ -299,6 +299,18 @@ class KINDCrawler:
     # 로딩이 끝나는 순간까지 대기
     def dialog_block_wait(self):
         try:
+            # 먼저 alert가 있는지 확인
+            try:
+                alert = self.driver.switch_to.alert
+                alert_text = alert.text
+                print(f"[KIND Alert] {alert_text}")
+                alert.accept()  # alert 확인 버튼 클릭
+                if "3년" in alert_text or "year" in alert_text.lower():
+                    print("[경고] KIND는 3년 이내 데이터만 조회 가능합니다.")
+                return
+            except:
+                pass  # alert가 없으면 정상 진행
+
             wait = WebDriverWait(self.driver, 5)
             self.take_snapshot("dialog_block_wait_before.png")
             wait.until(EC.visibility_of_element_located((By.CLASS_NAME, 'ui-dialog')))
