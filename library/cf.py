@@ -1,4 +1,3 @@
-
 # db 계정
 db_id='bot' # [mysql ID를 넣어주세요]
 # db ip
@@ -47,6 +46,11 @@ dart_api_key = ''
 
 # etf 사용 여부 (고급클래스에서 소개)
 use_etf = False
+
+# 분봉 데이터 수집 여부
+# True: 분봉 수집 (백테스팅 정밀도 향상, 시간 오래 걸림)
+# False: 분봉 수집 안 함 (스윙 트레이딩은 일봉만으로 충분)
+use_min_crawler = False
 
 # dart api key
 dart_api_key = '8c44ace91948ce4d34b8ba27051836c2c8c35257'
