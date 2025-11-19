@@ -12,14 +12,17 @@
 |------|------|------|
 | **[⚡ QUICK_START.md](QUICK_START.md)** | 처음 시작하는 분 | 10분 안에 시작하는 빠른 가이드 |
 | **[📚 USER_MANUAL.md](USER_MANUAL.md)** | 모든 사용자 | 완전한 사용 설명서 (초기 설정 ~ 실전 투자) |
+| **[📊 STRATEGY_GUIDE.md](STRATEGY_GUIDE.md)** | 전략 선택 | 전략 #1-36 상세 설명 및 비교 |
+| **[⚡ STRATEGY_QUICK_REFERENCE.md](STRATEGY_QUICK_REFERENCE.md)** | 빠른 참조 | 전략 비교표 및 치트시트 |
 | **[🚀 ADVANCED_STRATEGY_GUIDE.md](ADVANCED_STRATEGY_GUIDE.md)** | 고급 사용자 | 멀티팩터 전략, 리스크 관리 고급 기능 |
 | **[🤖 AUTOMATION_GUIDE.md](AUTOMATION_GUIDE.md)** | 자동화 원하는 분 | 완전 무인 자동화 (컴퓨터 자동 켜기/끄기) |
 
 **👉 추천 시작 순서:**
 1. `QUICK_START.md` - 빠르게 시작
 2. `USER_MANUAL.md` - 자세히 학습
-3. `ADVANCED_STRATEGY_GUIDE.md` - 전략 최적화
-4. `AUTOMATION_GUIDE.md` - 완전 자동화 (선택)
+3. `STRATEGY_GUIDE.md` - 전략 선택 및 백테스팅
+4. `ADVANCED_STRATEGY_GUIDE.md` - 고급 전략 활용 (선택)
+5. `AUTOMATION_GUIDE.md` - 완전 자동화 (선택)
 
 ---
 
@@ -295,8 +298,9 @@ trading_bot/
 │   └── SPPModel.py                    # LSTM 예측 모델
 │
 ├── 🗄️ sql/ (데이터베이스 스키마)
-│   ├── daily_buy_list_schema.sql
-│   └── jango_data.sql
+│   ├── init_databases.sql
+│   ├── stock_item_all_schema.sql
+│   └── jackbot_schema.sql
 │
 └── ⏰ scheduler/ (작업 스케줄러)
     └── *.xml
@@ -413,4 +417,4 @@ Sharpe Ratio:  1.35
 
 **Happy Trading! 📈🚀**
 
-_마지막 업데이트: 2024-11-18_
+_마지막 업데이트: 2025-11-19_
