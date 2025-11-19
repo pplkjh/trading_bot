@@ -50,3 +50,5 @@ Thumbs.db
 # Trading Bot specific
 *.csv
 buy_list_*.csv
+
+*.png
