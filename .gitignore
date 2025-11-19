@@ -50,5 +50,18 @@ Thumbs.db
 # Trading Bot specific
 *.csv
 buy_list_*.csv
-
 *.png
+
+# KIND 크롤링 관련
+KIND_xls/
+kind_snapshots/
+snapshot/
+snapshots/
+
+# 데이터베이스 백업
+*.sql.gz
+*.sql.backup
+
+# 크롬드라이버 캐시
+.wdm/
+webdriver/

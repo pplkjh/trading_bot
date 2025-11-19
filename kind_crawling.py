@@ -74,8 +74,8 @@ class KINDCrawler:
     def variable_setting(self):
         self.FNAME_PATTERN = '투자??종목*.xls'
         # 2007년 이전에는 kind 상에 데이터 없다.
-        # 크롤링 시작일
-        self.DEFAULT_START_DATE = datetime.date(2007, 1, 1)
+        # 크롤링 시작일 (3년 제한으로 2023년부터 시작)
+        self.DEFAULT_START_DATE = datetime.date(2023, 1, 2)
         # 엑셀에서 5000개만 담을 수 있어서 100일 단위로 조회하여 데이터를 불러옴
         self.rotate_period = 100
 
