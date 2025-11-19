@@ -217,7 +217,7 @@ class KINDCrawler:
 
         # 마지막 post날짜 가져와서 1일을 더해준다.
         start_date = self.get_last_date_from(table_name) + timedelta(1)
-        end_date = start_date + timedelta(self.rotate_period)
+        end_date = min(start_date + timedelta(self.rotate_period), self.today)
 
         while start_date < self.today:
             self.date_select(start_date, end_date)
@@ -225,7 +225,7 @@ class KINDCrawler:
             self.insert_to(file_name, table_name)
 
             start_date = end_date + timedelta(1)
-            end_date = start_date + timedelta(self.rotate_period)
+            end_date = min(start_date + timedelta(self.rotate_period), self.today)
 
     # 크롤링 시작하는 함수
     def craw(self):
