@@ -75,8 +75,8 @@ FLUSH PRIVILEGES;
 ```bash
 # sql 폴더의 스키마 파일들 실행
 cd sql
-mysql -u bot -p daily_buy_list < daily_buy_list_schema.sql
-mysql -u bot -p JackBot1_imi1 < jango_data.sql
+mysql -u bot -p daily_buy_list < stock_item_all_schema.sql
+mysql -u bot -p JackBot1_imi1 < jackbot_schema.sql
 ```
 
 ### 2.2 설정 파일 수정
@@ -709,4 +709,4 @@ python run_advanced_strategy.py --mode analyze
 
 **행운을 빕니다! 📈🚀**
 
-_마지막 업데이트: 2024-11-18_
+_마지막 업데이트: 2025-11-19_
