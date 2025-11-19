@@ -86,7 +86,8 @@ class collector_api():
             self.realtime_daily_buy_list_check()
 
         # min_craw db (분별 데이터) 업데이트
-        if rows[0][8] != self.open_api.today:
+        # cf.use_min_crawler = True일 때만 실행
+        if self.open_api.cf.use_min_crawler and rows[0][8] != self.open_api.today:
             self.min_crawler_check()
 
         self.kind.craw()
