@@ -1450,7 +1450,7 @@ class simulator_func_mysql:
         elif self.sell_list_num == 100:
             sell_list = []
             # 보유 중인 종목 조회
-            sql = "SELECT code, rate, present_price, valuation_profit, buy_price FROM all_item_db WHERE sell_date = 0 GROUP BY code"
+            sql = "SELECT code, rate, present_price, valuation_profit, purchase_price FROM all_item_db WHERE sell_date = 0 GROUP BY code"
             holdings = self.engine_simulator.execute(sql).fetchall()
 
             for holding in holdings:
@@ -1458,7 +1458,7 @@ class simulator_func_mysql:
                 rate = holding[1]  # 현재 수익률
                 present_price = holding[2]
                 valuation_profit = holding[3]
-                buy_price = holding[4]
+                purchase_price = holding[4]
 
                 # 동적 손절: 수익 구간별 차등 적용
                 if rate > 10:

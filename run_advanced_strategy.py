@@ -80,8 +80,10 @@ def scan_buy_candidates(portfolio_value: float = 10000000, top_n: int = 20):
 
         print("\n" + "=" * 80)
 
-        # CSV 저장
-        output_file = f"buy_list_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        # CSV 저장 (buy_list_log 폴더에)
+        import os
+        os.makedirs('buy_list_log', exist_ok=True)
+        output_file = f"buy_list_log/buy_list_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         buy_list.to_csv(output_file, index=False, encoding='utf-8-sig')
         print(f"✅ 결과 저장: {output_file}")
 

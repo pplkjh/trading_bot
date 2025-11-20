@@ -50,6 +50,7 @@ Thumbs.db
 # Trading Bot specific
 *.csv
 buy_list_*.csv
+buy_list_log/
 *.png
 
 # KIND 크롤링 관련
