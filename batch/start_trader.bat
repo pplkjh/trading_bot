@@ -70,14 +70,37 @@ if "%TRADE_MODE%"=="1" (
     exit /b 1
 )
 
+REM 고급 전략 사용 여부 확인
+echo.
+echo 트레이더 버전을 선택하세요:
+echo   1 = 기본 트레이더 (trader.py)
+echo   2 = 고급 전략 트레이더 (trader_advanced.py) - 권장
+echo.
+set /p TRADER_VERSION=버전 선택 (1 또는 2, 기본값: 2):
+
+if "%TRADER_VERSION%"=="" set TRADER_VERSION=2
+if "%TRADER_VERSION%"=="2" (
+    set TRADER_FILE=trader_advanced.py
+    echo.
+    echo ✅ 고급 전략 트레이더를 사용합니다
+) else (
+    set TRADER_FILE=trader.py
+    echo.
+    echo ℹ️  기본 트레이더를 사용합니다
+)
+
+echo.
 echo [2/2] 트레이더 실행 중...
 echo.
-echo 📊 trader.py가 실행됩니다.
+echo 📊 %TRADER_FILE%가 실행됩니다.
 echo 💡 키움 로그인 창이 나타나면 로그인하세요.
 echo.
 
-REM trader.py 실행 (모드를 자동 입력)
-echo %TRADE_MODE%| %PYTHON_PATH% trader.py
+REM 로그 기록 - 시작
+echo %date% %time% - 트레이더 시작 (%TRADER_FILE%, 모드: %TRADE_MODE%) >> automation_log.txt
+
+REM 트레이더 실행 (모드를 자동 입력)
+echo %TRADE_MODE%| %PYTHON_PATH% %TRADER_FILE%
 
 if %errorlevel% neq 0 (
     echo.
