@@ -1756,25 +1756,25 @@ class simulator_func_mysql:
                 sql = "UPDATE jango_data SET today_buy_today_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date like '%s' and (sell_rate >= '%s' ) group by code ) b) WHERE date='%s'"
                 self.engine_simulator.execute(sql % ("%%" + rows[i][0] + "%%", "%%" + rows[i][0] + "%%", 0, rows[i][0]))
 
-                sql = "UPDATE jango_data SET today_buy_today_profitcut_rate= round(today_buy_today_profitcut_count /today_buy_count *100,2) WHERE date = '%s'"
+                sql = "UPDATE jango_data SET today_buy_today_profitcut_rate= CASE WHEN today_buy_count = 0 THEN 0 ELSE round(today_buy_today_profitcut_count /today_buy_count *100,2) END WHERE date = '%s'"
                 self.engine_simulator.execute(sql % (rows[i][0]))
 
                 sql = "UPDATE jango_data SET today_buy_today_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date like '%s' and sell_rate < '%s'  group by code ) b) WHERE date='%s'"
                 self.engine_simulator.execute(sql % ("%%" + rows[i][0] + "%%", "%%" + rows[i][0] + "%%", 0, rows[i][0]))
 
-                sql = "UPDATE jango_data SET today_buy_today_losscut_rate=round(today_buy_today_losscut_count /today_buy_count *100,2) WHERE date = '%s'"
+                sql = "UPDATE jango_data SET today_buy_today_losscut_rate= CASE WHEN today_buy_count = 0 THEN 0 ELSE round(today_buy_today_losscut_count /today_buy_count *100,2) END WHERE date = '%s'"
                 self.engine_simulator.execute(sql % (rows[i][0]))
 
                 sql = "UPDATE jango_data SET today_buy_total_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_rate >= '%s'  group by code ) b) WHERE date='%s'"
                 self.engine_simulator.execute(sql % ("%%" + rows[i][0] + "%%", 0, rows[i][0]))
 
-                sql = "UPDATE jango_data SET today_buy_total_profitcut_rate=round(today_buy_total_profitcut_count /today_buy_count *100,2) WHERE date = '%s'"
+                sql = "UPDATE jango_data SET today_buy_total_profitcut_rate= CASE WHEN today_buy_count = 0 THEN 0 ELSE round(today_buy_total_profitcut_count /today_buy_count *100,2) END WHERE date = '%s'"
                 self.engine_simulator.execute(sql % (rows[i][0]))
 
                 sql = "UPDATE jango_data SET today_buy_total_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_rate < '%s'  group by code ) b) WHERE date='%s'"
                 self.engine_simulator.execute(sql % ("%%" + rows[i][0] + "%%", 0, rows[i][0]))
 
-                sql = "UPDATE jango_data SET today_buy_total_losscut_rate=round(today_buy_total_losscut_count/today_buy_count*100,2) WHERE date = '%s'"
+                sql = "UPDATE jango_data SET today_buy_total_losscut_rate= CASE WHEN today_buy_count = 0 THEN 0 ELSE round(today_buy_total_losscut_count/today_buy_count*100,2) END WHERE date = '%s'"
                 self.engine_simulator.execute(sql % (rows[i][0]))
         print('jango_data 최종 정산 완료')
 
