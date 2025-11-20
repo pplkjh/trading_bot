@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.pyc
+log/
+logs/
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Trading Bot specific
+*.csv
+buy_list_*.csv
+*.png
+
+# KIND 크롤링 관련
+KIND_xls/
+kind_snapshots/
+snapshot/
+snapshots/
+
+# 데이터베이스 백업
+*.sql.gz
+*.sql.backup
+
+# 크롬드라이버 캐시
+.wdm/
+webdriver/

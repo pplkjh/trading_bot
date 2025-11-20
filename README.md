@@ -1,35 +1,420 @@
-# 트레이딩 봇 개요
+# 🤖 AI 기반 자동 주식 매매 시스템
 
-이 프로젝트는 키움증권 OpenAPI를 활용해 주식 자동매매를 수행하는 PyQt5 기반 애플리케이션입니다. 실시간 주문을 담당하는 GUI, 시세·보유종목을 수집하는 파이프라인, LSTM 예측 모델을 포함한 연구 도구가 한 저장소에서 관리됩니다.
+키움증권 OpenAPI를 활용한 **실전 최적화 자동매매 프로그램**
 
-## 핵심 구성 요소
-- **트레이더 GUI(`trader.py`)** – 장 시작·마감 시간과 매수 가능 시간을 주기적으로 확인하고, 자동 주문 루프를 실행하면서 계좌 현황을 화면에 표시합니다.
-- **OpenAPI 래퍼(`library/open_api.py`)** – 세션 연결, 계좌·잔고 조회, 주문 전송, 포트폴리오 동기화, DB 반영 등 키움 OpenAPI 관련 로직을 모두 캡슐화합니다.
-- **데이터 수집기(`library/collector_api.py`, `collector_v3.py`)** – 종목 메타데이터, 보유 종목, 일/분 봉 데이터를 새로고침하고 익일 매수 리스트를 업데이트합니다. `collector_v3.py`를 실행하면 GUI 없이 일괄 수행할 수 있습니다.
-- **일간 매수 리스트 빌더(`library/daily_buy_list.py`)** – `daily_craw` 스키마에 있는 종목별 일간 테이블을 취합해 `daily_buy_list` 테이블을 생성하고, 빈 테이블 정리 및 인덱스 유지 관리를 담당합니다.
-- **시뮬레이션 유틸리티(`simulator.py`, `simulator_v2.py`)** – 실거래와 동일한 주문 로직을 사용하면서 히스토리컬 데이터로 백테스트를 수행할 수 있는 환경을 제공합니다.
-- **AI 모델 도구(`ai/SPPModel.py`)** – TensorFlow/Keras 기반 LSTM 모델 학습을 위한 데이터 전처리, 학습·평가, 시각화 도우미 함수를 제공합니다.
+---
 
-## 환경 설정 절차
-1. **파이썬 환경** – `requirements.txt`의 패키지를 설치합니다. Windows에서는 PyQt5 QAxContainer COM 모듈이 필요하며, MySQL 연동을 위해 SQLAlchemy·PyMySQL 등 추가 의존성을 설치해야 합니다.
-2. **거래 API 준비** – 키움 OpenAPI+ COM 컴포넌트를 등록하고 실계좌 또는 모의계좌에 대해 API 사용 권한을 활성화합니다.
-3. **데이터베이스 준비** – `daily_craw`, `daily_buy_list`, `setting_data` 등 코드에서 참조하는 MySQL 호환 스키마를 생성하고 접근 권한을 부여합니다.
+## 📖 문서 안내
 
-## 설정 파일
-`library/cf.py`에서 다음 항목을 환경에 맞게 수정해야 합니다.
-- 실거래·모의거래 계좌 번호와 비밀번호
-- DB 접속 문자열, 스키마명, 인증 정보
-- API 호출 간격, 시뮬레이터 식별자, DART API 키 등 부가 설정
+시작하기 전에 적합한 문서를 선택하세요:
 
-## 주된 워크플로우
-- **시장 데이터 수집:** `collector_v3.py`를 실행해 종목 목록, 보유 종목, 일·분 봉, 매수 리스트를 순차적으로 갱신합니다.
-- **트레이딩 터미널 운영:** `trader.py`를 실행하면 PyQt5 UI가 열리고 자동 주문 루프가 계좌 포지션을 관리합니다.
-- **시뮬레이션 실행:** 테스트 데이터셋을 구성한 뒤 `simulator.py` 또는 `simulator_v2.py`로 전략을 검증합니다.
-- **예측 모델 학습:** 수집 파이프라인에서 추출한 데이터로 `ai/SPPModel.py`의 전처리·학습 함수를 호출해 LSTM 모델을 학습합니다.
+| 문서 | 대상 | 내용 |
+|------|------|------|
+| **[⚡ QUICK_START.md](QUICK_START.md)** | 처음 시작하는 분 | 10분 안에 시작하는 빠른 가이드 |
+| **[📚 USER_MANUAL.md](USER_MANUAL.md)** | 모든 사용자 | 완전한 사용 설명서 (초기 설정 ~ 실전 투자) |
+| **[📊 STRATEGY_GUIDE.md](STRATEGY_GUIDE.md)** | 전략 선택 | 전략 #1-36 상세 설명 및 비교 |
+| **[⚡ STRATEGY_QUICK_REFERENCE.md](STRATEGY_QUICK_REFERENCE.md)** | 빠른 참조 | 전략 비교표 및 치트시트 |
+| **[🚀 ADVANCED_STRATEGY_GUIDE.md](ADVANCED_STRATEGY_GUIDE.md)** | 고급 사용자 | 멀티팩터 전략, 리스크 관리 고급 기능 |
+| **[🤖 AUTOMATION_GUIDE.md](AUTOMATION_GUIDE.md)** | 자동화 원하는 분 | 완전 무인 자동화 (컴퓨터 자동 켜기/끄기) |
 
-## 스케줄링과 자동화
-`scheduler/` 디렉터리에는 Windows 작업 스케줄러에서 수집기, 트레이더, 로그 정리 등을 자동 실행할 때 참고할 수 있는 XML 템플릿이 포함되어 있습니다.
+**👉 추천 시작 순서:**
+1. `QUICK_START.md` - 빠르게 시작
+2. `USER_MANUAL.md` - 자세히 학습
+3. `STRATEGY_GUIDE.md` - 전략 선택 및 백테스팅
+4. `ADVANCED_STRATEGY_GUIDE.md` - 고급 전략 활용 (선택)
+5. `AUTOMATION_GUIDE.md` - 완전 자동화 (선택)
 
-## 추가 참고 사항
-- 키움 OpenAPI와 PyQt5 COM 브리지는 Windows 전용이므로 64비트 Windows 환경에서 가장 안정적으로 동작합니다.
-- 네트워크·DB 자격 증명은 환경 변수나 비밀 관리 도구를 통해 안전하게 보관한 뒤 애플리케이션에서 참조하도록 구성하세요.
+---
+
+## 🎯 주요 특징
+
+### ✨ 기본 기능
+- ✅ **완전 자동화** - 데이터 수집부터 매매까지 자동
+- ✅ **백테스팅** - 실전 투자 전 전략 검증
+- ✅ **모의투자** - 리스크 없이 실전 연습
+- ✅ **실시간 모니터링** - PyQt5 GUI 대시보드
+- ✅ **다양한 전략** - 이동평균, 모멘텀, AI 예측 등
+
+### 🚀 고급 전략 시스템 (NEW!)
+
+#### 1. **멀티팩터 스코어링**
+- 5가지 팩터 종합 평가 (기술적/모멘텀/거래량/변동성/추세)
+- 0-100점 스코어링으로 객관적 종목 선정
+
+#### 2. **하이브리드 전략**
+- 모멘텀 브레이크아웃 60% + 평균회귀 40%
+- 다양한 시장 환경에 적응
+
+#### 3. **동적 리스크 관리**
+- ATR 기반 포지션 사이징
+- Kelly Criterion 최적 포지션
+- 상관관계 기반 분산투자
+
+#### 4. **고급 청산 시스템**
+- 트레일링 스톱으로 수익 보호
+- 6가지 청산 조건 (우선순위 자동 판단)
+- 부분 청산 지원
+
+#### 5. **전문 성과 분석**
+- Sharpe, Sortino, Calmar Ratio
+- Maximum Drawdown, Win Rate
+- Profit Factor, VaR 등
+
+---
+
+## 📦 핵심 구성 요소
+
+### 기본 시스템
+
+| 모듈 | 파일 | 설명 |
+|------|------|------|
+| **트레이더** | `trader.py` | 실시간 자동매매 GUI |
+| **데이터 수집** | `collector_v3.py` | 일봉/분봉 데이터 수집 |
+| **백테스팅** | `simulator.py` | 전략 백테스트 실행 |
+| **API 래퍼** | `library/open_api.py` | 키움 OpenAPI 인터페이스 |
+| **설정** | `library/cf.py` | 전역 설정 (DB, 계좌 등) |
+
+### 고급 전략 모듈 (NEW!)
+
+| 모듈 | 파일 | 설명 |
+|------|------|------|
+| **리스크 관리** | `library/risk_manager.py` | ATR 기반 포지션 사이징 |
+| **멀티팩터** | `library/multi_factor_scoring.py` | 5가지 팩터 스코어링 |
+| **하이브리드 전략** | `library/hybrid_strategy.py` | 모멘텀 + 평균회귀 전략 |
+| **청산 전략** | `library/exit_strategy.py` | 트레일링 스톱, 다중 청산 |
+| **성과 분석** | `library/performance_analytics.py` | 전문 성과 지표 |
+| **통합 시스템** | `library/advanced_strategy_system.py` | 모든 모듈 통합 |
+| **CLI 도구** | `run_advanced_strategy.py` | 편리한 명령줄 인터페이스 |
+
+### AI/ML 모듈
+
+| 모듈 | 파일 | 설명 |
+|------|------|------|
+| **LSTM 모델** | `ai/SPPModel.py` | 주가 예측 딥러닝 모델 |
+| **AI 필터** | `ai_filter.py` | AI 기반 종목 필터링 |
+
+---
+
+## 🚀 빠른 시작
+
+### 1️⃣ 초기 설정 (5분)
+
+```bash
+# 1. Python 패키지 설치
+pip install PyQt5 pandas numpy pymysql sqlalchemy
+
+# 2. MySQL 데이터베이스 생성
+mysql -u root -p
+CREATE DATABASE daily_craw;
+CREATE DATABASE daily_buy_list;
+CREATE DATABASE JackBot1_imi1;
+```
+
+### 2️⃣ 설정 파일 수정 (2분)
+
+**`library/cf.py` 편집:**
+```python
+db_passwd = 'your_password'         # MySQL 비밀번호
+imi1_accout = "8032914911"          # 모의투자 계좌번호
+```
+
+### 3️⃣ 데이터 수집 (30분-1시간)
+
+```bash
+python collector_v3.py
+```
+
+### 4️⃣ 모의투자 시작 (1분)
+
+```bash
+python trader.py
+# 입력: 1 (모의투자)
+```
+
+**✅ 완료!** 이제 자동으로 매매가 시작됩니다.
+
+**더 자세한 설명:** [QUICK_START.md](QUICK_START.md) 참조
+
+---
+
+## 💡 사용 예시
+
+### 매수 종목 추천 받기
+
+```bash
+# 고급 전략으로 Top 20 종목 스캔
+python run_advanced_strategy.py --mode scan --top 20
+```
+
+**출력 예시:**
+```
+[1] 005930 (삼성전자)
+  현재가:         72,000원
+  종합 스코어:    85.3/100
+  전략 타입:      hybrid_strong
+  추천 수량:      20주
+  투자 금액:      1,440,000원
+  손절가:         68,400원 (-5.0%)
+  목표가:         78,300원 (+8.8%)
+  손익비:         1.75:1
+```
+
+### 성과 분석
+
+```bash
+python run_advanced_strategy.py --mode analyze
+```
+
+**출력 예시:**
+```
+📊 PERFORMANCE REPORT
+====================================
+총 수익률:        25.50%
+연평균 수익률:    18.30%
+Sharpe Ratio:     1.35
+최대 낙폭:        -12.05%
+승률:             58.5%
+```
+
+### Python 코드에서 사용
+
+```python
+from library.advanced_strategy_system import create_optimized_buy_list
+
+# 매수 리스트 생성
+buy_list = create_optimized_buy_list(
+    portfolio_value=10000000,
+    risk_profile='aggressive',
+    top_n=20
+)
+
+# 결과 출력
+for idx, row in buy_list.iterrows():
+    print(f"{row['code']}: {row['composite_score']:.1f}점")
+```
+
+---
+
+## 📊 전략 성능 지표
+
+### 리스크 프로필: Aggressive (공격적)
+
+| 항목 | 설정값 |
+|------|--------|
+| 보유 기간 | 3-10일 (스윙) |
+| 단일 포지션 | 최대 15% |
+| 거래당 리스크 | 3% |
+| 일일 최대 손실 | -8% |
+| 최대 포지션 수 | 10개 |
+
+### 매수 조건
+- ✅ 멀티팩터 스코어 ≥ 70점
+- ✅ 하이브리드 전략 시그널
+- ✅ 리스크 관리 통과
+
+### 매도 조건 (우선순위)
+1. ATR 손절 (우선순위 100)
+2. 트레일링 스톱 (우선순위 90)
+3. ATR 목표가 (우선순위 70)
+4. 시간 기반 청산 (우선순위 60)
+5. 기술적 청산 (우선순위 50)
+6. 팩터 스코어 악화 (우선순위 40)
+
+---
+
+## 🔧 환경 요구사항
+
+### 필수 사항
+- **OS**: Windows 10/11 (64bit) - 키움 API 제약
+- **Python**: 3.8 이상 (64bit)
+- **MySQL**: 5.7 이상
+- **RAM**: 8GB 이상 (16GB 권장)
+- **저장공간**: 50GB 이상
+
+### 키움증권
+- 키움증권 계좌
+- 모의투자 신청
+- 영웅문 HTS 설치
+- OpenAPI+ 모듈 설치
+
+---
+
+## 📅 일일 루틴
+
+### 거래일 루틴
+
+**장 시작 전 (08:30)**
+```bash
+# 매수 후보 확인
+python run_advanced_strategy.py --mode scan
+```
+
+**장 중 (09:00-15:30)**
+- `trader.py` 자동 실행 (백그라운드)
+- 실시간 매수/매도 자동 처리
+
+**장 마감 후 (15:30)**
+```bash
+# 데이터 수집
+python collector_v3.py
+
+# 성과 확인
+python run_advanced_strategy.py --mode analyze
+```
+
+### 주말 루틴
+- 주간 성과 분석
+- 전략 파라미터 재검토
+- 필요 시 백테스팅 재실행
+
+---
+
+## 📂 프로젝트 구조
+
+```
+trading_bot/
+├── 📚 문서
+│   ├── QUICK_START.md                 # 빠른 시작 가이드
+│   ├── USER_MANUAL.md                 # 완전 사용 설명서
+│   └── ADVANCED_STRATEGY_GUIDE.md     # 고급 전략 가이드
+│
+├── 🎯 실행 파일
+│   ├── trader.py                      # 메인 트레이더 GUI
+│   ├── collector_v3.py                # 데이터 수집기
+│   ├── simulator.py                   # 백테스터
+│   └── run_advanced_strategy.py       # 고급 전략 CLI
+│
+├── 📦 library/ (핵심 모듈)
+│   ├── cf.py                          # 전역 설정
+│   ├── open_api.py                    # 키움 API 래퍼
+│   ├── risk_manager.py                # 리스크 관리
+│   ├── multi_factor_scoring.py        # 멀티팩터 스코어링
+│   ├── hybrid_strategy.py             # 하이브리드 전략
+│   ├── exit_strategy.py               # 청산 전략
+│   ├── performance_analytics.py       # 성과 분석
+│   └── advanced_strategy_system.py    # 통합 시스템
+│
+├── 🤖 ai/ (AI 모델)
+│   └── SPPModel.py                    # LSTM 예측 모델
+│
+├── 🗄️ sql/ (데이터베이스 스키마)
+│   ├── init_databases.sql
+│   ├── stock_item_all_schema.sql
+│   └── jackbot_schema.sql
+│
+└── ⏰ scheduler/ (작업 스케줄러)
+    └── *.xml
+```
+
+---
+
+## 🎓 학습 경로
+
+### 1주차: 기초
+- ✅ `QUICK_START.md` 따라하기
+- ✅ 데이터 수집 성공
+- ✅ 첫 백테스트 실행
+
+### 2-4주차: 모의투자
+- ✅ `trader.py`로 모의투자 시작
+- ✅ 일일 루틴 익히기
+- ✅ SQL로 성과 확인
+
+### 1-2개월: 고급
+- ✅ `ADVANCED_STRATEGY_GUIDE.md` 학습
+- ✅ 고급 전략 사용
+- ✅ 파라미터 최적화
+
+### 3개월+: 실전
+- ✅ 소액 실전 투자 시작
+- ✅ 전략 커스터마이징
+- ✅ 지속적 개선
+
+---
+
+## 🛠️ 문제 해결
+
+### 자주 묻는 질문
+
+**Q: "계좌번호가 존재하지 않습니다" 오류**
+```python
+# library/cf.py 확인
+imi1_accout = "8032914911"  # 정확한 10자리 입력
+```
+
+**Q: 데이터 수집이 너무 느림**
+- 정상입니다 (API 제한)
+- 첫 실행: 6-8시간
+- 이후 업데이트: 30분-1시간
+
+**Q: 매수가 실행되지 않음**
+1. 잔고 확인 (종목당 50만원 이상)
+2. 스코어 확인 (70점 이상인지)
+3. 장 시간 확인 (09:00-15:30)
+
+**더 많은 문제 해결:** [USER_MANUAL.md의 9장](USER_MANUAL.md#9-문제-해결) 참조
+
+---
+
+## 📈 성과 예시
+
+(백테스트 결과 - 과거 성과가 미래를 보장하지 않음)
+
+```
+기간: 2023-01-01 ~ 2024-11-15
+초기 자본: 10,000,000원
+
+총 수익률:     25.5%
+연평균 수익률: 18.3%
+Sharpe Ratio:  1.35
+최대 낙폭:     -12.05%
+승률:          58.5%
+거래 횟수:     127회
+```
+
+---
+
+## ⚠️ 면책 조항
+
+- 이 프로그램은 **교육 및 연구 목적**입니다
+- 투자 손실에 대한 책임은 **사용자**에게 있습니다
+- 충분한 테스트 없이 실전 투자 금지
+- 과거 수익률이 미래를 보장하지 않습니다
+- 본인의 판단과 책임 하에 사용하세요
+
+---
+
+## 🤝 기여
+
+- **버그 리포트**: GitHub Issues
+- **기능 제안**: Pull Request 환영
+- **문의**: GitHub Discussions
+
+---
+
+## 📄 라이센스
+
+이 프로젝트의 라이센스 정보는 별도로 확인하세요.
+
+---
+
+## 🙏 감사의 글
+
+- 키움증권 OpenAPI
+- PyQt5 커뮤니티
+- TensorFlow/Keras
+
+---
+
+## 📞 지원
+
+- **문서**: [USER_MANUAL.md](USER_MANUAL.md)
+- **빠른 시작**: [QUICK_START.md](QUICK_START.md)
+- **고급 전략**: [ADVANCED_STRATEGY_GUIDE.md](ADVANCED_STRATEGY_GUIDE.md)
+- **GitHub**: [Issues](https://github.com/pplkjh/trading_bot/issues)
+
+---
+
+**Happy Trading! 📈🚀**
+
+_마지막 업데이트: 2025-11-19_

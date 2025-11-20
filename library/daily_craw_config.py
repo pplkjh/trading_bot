@@ -61,7 +61,7 @@ class daily_craw_config():
         # print(self.code_df_insincerity)
 
         # 6자리 만들고 앞에 0을 붙인다.
-        self.code_df_insincerity.종목코드 = self.code_df_insincerity.종목코드.map('{:06d}'.format)
+        self.code_df_insincerity.종목코드 = self.code_df_insincerity.종목코드.astype(str).str.zfill(6)
 
         # 우리가 필요한 것은 회사명과 종목코드이기 때문에 필요없는 column들은 제외해준다.
         self.code_df_insincerity = self.code_df_insincerity[['회사명', '종목코드']]
@@ -75,7 +75,7 @@ class daily_craw_config():
         self.code_df_managing = pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=01', header=0)[0]  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
 
         # 6자리 만들고 앞에 0을 붙인다.strPath --> str(unicode(strPath))
-        self.code_df_managing.종목코드 = self.code_df_managing.종목코드.map('{:06d}'.format)
+        self.code_df_managing.종목코드 = self.code_df_managing.종목코드.astype(str).str.zfill(6)
 
         # 우리가 필요한 것은 회사명과 종목코드이기 때문에 필요없는 column들은 제외해준다.
         self.code_df_managing = self.code_df_managing[['회사명', '종목코드']]
@@ -89,7 +89,7 @@ class daily_craw_config():
         self.code_df_konex = pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=konexMkt',header=0)[0]  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
 
         # 6자리 만들고 앞에 0을 붙인다.
-        self.code_df_konex.종목코드 = self.code_df_konex.종목코드.map('{:06d}'.format)
+        self.code_df_konex.종목코드 = self.code_df_konex.종목코드.astype(str).str.zfill(6)
 
         # 우리가 필요한 것은 회사명과 종목코드이기 때문에 필요없는 column들은 제외해준다.
         self.code_df_konex = self.code_df_konex[['회사명', '종목코드']]
@@ -104,7 +104,7 @@ class daily_craw_config():
         pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=stockMkt',header=0)[0]  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
 
         # 6자리 만들고 앞에 0을 붙인다.
-        self.code_df_kospi.종목코드 = self.code_df_kospi.종목코드.map('{:06d}'.format)
+        self.code_df_kospi.종목코드 = self.code_df_kospi.종목코드.astype(str).str.zfill(6)
 
         # 우리가 필요한 것은 회사명과 종목코드이기 때문에 필요없는 column들은 제외해준다.
         self.code_df_kospi = self.code_df_kospi[['회사명', '종목코드']]
@@ -118,7 +118,7 @@ class daily_craw_config():
         self.code_df_kosdaq = pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=kosdaqMkt',header=0)[0]  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
 
         # 6자리 만들고 앞에 0을 붙인다.
-        self.code_df_kosdaq.종목코드 = self.code_df_kosdaq.종목코드.map('{:06d}'.format)
+        self.code_df_kosdaq.종목코드 = self.code_df_kosdaq.종목코드.astype(str).str.zfill(6)
 
         # 우리가 필요한 것은 회사명과 종목코드이기 때문에 필요없는 column들은 제외해준다.
         self.code_df_kosdaq = self.code_df_kosdaq[['회사명', '종목코드']]
@@ -132,7 +132,7 @@ class daily_craw_config():
         self.code_df = pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13', header=0)[0]  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
 
         # 6자리 만들고 앞에 0을 붙인다.
-        self.code_df.종목코드 = self.code_df.종목코드.map('{:06d}'.format)
+        self.code_df.종목코드 = self.code_df.종목코드.astype(str).str.zfill(6)
 
         # 우리가 필요한 것은 회사명과 종목코드이기 때문에 필요없는 column들은 제외해준다.
         self.code_df = self.code_df[['회사명', '종목코드']]

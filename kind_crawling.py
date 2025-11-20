@@ -23,6 +23,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 from sqlalchemy import create_engine, VARCHAR, DATE
 from sqlalchemy.engine.url import URL
 from sqlalchemy.exc import InternalError, OperationalError
@@ -72,8 +74,8 @@ class KINDCrawler:
     def variable_setting(self):
         self.FNAME_PATTERN = '투자??종목*.xls'
         # 2007년 이전에는 kind 상에 데이터 없다.
-        # 크롤링 시작일
-        self.DEFAULT_START_DATE = datetime.date(2007, 1, 1)
+        # 크롤링 시작일 (3년 제한으로 2023년부터 시작)
+        self.DEFAULT_START_DATE = datetime.date(2023, 1, 2)
         # 엑셀에서 5000개만 담을 수 있어서 100일 단위로 조회하여 데이터를 불러옴
         self.rotate_period = 100
 
@@ -215,7 +217,7 @@ class KINDCrawler:
 
         # 마지막 post날짜 가져와서 1일을 더해준다.
         start_date = self.get_last_date_from(table_name) + timedelta(1)
-        end_date = start_date + timedelta(self.rotate_period)
+        end_date = min(start_date + timedelta(self.rotate_period), self.today)
 
         while start_date < self.today:
             self.date_select(start_date, end_date)
@@ -223,7 +225,7 @@ class KINDCrawler:
             self.insert_to(file_name, table_name)
 
             start_date = end_date + timedelta(1)
-            end_date = start_date + timedelta(self.rotate_period)
+            end_date = min(start_date + timedelta(self.rotate_period), self.today)
 
     # 크롤링 시작하는 함수
     def craw(self):
@@ -238,10 +240,16 @@ class KINDCrawler:
         # Selenium이 띄운 크롬창의 다운로드 폴더 경로를 지정 (bot 프로젝트 폴더안의 KIND_xls 폴더)
         options.add_experimental_option("prefs", {"download.default_directory": str(self.download_path)})
 
-        path = self.chrome_driver_update() # 크롬 드라이버를 자동으로 path 위치에 설치합니다
-
+        # webdriver_manager를 사용하여 자동으로 크롬드라이버 설치 및 경로 관리
         '''자동으로 크롬드라이버가 설치 되도록 업데이트 되었습니다. 따로 C드라이브에 크롬드라이버를 설치 하지 않으셔도 됩니다.'''
-        self.driver = webdriver.Chrome(path, options=options)
+        try:
+            # Selenium 4.x 방식
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=options)
+        except TypeError:
+            # Selenium 3.x 방식 (하위 호환성)
+            driver_path = ChromeDriverManager().install()
+            self.driver = webdriver.Chrome(executable_path=driver_path, options=options)
         self.driver.implicitly_wait(10)  # get(url)로 요청한 페이지 내용들이 모두 로딩이 완료될 때까지 int(초) 만큼 암묵적으로 기다린다
 
         self.actions = ActionChains(self.driver)  # 스크롤 이동을 위한 ActionChains 객체
@@ -291,6 +299,18 @@ class KINDCrawler:
     # 로딩이 끝나는 순간까지 대기
     def dialog_block_wait(self):
         try:
+            # 먼저 alert가 있는지 확인
+            try:
+                alert = self.driver.switch_to.alert
+                alert_text = alert.text
+                print(f"[KIND Alert] {alert_text}")
+                alert.accept()  # alert 확인 버튼 클릭
+                if "3년" in alert_text or "year" in alert_text.lower():
+                    print("[경고] KIND는 3년 이내 데이터만 조회 가능합니다.")
+                return
+            except:
+                pass  # alert가 없으면 정상 진행
+
             wait = WebDriverWait(self.driver, 5)
             self.take_snapshot("dialog_block_wait_before.png")
             wait.until(EC.visibility_of_element_located((By.CLASS_NAME, 'ui-dialog')))
