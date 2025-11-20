@@ -167,13 +167,11 @@ def scan_buy_candidates_from_date_table(
             -- 코넥스 제외
             AND code NOT IN (SELECT code FROM stock_konex WHERE 1=1)
 
-            -- 투자위험 종목 제외
+            -- 투자위험 종목 제외 (투자주의는 허용)
             AND code NOT IN (
                 SELECT code FROM stock_invest_warning
                 UNION
                 SELECT code FROM stock_invest_danger
-                UNION
-                SELECT code FROM stock_invest_caution
             )
 
             -- 매수 조건
