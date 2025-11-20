@@ -86,13 +86,6 @@
 | **통합 시스템** | `library/advanced_strategy_system.py` | 모든 모듈 통합 |
 | **CLI 도구** | `run_advanced_strategy.py` | 편리한 명령줄 인터페이스 |
 
-### AI/ML 모듈
-
-| 모듈 | 파일 | 설명 |
-|------|------|------|
-| **LSTM 모델** | `ai/SPPModel.py` | 주가 예측 딥러닝 모델 |
-| **AI 필터** | `ai_filter.py` | AI 기반 종목 필터링 |
-
 ---
 
 ## 🚀 빠른 시작
@@ -274,28 +267,38 @@ python run_advanced_strategy.py --mode analyze
 ```
 trading_bot/
 ├── 📚 문서
+│   ├── README.md                      # 프로젝트 개요
 │   ├── QUICK_START.md                 # 빠른 시작 가이드
 │   ├── USER_MANUAL.md                 # 완전 사용 설명서
+│   ├── PRODUCTION_GUIDE.md            # 실전 가이드
+│   ├── AUTOMATION_GUIDE.md            # 자동화 가이드
 │   └── ADVANCED_STRATEGY_GUIDE.md     # 고급 전략 가이드
 │
 ├── 🎯 실행 파일
-│   ├── trader.py                      # 메인 트레이더 GUI
+│   ├── trader.py                      # 기본 트레이더
+│   ├── trader_advanced.py             # 고급 전략 트레이더 ⭐
 │   ├── collector_v3.py                # 데이터 수집기
-│   ├── simulator.py                   # 백테스터
-│   └── run_advanced_strategy.py       # 고급 전략 CLI
+│   ├── simulator_v2.py                # 백테스터
+│   ├── run_advanced_strategy.py       # 고급 전략 CLI
+│   └── monitor.py                     # 포트폴리오 모니터링
 │
 ├── 📦 library/ (핵심 모듈)
 │   ├── cf.py                          # 전역 설정
 │   ├── open_api.py                    # 키움 API 래퍼
+│   ├── advanced_trading_engine.py     # 고급 전략 엔진 ⭐
 │   ├── risk_manager.py                # 리스크 관리
 │   ├── multi_factor_scoring.py        # 멀티팩터 스코어링
 │   ├── hybrid_strategy.py             # 하이브리드 전략
 │   ├── exit_strategy.py               # 청산 전략
+│   ├── date_based_strategy.py         # 날짜 기반 전략
 │   ├── performance_analytics.py       # 성과 분석
 │   └── advanced_strategy_system.py    # 통합 시스템
 │
-├── 🤖 ai/ (AI 모델)
-│   └── SPPModel.py                    # LSTM 예측 모델
+├── 📁 batch/ (자동화 배치 파일)
+│   ├── start_trader.bat               # 트레이더 시작
+│   ├── collect_data.bat               # 데이터 수집
+│   ├── daily_routine.bat              # 일일 루틴
+│   └── auto_shutdown.bat              # 자동 종료
 │
 ├── 🗄️ sql/ (데이터베이스 스키마)
 │   ├── init_databases.sql
@@ -303,7 +306,9 @@ trading_bot/
 │   └── jackbot_schema.sql
 │
 └── ⏰ scheduler/ (작업 스케줄러)
-    └── *.xml
+    ├── morning_start.xml
+    ├── evening_shutdown.xml
+    └── DATA_COLLECTION_TIMING.md
 ```
 
 ---
@@ -417,4 +422,4 @@ Sharpe Ratio:  1.35
 
 **Happy Trading! 📈🚀**
 
-_마지막 업데이트: 2025-11-19_
+_마지막 업데이트: 2025-11-20_

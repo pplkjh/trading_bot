@@ -111,57 +111,60 @@ python monitor.py --days 30
 
 ```python
 def variable_setting(self):
-    # 고급 전략 사용 여부
-    self.use_advanced_strategy = True   # True: 고급 전략, False: 기존 방식
+    # 고급 매수 전략 사용 여부
+    self.use_advanced_buy = True        # True: 멀티팩터 스코어링, False: 기본 방식
 
-    # 날짜 기반 전략만 사용
-    self.force_date_strategy = False    # True: 날짜 기반만, False: 혼합
+    # 날짜 기반 전략 사용 비율
+    self.use_date_based_strategy = True # True: 혼합(30% 날짜+70% 하이브리드)
 
     # 고급 매도 전략 사용
-    self.use_advanced_exit = True       # True: 고급 청산, False: 기존 방식
+    self.use_advanced_sell = True       # True: ATR+트레일링 스톱, False: 기본 방식
+
+    # 리스크 프로필
+    self.risk_profile = 'aggressive'    # conservative/moderate/aggressive
 ```
 
 ### 📊 전략 조합
 
 **1. 기본 설정 (권장)** ⭐
 ```python
-use_advanced_strategy = True
-force_date_strategy = False
-use_advanced_exit = True
+use_advanced_buy = True
+use_date_based_strategy = True
+use_advanced_sell = True
+risk_profile = 'aggressive'
 ```
 - 날짜 기반 30% + 하이브리드 70%
-- 고급 청산 전략 사용
-- 균형잡힌 리스크 관리
+- 고급 청산 전략 사용 (ATR + 트레일링 스톱)
+- 공격적 리스크 관리 (포지션 15%, 손절 ATR 2배)
 
-**2. 날짜 기반 전용**
+**2. 보수적 설정**
 ```python
-use_advanced_strategy = True
-force_date_strategy = True
-use_advanced_exit = True
+use_advanced_buy = True
+use_date_based_strategy = True
+use_advanced_sell = True
+risk_profile = 'conservative'
 ```
-- 날짜 기반 전략 100%
-- 단순하고 빠른 스캔
-- 변동성 큰 시장에 적합
+- 포지션 크기 5%, 손절 ATR 3배
+- 더 안전한 리스크 관리
 
-**3. 보수적 설정**
+**3. 중도 설정**
 ```python
-use_advanced_strategy = True
-force_date_strategy = False
-use_advanced_exit = True
+use_advanced_buy = True
+use_date_based_strategy = True
+use_advanced_sell = True
+risk_profile = 'moderate'
 ```
-- `library/advanced_trading_engine.py`에서:
-  ```python
-  risk_profile='conservative'  # aggressive → conservative
-  ```
+- 포지션 크기 10%, 손절 ATR 2.5배
+- 균형잡힌 리스크/수익
 
-**4. 기존 방식**
+**4. 기존 방식 (하위 호환)**
 ```python
-use_advanced_strategy = False
-force_date_strategy = False
-use_advanced_exit = False
+use_advanced_buy = False
+use_date_based_strategy = False
+use_advanced_sell = False
 ```
-- 기존 trader.py와 동일
-- 하위 호환성 유지
+- 기존 trader.py와 동일하게 동작
+- 고급 기능 미사용
 
 ---
 
@@ -169,15 +172,19 @@ use_advanced_exit = False
 
 ### 1. 리스크 프로필 변경
 
-`library/open_api.py`의 `init_advanced_trading_engine()` 수정:
+`trader_advanced.py`의 `variable_setting()` 메서드에서:
 
 ```python
-self.advanced_engine = AdvancedTradingEngine(
-    portfolio_value=portfolio_value,
-    db_name=self.db_name,
-    risk_profile='conservative',  # 'conservative', 'moderate', 'aggressive'
-    use_date_based_strategy=True
-)
+def variable_setting(self):
+    # ...
+    self.risk_profile = 'moderate'  # aggressive → moderate로 변경
+```
+
+또는 `library/advanced_trading_engine.py`에서 직접 수정:
+
+```python
+# 초기화 시 리스크 프로필 지정
+self.risk_profile = 'conservative'  # 'conservative', 'moderate', 'aggressive'
 ```
 
 **리스크 프로필 비교:**
@@ -552,4 +559,4 @@ risk_profile='conservative'
 ---
 
 _마지막 업데이트: 2025-11-20_
-_버전: 2.0.0 (Advanced Strategy Integrated)_
+_버전: 2.1.0 (Production Optimized)_
