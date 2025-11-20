@@ -86,6 +86,15 @@
 | **통합 시스템** | `library/advanced_strategy_system.py` | 모든 모듈 통합 |
 | **CLI 도구** | `run_advanced_strategy.py` | 편리한 명령줄 인터페이스 |
 
+### AI/ML 모듈 (선택사항)
+
+| 모듈 | 파일 | 설명 |
+|------|------|------|
+| **LSTM 모델** | `ai/SPPModel.py` | 주가 예측 딥러닝 모델 |
+| **AI 필터** | `ai_filter.py` | AI 기반 종목 필터링 (6-8시간) |
+
+> **참고:** AI 필터는 선택적 기능입니다. `library/cf.py`에서 `use_ai = False`로 설정하면 멀티팩터 전략만 사용하여 빠르게 실행(30분-1시간)할 수 있습니다.
+
 ---
 
 ## 🚀 빠른 시작
@@ -280,7 +289,8 @@ trading_bot/
 │   ├── collector_v3.py                # 데이터 수집기
 │   ├── simulator_v2.py                # 백테스터
 │   ├── run_advanced_strategy.py       # 고급 전략 CLI
-│   └── monitor.py                     # 포트폴리오 모니터링
+│   ├── monitor.py                     # 포트폴리오 모니터링
+│   └── ai_filter.py                   # AI 필터링 (선택)
 │
 ├── 📦 library/ (핵심 모듈)
 │   ├── cf.py                          # 전역 설정
@@ -299,6 +309,10 @@ trading_bot/
 │   ├── collect_data.bat               # 데이터 수집
 │   ├── daily_routine.bat              # 일일 루틴
 │   └── auto_shutdown.bat              # 자동 종료
+│
+├── 🤖 ai/ (AI/ML 모듈 - 선택사항)
+│   ├── SPPModel.py                    # LSTM 주가 예측 모델
+│   └── *.py                           # 예제 및 데모 파일
 │
 ├── 🗄️ sql/ (데이터베이스 스키마)
 │   ├── init_databases.sql
