@@ -123,6 +123,16 @@ class TraderAdvanced(QMainWindow):
         # 일일 최대 손실 한도 (%)
         self.max_daily_loss_pct = -8.0
 
+        # ==================================================
+        # 🔄 매수 후보 스캔 상태 플래그
+        # ==================================================
+
+        # 오늘 매수 후보 스캔 완료 여부
+        self.buy_scan_done = False
+
+        # 매수 후보 존재 여부 (None: 미스캔, True: 있음, False: 없음)
+        self.buy_candidates_available = None
+
         logger.info("=" * 80)
         logger.info("⚙️  트레이더 설정")
         logger.info("=" * 80)
@@ -185,6 +195,21 @@ class TraderAdvanced(QMainWindow):
                 # 고급 전략으로 매수
                 logger.info("📊 고급 전략으로 매수 리스트 생성")
                 self.open_api.get_advanced_buy_list(use_advanced_strategy=True)
+
+                # 첫 스캔 후 결과 저장
+                if not self.buy_scan_done:
+                    self.buy_scan_done = True
+                    # realtime_daily_buy_list에 데이터가 있는지 확인
+                    if hasattr(self.open_api.sf, 'len_df_realtime_daily_buy_list'):
+                        if self.open_api.sf.len_df_realtime_daily_buy_list > 0:
+                            self.buy_candidates_available = True
+                            logger.info(f"✅ 매수 후보 {self.open_api.sf.len_df_realtime_daily_buy_list}개 발견")
+                        else:
+                            self.buy_candidates_available = False
+                            logger.warning("❌ 오늘은 매수 후보가 없습니다 (스캔 완료)")
+                    else:
+                        # 확인 불가 시 안전하게 True로 설정
+                        self.buy_candidates_available = True
             else:
                 # 기존 방식으로 매수
                 logger.info("📋 기본 방식으로 매수")
@@ -356,10 +381,21 @@ class TraderAdvanced(QMainWindow):
         logger.info("메인 루프 시작")
 
         # 메인 루프
+        last_date = None
+
         while True:
             try:
                 # 날짜 업데이트
                 self.open_api.date_setting()
+
+                # 날짜가 바뀌면 매수 스캔 플래그 리셋
+                if last_date != self.open_api.today:
+                    if last_date is not None:
+                        logger.info(f"📅 날짜 변경: {last_date} → {self.open_api.today}")
+                        logger.info("🔄 매수 후보 스캔 플래그 리셋")
+                    last_date = self.open_api.today
+                    self.buy_scan_done = False
+                    self.buy_candidates_available = None
 
                 # 장시간 체크
                 if self.market_time_check():
@@ -368,28 +404,38 @@ class TraderAdvanced(QMainWindow):
                     self.open_api.check_balance()
                     has_positions = len(self.open_api.opw00018_output['multi']) > 0
 
-                    # 보유 종목에 따라 대기 시간 조정
+                    # 보유 종목 및 매수 후보에 따라 대기 시간 조정
                     if has_positions:
                         # 보유 종목 있음 → 실시간 모니터링 (0.3초)
                         sleep_time = 0.3
                         logger.debug("💼 보유 종목 있음 - 실시간 모니터링 모드")
+                    elif self.buy_candidates_available == False:
+                        # 보유 종목 없고 + 매수 후보도 없음 → 대기 모드 (60초)
+                        sleep_time = 60
+                        logger.debug("😴 보유 종목 없음 + 매수 후보 없음 - 대기 모드 (60초 간격)")
                     else:
-                        # 보유 종목 없음 → 대기 모드 (30초)
+                        # 보유 종목 없지만 매수 후보 있거나 미스캔 → 30초
                         sleep_time = 30
-                        logger.debug("💤 보유 종목 없음 - 대기 모드 (30초 간격)")
+                        logger.debug("💤 보유 종목 없음 - 매수 대기 모드 (30초 간격)")
 
                     # 1. 매도 실행 (보유 종목 있을 때만)
                     if has_positions:
                         self.auto_trade_sell_stock()
 
                     # 2. 매수 조건 확인
+                    # - 매수 후보가 없으면 스킵 (첫 스캔 제외)
                     # - 잔액 있는지
                     # - 매수 시간인지
                     # - 매수 정지 옵션 체크
-                    if (self.open_api.jango_check() and
+                    should_try_buy = (
+                        # 첫 스캔이거나 매수 후보가 있는 경우만
+                        (self.buy_candidates_available is None or self.buy_candidates_available == True) and
+                        self.open_api.jango_check() and
                         self.buy_time_check() and
-                        self.open_api.buy_check()):
+                        self.open_api.buy_check()
+                    )
 
+                    if should_try_buy:
                         # 매수 실행
                         self.auto_trade_stock()
 
