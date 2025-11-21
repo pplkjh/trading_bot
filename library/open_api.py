@@ -1925,7 +1925,7 @@ class open_api(QAxWidget):
         try:
             # possessed_item 테이블에서 보유 종목 가져오기
             sql = """
-            SELECT code, buy_date, buy_price, holding_amount
+            SELECT code, first_buy_date, purchase_price, holding_amount
             FROM possessed_item
             WHERE holding_amount > 0
             """
@@ -1933,20 +1933,20 @@ class open_api(QAxWidget):
             rows = self.engine_JB.execute(sql).fetchall()
 
             for row in rows:
-                code, buy_date, buy_price, holding_amount = row
+                code, first_buy_date, purchase_price, holding_amount = row
 
                 # 매수일 변환
-                if isinstance(buy_date, str):
-                    entry_date = datetime.datetime.strptime(buy_date, "%Y%m%d")
+                if isinstance(first_buy_date, str):
+                    entry_date = datetime.datetime.strptime(first_buy_date, "%Y%m%d")
                 else:
-                    entry_date = buy_date
+                    entry_date = first_buy_date
 
                 positions.append({
                     'code': code,
-                    'entry_price': float(buy_price),
+                    'entry_price': float(purchase_price),
                     'entry_date': entry_date,
                     'shares': int(holding_amount),
-                    'highest_price': float(buy_price)  # TODO: 실제 최고가 추적 필요
+                    'highest_price': float(purchase_price)  # TODO: 실제 최고가 추적 필요
                 })
 
             logger.debug(f"현재 보유 종목: {len(positions)}개")

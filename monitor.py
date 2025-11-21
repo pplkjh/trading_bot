@@ -40,15 +40,15 @@ def get_portfolio_status(db_name: str):
         query_positions = """
         SELECT
             code,
-            buy_date,
-            buy_price,
+            first_buy_date,
+            purchase_price,
             holding_amount,
             present_price,
             valuation_profit,
             rate
         FROM possessed_item
         WHERE holding_amount > 0
-        ORDER BY buy_date DESC
+        ORDER BY first_buy_date DESC
         """
 
         df_positions = pd.read_sql(query_positions, con)
@@ -66,8 +66,8 @@ def get_portfolio_status(db_name: str):
                 total_profit += row['valuation_profit']
 
                 print(f"\n[{idx+1}] {row['code']}")
-                print(f"  매수일:     {row['buy_date']}")
-                print(f"  매수가:     {row['buy_price']:>10,}원")
+                print(f"  매수일:     {row['first_buy_date']}")
+                print(f"  매수가:     {row['purchase_price']:>10,}원")
                 print(f"  현재가:     {row['present_price']:>10,}원")
                 print(f"  수량:       {row['holding_amount']:>10}주")
                 print(f"  평가금액:   {value:>10,}원")
