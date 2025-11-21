@@ -92,7 +92,7 @@ def scan_buy_candidates(portfolio_value: float = 10000000, top_n: int = 20):
 
 
 def run_backtest(
-    start_date: str = "20230101",
+    start_date: str = "20230102",
     end_date: str = "20241231",
     initial_capital: float = 10000000
 ):
@@ -212,7 +212,7 @@ def main():
     parser.add_argument(
         '--start-date',
         type=str,
-        default='20230101',
+        default='20230102',
         help='백테스트 시작일 (YYYYMMDD)'
     )
 
@@ -257,7 +257,7 @@ def main():
         print("  python run_advanced_strategy.py --mode scan --portfolio 10000000 --top 20")
         print()
         print("  # 백테스트 실행")
-        print("  python run_advanced_strategy.py --mode backtest --start-date 20230101 --end-date 20241231")
+        print("  python run_advanced_strategy.py --mode backtest --start-date 20230102 --end-date 20241231")
         print()
         print("  # 성과 분석")
         print("  python run_advanced_strategy.py --mode analyze --db JackBot1_imi1")

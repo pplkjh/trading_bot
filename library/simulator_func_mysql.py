@@ -150,7 +150,7 @@ class simulator_func_mysql:
 
         elif self.simul_num == 21:
             # 시뮬레이팅 시작 일자(분 별 시뮬레이션의 경우 최근 1년 치 데이터만 있기 때문에 start_date 조정 필요)
-            self.simul_start_date = "20200102"
+            self.simul_start_date = "20230102"
             ###
             # # 분별 시뮬레이션을 사용하고 싶을 경우 아래 옵션을 True로 변경하여 사용
             self.use_min = False
@@ -189,7 +189,7 @@ class simulator_func_mysql:
 
         elif self.simul_num == 22:
             # 시뮬레이팅 시작 일자
-            self.simul_start_date = "20210102"
+            self.simul_start_date = "20230102"
 
             # ######## 알고리즘 선택 #############
             # 매수 리스트 설정 알고리즘 번호
