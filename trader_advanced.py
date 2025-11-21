@@ -110,6 +110,17 @@ class TraderAdvanced(QMainWindow):
         # 이 시간 이후에는 새로운 매수를 하지 않습니다
         self.buy_end_time = QTime(15, 0, 0)
 
+        # 장 마감 후 자동 종료 여부
+        self.auto_exit_after_market_close = True
+        """
+        True: 장 마감 후 30분 대기 후 자동 종료 (권장)
+        False: 계속 실행 (다음날까지 대기)
+        """
+
+        # 장 마감 후 대기 시간 (분)
+        self.exit_wait_minutes = 30
+        """장 마감(15:30) 후 이 시간만큼 대기한 뒤 종료"""
+
         # ==================================================
         # 📊 고급 전략 파라미터
         # ==================================================
@@ -143,6 +154,9 @@ class TraderAdvanced(QMainWindow):
         logger.info(f"  최소 팩터 스코어: {self.min_factor_score}")
         logger.info(f"  최대 보유 종목: {self.max_positions}개")
         logger.info(f"  일일 최대 손실: {self.max_daily_loss_pct}%")
+        logger.info(f"  장 마감 후 자동 종료: {'사용' if self.auto_exit_after_market_close else '미사용'}")
+        if self.auto_exit_after_market_close:
+            logger.info(f"  종료 대기 시간: {self.exit_wait_minutes}분")
         logger.info("=" * 80)
 
     def init_advanced_strategy(self):
@@ -442,8 +456,31 @@ class TraderAdvanced(QMainWindow):
                     # 다음 루프까지 대기
                     time.sleep(sleep_time)
                 else:
-                    # 장시간 외: 10초마다 체크
-                    time.sleep(10)
+                    # 장시간 외
+                    if self.auto_exit_after_market_close:
+                        # 장 마감 후 대기 시간 체크
+                        self.current_time = QTime.currentTime()
+                        exit_time = self.market_end_time.addSecs(self.exit_wait_minutes * 60)
+
+                        if self.current_time > exit_time:
+                            logger.info("=" * 80)
+                            logger.info("🕐 장 마감 후 대기 시간 종료")
+                            logger.info(f"종료 시간: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                            logger.info("=" * 80)
+                            print("\n" + "=" * 80)
+                            print(f"✅ 정상 종료 (장 마감 후 {self.exit_wait_minutes}분 경과)")
+                            print(f"종료 시간: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                            print("=" * 80)
+                            break
+
+                        # 종료 시간까지 대기
+                        remaining_seconds = self.current_time.secsTo(exit_time)
+                        logger.debug(f"⏰ 장 마감 후 대기 중 (종료까지 {remaining_seconds//60}분 {remaining_seconds%60}초)")
+                        time.sleep(min(60, remaining_seconds))
+                    else:
+                        # 자동 종료 안 함: 다음날까지 대기
+                        logger.debug("⏰ 장시간 외 - 다음날 장 시작 대기 중")
+                        time.sleep(60)
 
             except KeyboardInterrupt:
                 logger.info("\n사용자에 의해 중단되었습니다")
