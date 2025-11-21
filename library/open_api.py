@@ -1326,6 +1326,41 @@ class open_api(QAxWidget):
         else:
             return False
 
+    def _check_in_buy_list(self, code: str) -> bool:
+        """realtime_daily_buy_list에 종목이 있는지 확인"""
+        try:
+            sql = f"SELECT code FROM realtime_daily_buy_list WHERE code='{code}' LIMIT 1"
+            rows = self.engine_JB.execute(sql).fetchall()
+            return len(rows) > 0
+        except:
+            return False
+
+    def _get_buy_price(self, code: str) -> int:
+        """매수가 조회"""
+        try:
+            sql = f"SELECT purchase_price FROM all_item_db WHERE code='{code}' AND sell_date='0' ORDER BY buy_date DESC LIMIT 1"
+            rows = self.engine_JB.execute(sql).fetchall()
+            if rows:
+                return int(rows[0][0]) if rows[0][0] else 0
+            return 0
+        except:
+            return 0
+
+    def _get_sell_reason(self, profit_rate: float) -> str:
+        """매도 사유 판단"""
+        if profit_rate >= 10:
+            return "익절 (10% 이상)"
+        elif profit_rate >= 5:
+            return "익절 (5% 이상)"
+        elif profit_rate >= 0:
+            return "소폭 익절"
+        elif profit_rate >= -3:
+            return "소폭 손절"
+        elif profit_rate >= -5:
+            return "손절 (-5% 이하)"
+        else:
+            return "손절 (큰 손실)"
+
     # 리씨브
     # OnReceiveChejanData 이벤트가 발생할 때 호출되는 _receive_chejan_data는 다음과 같이 구현합니다.
     # get_chejan_data 메서드는 함수 인자인 FID 값을 통해 서로 다른 데이터를 얻을 수 있습니다.
@@ -1365,6 +1400,8 @@ class open_api(QAxWidget):
             # 현재 체결 진행 중인 코드를 키움증권으로 부터 가져온다
             # 종목 코드
             code = code_pattern.search(self.get_chejan_data(9001)).group(0)  # 주식 코드가 숫자만오지 않아서 정규식으로 필터링
+            # 종목명
+            code_name = self.get_chejan_data(302).strip()
             # 주문 번호
             order_num = self.get_chejan_data(9203)
             if not order_num:
@@ -1407,6 +1444,27 @@ class open_api(QAxWidget):
                         if chegyul_fail_amount_temp == "0":
                             logger.debug("완벽히 싹 다 체결됨!!!!!!!!!!!!!!!!!!!!!!!!!")
                             self.db_to_all_item(order_num, code, 0, purchase_price, 0)
+
+                            # 매수 체결 로깅
+                            try:
+                                from library.trading_logger import trading_logger
+                                # 체결 수량 계산
+                                quantity = int(self.get_chejan_data(911)) if self.get_chejan_data(911) else 0
+                                total_value = purchase_price * quantity if quantity > 0 else 0
+
+                                # 전략 정보 조회 (realtime_daily_buy_list에 있으면 고급 전략)
+                                strategy_name = "고급 전략" if self._check_in_buy_list(code) else "기본 전략"
+
+                                trading_logger.log_buy(
+                                    code=code,
+                                    name=code_name if code_name else code,
+                                    price=purchase_price,
+                                    quantity=quantity,
+                                    total_value=total_value,
+                                    reason=strategy_name
+                                )
+                            except Exception as e:
+                                logger.warning(f"매수 로깅 실패: {e}")
                         else:
                             logger.debug("체결 되었지만 덜 체결 됨!!!!!!!!!!!!!!!!!!")
                             self.db_to_all_item(order_num, code, 1, purchase_price, 0)
@@ -1428,6 +1486,35 @@ class open_api(QAxWidget):
                         if chegyul_fail_amount_temp == "0":
                             logger.debug("all db에 존재하고 전량 매도하는 경우!!!!!")
                             self.sell_final_check(code)
+
+                            # 매도 체결 로깅
+                            try:
+                                from library.trading_logger import trading_logger
+                                # 체결 정보 가져오기
+                                quantity = int(self.get_chejan_data(911)) if self.get_chejan_data(911) else 0
+                                sell_price = purchase_price  # 현재가 = 매도 체결가
+                                total_value = sell_price * quantity if quantity > 0 else 0
+
+                                # 매수가 조회 (all_item_db에서)
+                                buy_price = self._get_buy_price(code)
+                                profit = (sell_price - buy_price) * quantity if buy_price > 0 and quantity > 0 else 0
+                                profit_rate = ((sell_price - buy_price) / buy_price * 100) if buy_price > 0 else 0
+
+                                # 매도 사유 판단
+                                sell_reason = self._get_sell_reason(profit_rate)
+
+                                trading_logger.log_sell(
+                                    code=code,
+                                    name=code_name if code_name else code,
+                                    price=sell_price,
+                                    quantity=quantity,
+                                    total_value=total_value,
+                                    profit=profit,
+                                    profit_rate=profit_rate,
+                                    reason=sell_reason
+                                )
+                            except Exception as e:
+                                logger.warning(f"매도 로깅 실패: {e}")
                         else:
                             logger.debug("all db에 존재하고 수량 남겨 놓고 매도하는 경우!!!!!")
                             self.sell_chegyul_fail_check(code)
