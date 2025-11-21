@@ -53,9 +53,9 @@
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>python.exe</Command>
+      <Command>C:\Users\USER\anaconda3\envs\py37_32\python.exe</Command>
       <Arguments>collector_advanced.py</Arguments>
-      <WorkingDirectory>%USERPROFILE%\trading_bot</WorkingDirectory>
+      <WorkingDirectory>C:\Users\USER\Desktop\Personal project\trading_bot</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>

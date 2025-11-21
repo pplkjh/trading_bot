@@ -43,8 +43,8 @@
   <Actions Context="Author">
     <Exec>
       <Command>cmd.exe</Command>
-      <Arguments>/c "%USERPROFILE%\trading_bot\batch\smart_shutdown.bat"</Arguments>
-      <WorkingDirectory>%USERPROFILE%\trading_bot\batch</WorkingDirectory>
+      <Arguments>/c "C:\Users\USER\Desktop\Personal project\trading_bot\batch\smart_shutdown.bat"</Arguments>
+      <WorkingDirectory>C:\Users\USER\Desktop\Personal project\trading_bot\batch</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>

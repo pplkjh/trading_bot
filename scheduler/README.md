@@ -25,15 +25,15 @@
 4. **확인** 클릭
 5. 나머지 3개 파일도 동일하게 가져오기
 
-### 3. 경로 확인 (중요!)
-각 작업을 가져온 후:
-1. 작업 우클릭 → **속성**
-2. **동작** 탭 확인
-3. Python 경로와 trading_bot 폴더 경로가 본인 환경과 맞는지 확인
+### 3. 경로 확인
+이 XML 파일들은 이미 다음 경로로 설정되어 있습니다:
 
-기본 경로:
-- **Python**: `python.exe` (PATH에 등록되어 있어야 함)
-- **작업 디렉토리**: `%USERPROFILE%\trading_bot`
+**설정된 경로**:
+- **Python 환경**: `C:\Users\USER\anaconda3\envs\py37_32\python.exe` (Python 3.7 32bit)
+- **작업 디렉토리**: `C:\Users\USER\Desktop\Personal project\trading_bot`
+- **배치 파일**: `C:\Users\USER\Desktop\Personal project\trading_bot\batch\smart_shutdown.bat`
+
+> **참고**: py37_32 가상환경은 Anaconda3의 Python 3.7 32bit 환경입니다. 키움 API는 32bit Python이 필요합니다.
 
 ## ⚙️ 실행 프로그램 정보
 
@@ -41,23 +41,23 @@
 
 ### Morning Collector & Evening Collector
 ```
-프로그램: python.exe
+프로그램: C:\Users\USER\anaconda3\envs\py37_32\python.exe
 인수: collector_advanced.py
-작업 디렉토리: %USERPROFILE%\trading_bot
+작업 디렉토리: C:\Users\USER\Desktop\Personal project\trading_bot
 ```
 
 ### Auto Trading
 ```
-프로그램: python.exe
+프로그램: C:\Users\USER\anaconda3\envs\py37_32\python.exe
 인수: trader_advanced.py
-작업 디렉토리: %USERPROFILE%\trading_bot
+작업 디렉토리: C:\Users\USER\Desktop\Personal project\trading_bot
 ```
 
 ### Smart Shutdown
 ```
 프로그램: cmd.exe
-인수: /c "%USERPROFILE%\trading_bot\batch\smart_shutdown.bat"
-작업 디렉토리: %USERPROFILE%\trading_bot\batch
+인수: /c "C:\Users\USER\Desktop\Personal project\trading_bot\batch\smart_shutdown.bat"
+작업 디렉토리: C:\Users\USER\Desktop\Personal project\trading_bot\batch
 ```
 
 ## 🔧 설정 옵션
@@ -78,8 +78,8 @@
 
 ## ⚠️ 주의사항
 
-1. **Python 경로**: Python이 시스템 PATH에 등록되어 있어야 합니다.
-2. **작업 디렉토리**: `trading_bot` 폴더가 사용자 홈 디렉토리에 있어야 합니다.
+1. **Python 환경**: Anaconda3의 py37_32 가상환경을 사용합니다. 키움 OpenAPI는 32bit Python만 지원합니다.
+2. **경로 확인**: XML 파일의 경로가 실제 환경과 일치하는지 가져온 후 확인하세요.
 3. **권한**: 작업이 "가장 높은 수준의 권한"으로 실행되도록 설정되어 있습니다.
 4. **테스트**: 실제 운영 전에 각 작업을 수동으로 실행하여 정상 작동을 확인하세요.
 
