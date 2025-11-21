@@ -240,8 +240,15 @@ class TraderAdvanced(QMainWindow):
                                 self.exit_reason = "매수 후보 없음"
                                 logger.info("🚪 매수 후보가 없으므로 자동 종료합니다")
                     else:
-                        # 확인 불가 시 안전하게 True로 설정
-                        self.buy_candidates_available = True
+                        # 확인 불가 시 후보 없음으로 처리
+                        self.buy_candidates_available = False
+                        logger.warning("❌ 매수 후보 리스트 확인 불가 (스캔 완료)")
+
+                        # 매수 후보 없을 시 자동 종료 옵션 체크
+                        if self.exit_on_no_candidates:
+                            self.should_exit = True
+                            self.exit_reason = "매수 후보 확인 불가"
+                            logger.info("🚪 매수 후보 확인 불가로 자동 종료합니다")
             else:
                 # 기존 방식으로 매수
                 logger.info("📋 기본 방식으로 매수")
@@ -250,6 +257,20 @@ class TraderAdvanced(QMainWindow):
         except Exception as e:
             logger.error(f"❌ 매수 실행 오류: {e}")
             logger.warning("기본 방식으로 재시도합니다")
+
+            # 첫 스캔이었다면 플래그 설정 후 자동 종료
+            if not self.buy_scan_done:
+                self.buy_scan_done = True
+                self.buy_candidates_available = False
+                logger.warning("❌ 매수 스캔 실패 (에러 발생)")
+
+                if self.exit_on_no_candidates:
+                    self.should_exit = True
+                    self.exit_reason = "매수 스캔 오류"
+                    logger.info("🚪 매수 스캔 오류로 자동 종료합니다")
+                    # 자동 종료 플래그가 설정되었으므로 기존 방식 재시도 안 함
+                    return
+
             self.open_api.get_today_buy_list()
 
     def get_sell_list_trade(self):
