@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Date>2024-11-18T00:00:00</Date>
+    <Date>2025-01-01T00:00:00</Date>
     <Author>TradingBot</Author>
-    <Description>장 시작 30분 전에 자동으로 트레이더를 실행합니다 (평일만)</Description>
+    <URI>\TradingBot_Auto_Trading</URI>
+    <Description>자동 매매 프로그램 실행 (08:50)</Description>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
-      <StartBoundary>2024-01-01T08:30:00</StartBoundary>
+      <StartBoundary>2025-01-01T08:50:00</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByWeek>
         <DaysOfWeek>
@@ -42,14 +43,19 @@
     <Enabled>true</Enabled>
     <Hidden>false</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
-    <WakeToRun>true</WakeToRun>
-    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <Priority>4</Priority>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT8H</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>C:\path\to\trading_bot\batch\start_trader.bat</Command>
-      <WorkingDirectory>C:\path\to\trading_bot</WorkingDirectory>
+      <Command>python.exe</Command>
+      <Arguments>trader_advanced.py</Arguments>
+      <WorkingDirectory>%USERPROFILE%\trading_bot</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>

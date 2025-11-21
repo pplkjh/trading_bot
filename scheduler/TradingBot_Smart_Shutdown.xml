@@ -1,24 +1,18 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Date>2024-11-18T00:00:00</Date>
+    <Date>2025-01-01T00:00:00</Date>
     <Author>TradingBot</Author>
-    <Description>장 마감 후 데이터를 자동으로 수집합니다 (평일 15:40)</Description>
+    <URI>\TradingBot_Smart_Shutdown</URI>
+    <Description>주말/평일 구분 자동 종료 (20:50)</Description>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
-      <StartBoundary>2024-01-01T15:40:00</StartBoundary>
+      <StartBoundary>2025-01-01T20:50:00</StartBoundary>
       <Enabled>true</Enabled>
-      <ScheduleByWeek>
-        <DaysOfWeek>
-          <Monday />
-          <Tuesday />
-          <Wednesday />
-          <Thursday />
-          <Friday />
-        </DaysOfWeek>
-        <WeeksInterval>1</WeeksInterval>
-      </ScheduleByWeek>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
     </CalendarTrigger>
   </Triggers>
   <Principals>
@@ -33,7 +27,7 @@
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <AllowHardTerminate>true</AllowHardTerminate>
     <StartWhenAvailable>true</StartWhenAvailable>
-    <RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
     <IdleSettings>
       <StopOnIdleEnd>false</StopOnIdleEnd>
       <RestartOnIdle>false</RestartOnIdle>
@@ -42,14 +36,15 @@
     <Enabled>true</Enabled>
     <Hidden>false</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
-    <WakeToRun>true</WakeToRun>
-    <ExecutionTimeLimit>PT4H</ExecutionTimeLimit>
-    <Priority>4</Priority>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>
+    <Priority>7</Priority>
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>C:\path\to\trading_bot\batch\collect_data.bat</Command>
-      <WorkingDirectory>C:\path\to\trading_bot</WorkingDirectory>
+      <Command>cmd.exe</Command>
+      <Arguments>/c "%USERPROFILE%\trading_bot\batch\smart_shutdown.bat"</Arguments>
+      <WorkingDirectory>%USERPROFILE%\trading_bot\batch</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>

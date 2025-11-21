@@ -70,6 +70,30 @@
 
 ### 작업 만들기 기본 순서
 
+**방법 1: XML 파일로 가져오기 (권장) ⭐**
+
+이 프로젝트의 `scheduler/` 폴더에 미리 준비된 XML 파일 4개가 있습니다:
+
+```
+scheduler/
+├── TradingBot_Morning_Collector.xml    (08:40 - 아침 데이터 수집)
+├── TradingBot_Auto_Trading.xml         (08:50 - 자동 매매)
+├── TradingBot_Evening_Collector.xml    (15:35 - 저녁 데이터 수집)
+└── TradingBot_Smart_Shutdown.xml       (20:50 - 스마트 종료)
+```
+
+**가져오기 방법**:
+1. 작업 스케줄러 열기
+2. 왼쪽의 **작업 스케줄러 라이브러리** 우클릭
+3. **작업 가져오기** 클릭
+4. `scheduler/TradingBot_Morning_Collector.xml` 선택 → 열기
+5. **확인** 클릭 (경로는 자동으로 `%USERPROFILE%\trading_bot`로 설정됨)
+6. 나머지 3개 XML 파일도 동일하게 가져오기
+
+> **중요**: XML 파일을 가져온 후 **반드시 각 작업의 속성을 열어서** Python 경로가 본인 환경과 맞는지 확인하세요!
+
+**방법 2: 수동으로 작업 만들기**
+
 1. **작업 스케줄러 라이브러리** 우클릭
 2. **기본 작업 만들기** 클릭
 3. 이름/설명 입력
@@ -81,7 +105,22 @@
 
 ## ⚙️ 자동화 작업 설정
 
-아래 4개의 작업을 **순서대로** 만들어야 합니다.
+### 🚀 빠른 시작 (XML 가져오기)
+
+**권장 방법**: 위의 "방법 1: XML 파일로 가져오기"를 사용하여 4개의 작업을 한 번에 설정하세요.
+
+1. `TradingBot_Morning_Collector.xml` 가져오기
+2. `TradingBot_Auto_Trading.xml` 가져오기
+3. `TradingBot_Evening_Collector.xml` 가져오기
+4. `TradingBot_Smart_Shutdown.xml` 가져오기
+
+가져오기 완료 후 아래의 "작업 확인 및 테스트" 섹션으로 이동하세요.
+
+---
+
+### 📝 수동 설정 가이드 (참고용)
+
+XML 파일을 사용하지 않고 수동으로 설정하려면 아래 4개의 작업을 **순서대로** 만들어야 합니다.
 
 ---
 

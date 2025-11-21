@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Date>2024-11-18T00:00:00</Date>
+    <Date>2025-01-01T00:00:00</Date>
     <Author>TradingBot</Author>
-    <Description>데이터 수집 완료 후 컴퓨터를 자동으로 종료합니다 (평일 20:00)</Description>
+    <URI>\TradingBot_Evening_Collector</URI>
+    <Description>장 마감 후 데이터 최종 수집 (15:35)</Description>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
-      <StartBoundary>2024-01-01T20:00:00</StartBoundary>
+      <StartBoundary>2025-01-01T15:35:00</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByWeek>
         <DaysOfWeek>
@@ -39,17 +40,22 @@
       <RestartOnIdle>false</RestartOnIdle>
     </IdleSettings>
     <AllowStartOnDemand>true</AllowStartOnDemand>
-    <Enabled>false</Enabled>
+    <Enabled>true</Enabled>
     <Hidden>false</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
-    <WakeToRun>true</WakeToRun>
-    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
-    <Priority>4</Priority>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>C:\path\to\trading_bot\batch\auto_shutdown.bat</Command>
-      <WorkingDirectory>C:\path\to\trading_bot</WorkingDirectory>
+      <Command>python.exe</Command>
+      <Arguments>collector_advanced.py</Arguments>
+      <WorkingDirectory>%USERPROFILE%\trading_bot</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>
