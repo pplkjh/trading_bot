@@ -396,7 +396,7 @@ class HybridStrategy:
     def scan_stocks(
         self,
         stock_codes: List[str],
-        db_name: str = 'daily_buy_list',
+        db_name: str = 'daily_craw',
         top_n: int = 20
     ) -> pd.DataFrame:
         """
@@ -407,7 +407,7 @@ class HybridStrategy:
         stock_codes : List[str]
             스캔할 종목 코드 리스트
         db_name : str
-            데이터베이스 이름
+            일봉 데이터 데이터베이스 이름 (기본값: 'daily_craw')
         top_n : int
             상위 N개 종목 선정
 
@@ -419,12 +419,12 @@ class HybridStrategy:
 
         for code in stock_codes:
             try:
-                # 데이터 로드
+                # 일봉 데이터 로드 (항상 daily_craw에서)
                 con = pymysql.connect(
                     user=db_id,
                     passwd=db_passwd,
                     host=db_ip,
-                    db=db_name,
+                    db='daily_craw',  # 일봉 데이터는 항상 여기!
                     charset='utf8',
                     port=int(db_port)
                 )
@@ -486,7 +486,8 @@ def get_buy_candidates(
     Parameters:
     -----------
     db_name : str
-        데이터베이스 이름
+        일봉 데이터 데이터베이스 이름 (기본값: 'daily_craw')
+        주의: stock_item_all은 항상 'daily_buy_list' DB에서 조회합니다
     min_score : float
         최소 스코어
     top_n : int
@@ -499,12 +500,12 @@ def get_buy_candidates(
     pd.DataFrame : 매수 후보 종목
     """
     try:
-        # 전체 종목 리스트 가져오기
+        # 전체 종목 리스트 가져오기 (항상 daily_buy_list DB에서)
         con = pymysql.connect(
             user=db_id,
             passwd=db_passwd,
             host=db_ip,
-            db=db_name,
+            db='daily_buy_list',  # stock_item_all은 항상 여기!
             charset='utf8',
             port=int(db_port)
         )
@@ -526,9 +527,9 @@ def get_buy_candidates(
 
         print(f"총 {len(stock_codes)}개 종목 스캔 중...")
 
-        # 하이브리드 전략으로 스캔
+        # 하이브리드 전략으로 스캔 (일봉 데이터는 daily_craw에서)
         strategy = HybridStrategy(min_score=min_score)
-        df_candidates = strategy.scan_stocks(stock_codes, db_name, top_n)
+        df_candidates = strategy.scan_stocks(stock_codes, 'daily_craw', top_n)
 
         return df_candidates
 

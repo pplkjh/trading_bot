@@ -380,7 +380,7 @@ class RiskManager:
         self,
         new_stock_code: str,
         current_positions: List[str],
-        db_name: str = 'daily_buy_list',
+        db_name: str = 'daily_craw',
         lookback_days: int = 60
     ) -> Tuple[bool, float]:
         """
@@ -393,7 +393,7 @@ class RiskManager:
         current_positions : List[str]
             현재 보유 종목 코드 리스트
         db_name : str
-            데이터베이스 이름
+            일봉 데이터 데이터베이스 이름 (기본값: 'daily_craw')
         lookback_days : int
             상관관계 계산 기간
 
@@ -409,7 +409,7 @@ class RiskManager:
                 user=db_id,
                 passwd=db_passwd,
                 host=db_ip,
-                db=db_name,
+                db='daily_craw',  # 일봉 데이터는 항상 여기!
                 charset='utf8',
                 port=int(db_port)
             )
@@ -576,7 +576,7 @@ class RiskManager:
 
 
 # 유틸리티 함수
-def get_stock_atr(code: str, db_name: str = 'daily_buy_list', period: int = 14) -> float:
+def get_stock_atr(code: str, db_name: str = 'daily_craw', period: int = 14) -> float:
     """
     데이터베이스에서 종목의 ATR 계산
 
@@ -585,7 +585,7 @@ def get_stock_atr(code: str, db_name: str = 'daily_buy_list', period: int = 14) 
     code : str
         종목 코드
     db_name : str
-        데이터베이스 이름
+        일봉 데이터 데이터베이스 이름 (기본값: 'daily_craw')
     period : int
         ATR 계산 기간
 
@@ -598,7 +598,7 @@ def get_stock_atr(code: str, db_name: str = 'daily_buy_list', period: int = 14) 
             user=db_id,
             passwd=db_passwd,
             host=db_ip,
-            db=db_name,
+            db='daily_craw',  # 일봉 데이터는 항상 여기!
             charset='utf8',
             port=int(db_port)
         )

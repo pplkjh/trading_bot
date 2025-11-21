@@ -609,7 +609,7 @@ class MultiFactorScoring:
         return all_scores
 
 
-def get_stock_score(code: str, db_name: str = 'daily_buy_list', lookback: int = 120) -> Dict:
+def get_stock_score(code: str, db_name: str = 'daily_craw', lookback: int = 120) -> Dict:
     """
     데이터베이스에서 종목 데이터를 가져와 스코어 계산
 
@@ -618,7 +618,7 @@ def get_stock_score(code: str, db_name: str = 'daily_buy_list', lookback: int = 
     code : str
         종목 코드
     db_name : str
-        데이터베이스 이름
+        일봉 데이터 데이터베이스 이름 (기본값: 'daily_craw')
     lookback : int
         조회할 데이터 기간
 
@@ -631,7 +631,7 @@ def get_stock_score(code: str, db_name: str = 'daily_buy_list', lookback: int = 
             user=db_id,
             passwd=db_passwd,
             host=db_ip,
-            db=db_name,
+            db='daily_craw',  # 일봉 데이터는 항상 여기!
             charset='utf8',
             port=int(db_port)
         )

@@ -497,7 +497,7 @@ class ExitStrategy:
 
 def get_exit_signals(
     positions: List[Dict],
-    db_name: str = 'daily_buy_list'
+    db_name: str = 'daily_craw'
 ) -> List[Dict]:
     """
     모든 포지션에 대해 청산 시그널 생성
@@ -507,7 +507,7 @@ def get_exit_signals(
     positions : List[Dict]
         포지션 리스트
     db_name : str
-        데이터베이스 이름
+        일봉 데이터 데이터베이스 이름 (기본값: 'daily_craw')
 
     Returns:
     --------
@@ -520,12 +520,12 @@ def get_exit_signals(
         try:
             code = position['code']
 
-            # 데이터 로드
+            # 일봉 데이터 로드 (항상 daily_craw에서)
             con = pymysql.connect(
                 user=db_id,
                 passwd=db_passwd,
                 host=db_ip,
-                db=db_name,
+                db='daily_craw',  # 일봉 데이터는 항상 여기!
                 charset='utf8',
                 port=int(db_port)
             )
