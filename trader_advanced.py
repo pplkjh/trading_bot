@@ -358,17 +358,29 @@ class TraderAdvanced(QMainWindow):
         # 메인 루프
         while True:
             try:
-                # 0.3초 딜레이 (안정성)
-                time.sleep(0.3)
-
                 # 날짜 업데이트
                 self.open_api.date_setting()
 
                 # 장시간 체크
                 if self.market_time_check():
 
-                    # 1. 매도 먼저 실행
-                    self.auto_trade_sell_stock()
+                    # 보유 종목 확인
+                    self.open_api.check_balance()
+                    has_positions = len(self.open_api.opw00018_output['multi']) > 0
+
+                    # 보유 종목에 따라 대기 시간 조정
+                    if has_positions:
+                        # 보유 종목 있음 → 실시간 모니터링 (0.3초)
+                        sleep_time = 0.3
+                        logger.debug("💼 보유 종목 있음 - 실시간 모니터링 모드")
+                    else:
+                        # 보유 종목 없음 → 대기 모드 (30초)
+                        sleep_time = 30
+                        logger.debug("💤 보유 종목 없음 - 대기 모드 (30초 간격)")
+
+                    # 1. 매도 실행 (보유 종목 있을 때만)
+                    if has_positions:
+                        self.auto_trade_sell_stock()
 
                     # 2. 매수 조건 확인
                     # - 잔액 있는지
@@ -380,6 +392,12 @@ class TraderAdvanced(QMainWindow):
 
                         # 매수 실행
                         self.auto_trade_stock()
+
+                    # 다음 루프까지 대기
+                    time.sleep(sleep_time)
+                else:
+                    # 장시간 외: 10초마다 체크
+                    time.sleep(10)
 
             except KeyboardInterrupt:
                 logger.info("\n사용자에 의해 중단되었습니다")
