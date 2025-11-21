@@ -121,6 +121,13 @@ class TraderAdvanced(QMainWindow):
         self.exit_wait_minutes = 30
         """장 마감(15:30) 후 이 시간만큼 대기한 뒤 종료"""
 
+        # 매수 후보 없을 시 자동 종료 여부
+        self.exit_on_no_candidates = True
+        """
+        True: 매수 후보 없으면 즉시 종료 (권장, 일봉 collector용)
+        False: 60초마다 체크 계속 (분봉 collector 대비)
+        """
+
         # ==================================================
         # 📊 고급 전략 파라미터
         # ==================================================
@@ -144,6 +151,10 @@ class TraderAdvanced(QMainWindow):
         # 매수 후보 존재 여부 (None: 미스캔, True: 있음, False: 없음)
         self.buy_candidates_available = None
 
+        # 종료 요청 플래그
+        self.should_exit = False
+        self.exit_reason = ""
+
         logger.info("=" * 80)
         logger.info("⚙️  트레이더 설정")
         logger.info("=" * 80)
@@ -157,6 +168,7 @@ class TraderAdvanced(QMainWindow):
         logger.info(f"  장 마감 후 자동 종료: {'사용' if self.auto_exit_after_market_close else '미사용'}")
         if self.auto_exit_after_market_close:
             logger.info(f"  종료 대기 시간: {self.exit_wait_minutes}분")
+        logger.info(f"  매수 후보 없을 시 자동 종료: {'사용' if self.exit_on_no_candidates else '미사용'}")
         logger.info("=" * 80)
 
     def init_advanced_strategy(self):
@@ -221,6 +233,12 @@ class TraderAdvanced(QMainWindow):
                         else:
                             self.buy_candidates_available = False
                             logger.warning("❌ 오늘은 매수 후보가 없습니다 (스캔 완료)")
+
+                            # 매수 후보 없을 시 자동 종료 옵션 체크
+                            if self.exit_on_no_candidates:
+                                self.should_exit = True
+                                self.exit_reason = "매수 후보 없음"
+                                logger.info("🚪 매수 후보가 없으므로 자동 종료합니다")
                     else:
                         # 확인 불가 시 안전하게 True로 설정
                         self.buy_candidates_available = True
@@ -452,6 +470,19 @@ class TraderAdvanced(QMainWindow):
                     if should_try_buy:
                         # 매수 실행
                         self.auto_trade_stock()
+
+                    # 종료 플래그 체크
+                    if self.should_exit:
+                        logger.info("=" * 80)
+                        logger.info(f"🚪 자동 종료: {self.exit_reason}")
+                        logger.info(f"종료 시간: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                        logger.info("=" * 80)
+                        print("\n" + "=" * 80)
+                        print(f"✅ 정상 종료 ({self.exit_reason})")
+                        print(f"종료 시간: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                        print("💡 다음날 다시 실행하시면 됩니다.")
+                        print("=" * 80)
+                        break
 
                     # 다음 루프까지 대기
                     time.sleep(sleep_time)
