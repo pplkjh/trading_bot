@@ -42,7 +42,7 @@
 ### Morning Collector & Evening Collector
 ```
 프로그램: C:\Users\USER\anaconda3\envs\py37_32\python.exe
-인수: collector_advanced.py
+인수: collector_v3.py
 작업 디렉토리: C:\Users\USER\Desktop\Personal project\trading_bot
 ```
 
