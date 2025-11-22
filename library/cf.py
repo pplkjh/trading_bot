@@ -1,6 +1,6 @@
 
 # db 계정
-db_id='bot' # [mysql ID를 넣어주세요]
+db_id='root' # [mysql ID를 넣어주세요]
 # db ip
 db_ip='localhost'
 # db 패스워드
