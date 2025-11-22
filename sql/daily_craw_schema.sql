@@ -1,0 +1,94 @@
+-- =============================================================================
+-- Daily Craw Database Schema
+-- =============================================================================
+-- 파일명: sql/daily_craw_schema.sql
+-- 설명: 일봉 크롤링 데이터베이스(daily_craw) 스키마
+-- 실행 방법:
+--   mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS daily_craw CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+-- =============================================================================
+
+-- daily_craw 데이터베이스는 고정된 테이블 구조가 없습니다.
+-- 이 데이터베이스는 종목별로 동적 테이블을 생성하여 일봉 데이터를 저장합니다.
+
+-- =============================================================================
+-- 종목별 동적 테이블 설명
+-- =============================================================================
+-- daily_craw 데이터베이스에는 각 종목별로 테이블이 생성됩니다.
+--
+-- 테이블명 형식: {종목코드}_{종목명} (예: 005930_삼성전자, 000660_SK하이닉스)
+--
+-- 종목별 테이블 구조 (일봉 OHLCV 데이터):
+-- CREATE TABLE IF NOT EXISTS `{code}_{name}` (
+--     `index` BIGINT AUTO_INCREMENT PRIMARY KEY,
+--     `date` VARCHAR(20) NOT NULL COMMENT '날짜 (YYYYMMDD)',
+--     `open` INT NULL COMMENT '시가',
+--     high INT NULL COMMENT '고가',
+--     low INT NULL COMMENT '저가',
+--     `close` INT NULL COMMENT '종가',
+--     volume BIGINT NULL COMMENT '거래량',
+--     clo5 DOUBLE NULL COMMENT '5일 이동평균',
+--     clo10 DOUBLE NULL COMMENT '10일 이동평균',
+--     clo20 DOUBLE NULL COMMENT '20일 이동평균',
+--     clo40 DOUBLE NULL COMMENT '40일 이동평균',
+--     clo60 DOUBLE NULL COMMENT '60일 이동평균',
+--     clo80 DOUBLE NULL COMMENT '80일 이동평균',
+--     clo100 DOUBLE NULL COMMENT '100일 이동평균',
+--     clo120 DOUBLE NULL COMMENT '120일 이동평균',
+--     yes_clo5 DOUBLE NULL COMMENT '전일 5일 이동평균',
+--     yes_clo10 DOUBLE NULL COMMENT '전일 10일 이동평균',
+--     yes_clo20 DOUBLE NULL COMMENT '전일 20일 이동평균',
+--     yes_clo40 DOUBLE NULL COMMENT '전일 40일 이동평균',
+--     yes_clo60 DOUBLE NULL COMMENT '전일 60일 이동평균',
+--     yes_clo80 DOUBLE NULL COMMENT '전일 80일 이동평균',
+--     yes_clo100 DOUBLE NULL COMMENT '전일 100일 이동평균',
+--     yes_clo120 DOUBLE NULL COMMENT '전일 120일 이동평균',
+--     clo5_diff_rate DOUBLE NULL COMMENT '5일 이동평균 대비 등락률',
+--     clo10_diff_rate DOUBLE NULL COMMENT '10일 이동평균 대비 등락률',
+--     clo20_diff_rate DOUBLE NULL COMMENT '20일 이동평균 대비 등락률',
+--     clo40_diff_rate DOUBLE NULL COMMENT '40일 이동평균 대비 등락률',
+--     clo60_diff_rate DOUBLE NULL COMMENT '60일 이동평균 대비 등락률',
+--     clo80_diff_rate DOUBLE NULL COMMENT '80일 이동평균 대비 등락률',
+--     clo100_diff_rate DOUBLE NULL COMMENT '100일 이동평균 대비 등락률',
+--     clo120_diff_rate DOUBLE NULL COMMENT '120일 이동평균 대비 등락률',
+--     vol5 DOUBLE NULL COMMENT '5일 평균 거래량',
+--     vol10 DOUBLE NULL COMMENT '10일 평균 거래량',
+--     vol20 DOUBLE NULL COMMENT '20일 평균 거래량',
+--     vol40 DOUBLE NULL COMMENT '40일 평균 거래량',
+--     vol60 DOUBLE NULL COMMENT '60일 평균 거래량',
+--     vol80 DOUBLE NULL COMMENT '80일 평균 거래량',
+--     vol100 DOUBLE NULL COMMENT '100일 평균 거래량',
+--     vol120 DOUBLE NULL COMMENT '120일 평균 거래량',
+--     d1_diff DOUBLE NULL COMMENT '전일 대비 등락폭',
+--     d1_diff_rate DOUBLE NULL COMMENT '전일 대비 등락률',
+--     KEY ix_date (`date`)
+-- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+--
+-- 이러한 종목별 테이블은 library/collector_api.py의 코드에 의해
+-- 자동으로 생성되며, 키움 OpenAPI를 통해 일봉 데이터를 수집하여 저장합니다.
+--
+-- 데이터 수집 방법:
+--   1. collector_v3.py 실행
+--   2. 또는 trader.py를 통한 자동 수집
+-- =============================================================================
+
+SELECT '
+=============================================================================
+daily_craw 데이터베이스 생성 완료!
+
+이 데이터베이스는 고정 테이블이 없으며,
+종목별로 동적 테이블이 생성됩니다.
+
+테이블 생성 방식:
+  - 테이블명: {종목코드}_{종목명} (예: 005930_삼성전자)
+  - 자동 생성: collector_v3.py 실행 시 자동으로 종목별 테이블 생성
+
+데이터 수집:
+  1. collector_v3.py 실행으로 전체 종목 일봉 데이터 수집
+  2. library/collector_api.py의 daily_crawler 기능 활용
+
+주의사항:
+  - 키움 OpenAPI 연결 및 로그인 필요
+  - 데이터 수집은 장 마감 후 실행 권장
+  - 대량 데이터 수집 시 API 호출 제한 주의
+=============================================================================
+' as '완료 메시지';
