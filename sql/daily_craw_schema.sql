@@ -71,24 +71,24 @@
 --   2. 또는 trader.py를 통한 자동 수집
 -- =============================================================================
 
-SELECT '
-=============================================================================
-daily_craw 데이터베이스 생성 완료!
-
-이 데이터베이스는 고정 테이블이 없으며,
-종목별로 동적 테이블이 생성됩니다.
-
-테이블 생성 방식:
-  - 테이블명: {종목코드}_{종목명} (예: 005930_삼성전자)
-  - 자동 생성: collector_v3.py 실행 시 자동으로 종목별 테이블 생성
-
-데이터 수집:
-  1. collector_v3.py 실행으로 전체 종목 일봉 데이터 수집
-  2. library/collector_api.py의 daily_crawler 기능 활용
-
-주의사항:
-  - 키움 OpenAPI 연결 및 로그인 필요
-  - 데이터 수집은 장 마감 후 실행 권장
-  - 대량 데이터 수집 시 API 호출 제한 주의
-=============================================================================
-' as '완료 메시지';
+-- =============================================================================
+-- Database Creation Complete
+-- =============================================================================
+-- daily_craw database has been created!
+--
+-- This database has no fixed tables.
+-- Stock-specific tables are created dynamically.
+--
+-- Table naming convention:
+--   - Table name: {code}_{name} (e.g., 005930_Samsung)
+--   - Auto-created: When collector_v3.py runs
+--
+-- Data collection:
+--   1. Run collector_v3.py to collect daily OHLCV data
+--   2. Use library/collector_api.py daily_crawler feature
+--
+-- Notes:
+--   - Requires Kiwoom OpenAPI connection and login
+--   - Recommended to run after market close
+--   - Be aware of API rate limits for bulk data collection
+-- =============================================================================

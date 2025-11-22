@@ -41,7 +41,7 @@ INSERT INTO setting_data (
 SELECT 0, 0, 0, 0, 0, '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'
 WHERE NOT EXISTS (SELECT 1 FROM setting_data LIMIT 1);
 
-SELECT '✓ setting_data 테이블 생성 완료!' as status;
+-- Table created: setting_data
 
 -- -----------------------------------------------------------------------------
 -- 2. jango_data 테이블
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS jango_data (
     KEY ix_date (`date`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='일별 계좌 잔고 및 거래 통계';
 
-SELECT '✓ jango_data 테이블 생성 완료!' as status;
+-- Table created: jango_data
 
 -- -----------------------------------------------------------------------------
 -- 3. all_item_db 테이블
@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS all_item_db (
     KEY ix_sell_date (sell_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='모든 매수/매도 거래 내역';
 
-SELECT '✓ all_item_db 테이블 생성 완료!' as status;
+-- Table created: all_item_db
 
 -- -----------------------------------------------------------------------------
 -- 4. possessed_item 테이블
@@ -202,7 +202,7 @@ CREATE TABLE IF NOT EXISTS possessed_item (
     KEY ix_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='현재 보유 종목 정보';
 
-SELECT '✓ possessed_item 테이블 생성 완료!' as status;
+-- Table created: possessed_item
 
 -- -----------------------------------------------------------------------------
 -- 5. realtime_daily_buy_list 테이블
@@ -259,7 +259,7 @@ CREATE TABLE IF NOT EXISTS realtime_daily_buy_list (
     KEY ix_check_item (check_item)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='실시간 일일 매수 대상 종목 리스트';
 
-SELECT '✓ realtime_daily_buy_list 테이블 생성 완료!' as status;
+-- Table created: realtime_daily_buy_list
 
 -- -----------------------------------------------------------------------------
 -- 6. today_profit_list 테이블
@@ -275,26 +275,23 @@ CREATE TABLE IF NOT EXISTS today_profit_list (
     KEY ix_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='오늘 수익 종목 리스트';
 
-SELECT '✓ today_profit_list 테이블 생성 완료!' as status;
+-- Table created: today_profit_list
 
 -- =============================================================================
--- 스키마 생성 완료
+-- Schema Creation Complete
 -- =============================================================================
-SELECT '
-=============================================================================
-JackBot1_imi1 데이터베이스 스키마 생성이 완료되었습니다!
-
-생성된 테이블:
-  1. setting_data              - 봇 설정 및 상태 정보
-  2. jango_data                - 일별 계좌 잔고 및 거래 통계
-  3. all_item_db               - 모든 매수/매도 거래 내역
-  4. possessed_item            - 현재 보유 종목 정보
-  5. realtime_daily_buy_list   - 실시간 일일 매수 대상 종목 리스트
-  6. today_profit_list         - 오늘 수익 종목 리스트
-
-다음 단계:
-  1. daily_buy_list 데이터베이스 생성 및 pred_signal 테이블 추가
-  2. daily_craw 데이터베이스 생성
-  3. library/cf.py 파일의 DB 설정 확인
-=============================================================================
-' as '완료 메시지';
+-- JackBot1_imi1 database schema has been created successfully!
+--
+-- Created tables:
+--   1. setting_data              - Bot configuration and state
+--   2. jango_data                - Daily account balance and trading stats
+--   3. all_item_db               - All buy/sell transaction records
+--   4. possessed_item            - Currently held stocks
+--   5. realtime_daily_buy_list   - Real-time daily buy target list
+--   6. today_profit_list         - Today's profit stocks
+--
+-- Next steps:
+--   1. Create daily_buy_list database and add pred_signal table
+--   2. Create daily_craw database
+--   3. Verify DB settings in library/cf.py
+-- =============================================================================

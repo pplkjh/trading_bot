@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS stock_insincerity (
     KEY ix_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='불성실 공시 종목 정보';
 
-SELECT '✓ stock_insincerity 테이블 생성 완료!' as status;
+-- Table created: stock_insincerity
 
 -- -----------------------------------------------------------------------------
 -- 3. stock_managing 테이블
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS stock_managing (
     KEY ix_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='관리 종목 정보';
 
-SELECT '✓ stock_managing 테이블 생성 완료!' as status;
+-- Table created: stock_managing
 
 -- =============================================================================
 -- 날짜별 테이블 설명
@@ -103,20 +103,20 @@ SELECT '✓ stock_managing 테이블 생성 완료!' as status;
 -- 시작하여 일별로 매수 대상 종목 데이터를 저장합니다.
 -- =============================================================================
 
-SELECT '
-=============================================================================
-daily_buy_list 데이터베이스 스키마 생성이 완료되었습니다!
-
-생성된 테이블:
-  1. pred_signal         - AI 예측 신호 (pred_signal.sql로 별도 생성 필요)
-  2. stock_insincerity   - 불성실 공시 종목 정보
-  3. stock_managing      - 관리 종목 정보
-
-동적 테이블:
-  - 날짜별 테이블 (YYYYMMDD 형식)은 collector 실행 시 자동 생성됩니다
-
-다음 단계:
-  1. sql/pred_signal.sql 파일 실행
-  2. collector_v3.py 실행으로 날짜별 테이블 생성
-=============================================================================
-' as '완료 메시지';
+-- =============================================================================
+-- Schema Creation Complete
+-- =============================================================================
+-- daily_buy_list database schema has been created successfully!
+--
+-- Created tables:
+--   1. pred_signal         - AI prediction signals (create via pred_signal.sql)
+--   2. stock_insincerity   - Stocks with insincere disclosure
+--   3. stock_managing      - Stocks under management
+--
+-- Dynamic tables:
+--   - Date-based tables (YYYYMMDD format) will be auto-created by collector
+--
+-- Next steps:
+--   1. Run sql/pred_signal.sql
+--   2. Run collector_v3.py to create date-based tables
+-- =============================================================================
