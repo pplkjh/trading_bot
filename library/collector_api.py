@@ -86,7 +86,8 @@ class collector_api():
             self.realtime_daily_buy_list_check()
 
         # min_craw db (분별 데이터) 업데이트
-        if rows[0][8] != self.open_api.today:
+        # cf.use_min_crawler = True일 때만 실행
+        if self.open_api.cf.use_min_crawler and rows[0][8] != self.open_api.today:
             self.min_crawler_check()
 
         self.kind.craw()
@@ -1076,16 +1077,16 @@ class collector_api():
         logger.debug("py_check_balance!!!")
         # 일자별 실현손익 출력
         self.open_api.set_input_value("계좌번호", self.open_api.account_number)
-        # 	시작일자 = YYYYMMDD (20170101 연도4자리, 월 2자리, 일 2자리 형식)
-        self.open_api.set_input_value("시작일자", "20170101")
-        # 	종료일자 = YYYYMMDD (20170101 연도4자리, 월 2자리, 일 2자리 형식)
+        # 	시작일자 = YYYYMMDD (20230102 연도4자리, 월 2자리, 일 2자리 형식)
+        self.open_api.set_input_value("시작일자", "20230102")
+        # 	종료일자 = YYYYMMDD (20230102 연도4자리, 월 2자리, 일 2자리 형식)
         self.open_api.set_input_value("종료일자", self.open_api.today)
         self.open_api.comm_rq_data("opt10074_req", "opt10074", 0, "0329")
         while self.open_api.remained_data:
             # # comm_rq_data 호출하기 전에 반드시 set_input_value 해야한다. 초기화 되기 때문
             self.open_api.set_input_value("계좌번호", self.open_api.account_number)
-            # 	시작일자 = YYYYMMDD (20170101 연도4자리, 월 2자리, 일 2자리 형식)
-            self.open_api.set_input_value("시작일자", "20170101")
+            # 	시작일자 = YYYYMMDD (20230102 연도4자리, 월 2자리, 일 2자리 형식)
+            self.open_api.set_input_value("시작일자", "20230102")
             # 	종료일자 = YYYYMMDD (20170101 연도4자리, 월 2자리, 일 2자리 형식)
             self.open_api.set_input_value("종료일자", self.open_api.today)
             self.open_api.comm_rq_data("opt10074_req", "opt10074", 2, "0329")

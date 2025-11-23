@@ -1326,6 +1326,41 @@ class open_api(QAxWidget):
         else:
             return False
 
+    def _check_in_buy_list(self, code: str) -> bool:
+        """realtime_daily_buy_list에 종목이 있는지 확인"""
+        try:
+            sql = f"SELECT code FROM realtime_daily_buy_list WHERE code='{code}' LIMIT 1"
+            rows = self.engine_JB.execute(sql).fetchall()
+            return len(rows) > 0
+        except:
+            return False
+
+    def _get_buy_price(self, code: str) -> int:
+        """매수가 조회"""
+        try:
+            sql = f"SELECT purchase_price FROM all_item_db WHERE code='{code}' AND sell_date='0' ORDER BY buy_date DESC LIMIT 1"
+            rows = self.engine_JB.execute(sql).fetchall()
+            if rows:
+                return int(rows[0][0]) if rows[0][0] else 0
+            return 0
+        except:
+            return 0
+
+    def _get_sell_reason(self, profit_rate: float) -> str:
+        """매도 사유 판단"""
+        if profit_rate >= 10:
+            return "익절 (10% 이상)"
+        elif profit_rate >= 5:
+            return "익절 (5% 이상)"
+        elif profit_rate >= 0:
+            return "소폭 익절"
+        elif profit_rate >= -3:
+            return "소폭 손절"
+        elif profit_rate >= -5:
+            return "손절 (-5% 이하)"
+        else:
+            return "손절 (큰 손실)"
+
     # 리씨브
     # OnReceiveChejanData 이벤트가 발생할 때 호출되는 _receive_chejan_data는 다음과 같이 구현합니다.
     # get_chejan_data 메서드는 함수 인자인 FID 값을 통해 서로 다른 데이터를 얻을 수 있습니다.
@@ -1365,6 +1400,8 @@ class open_api(QAxWidget):
             # 현재 체결 진행 중인 코드를 키움증권으로 부터 가져온다
             # 종목 코드
             code = code_pattern.search(self.get_chejan_data(9001)).group(0)  # 주식 코드가 숫자만오지 않아서 정규식으로 필터링
+            # 종목명
+            code_name = self.get_chejan_data(302).strip()
             # 주문 번호
             order_num = self.get_chejan_data(9203)
             if not order_num:
@@ -1407,6 +1444,27 @@ class open_api(QAxWidget):
                         if chegyul_fail_amount_temp == "0":
                             logger.debug("완벽히 싹 다 체결됨!!!!!!!!!!!!!!!!!!!!!!!!!")
                             self.db_to_all_item(order_num, code, 0, purchase_price, 0)
+
+                            # 매수 체결 로깅
+                            try:
+                                from library.trading_logger import trading_logger
+                                # 체결 수량 계산
+                                quantity = int(self.get_chejan_data(911)) if self.get_chejan_data(911) else 0
+                                total_value = purchase_price * quantity if quantity > 0 else 0
+
+                                # 전략 정보 조회 (realtime_daily_buy_list에 있으면 고급 전략)
+                                strategy_name = "고급 전략" if self._check_in_buy_list(code) else "기본 전략"
+
+                                trading_logger.log_buy(
+                                    code=code,
+                                    name=code_name if code_name else code,
+                                    price=purchase_price,
+                                    quantity=quantity,
+                                    total_value=total_value,
+                                    reason=strategy_name
+                                )
+                            except Exception as e:
+                                logger.warning(f"매수 로깅 실패: {e}")
                         else:
                             logger.debug("체결 되었지만 덜 체결 됨!!!!!!!!!!!!!!!!!!")
                             self.db_to_all_item(order_num, code, 1, purchase_price, 0)
@@ -1428,6 +1486,35 @@ class open_api(QAxWidget):
                         if chegyul_fail_amount_temp == "0":
                             logger.debug("all db에 존재하고 전량 매도하는 경우!!!!!")
                             self.sell_final_check(code)
+
+                            # 매도 체결 로깅
+                            try:
+                                from library.trading_logger import trading_logger
+                                # 체결 정보 가져오기
+                                quantity = int(self.get_chejan_data(911)) if self.get_chejan_data(911) else 0
+                                sell_price = purchase_price  # 현재가 = 매도 체결가
+                                total_value = sell_price * quantity if quantity > 0 else 0
+
+                                # 매수가 조회 (all_item_db에서)
+                                buy_price = self._get_buy_price(code)
+                                profit = (sell_price - buy_price) * quantity if buy_price > 0 and quantity > 0 else 0
+                                profit_rate = ((sell_price - buy_price) / buy_price * 100) if buy_price > 0 else 0
+
+                                # 매도 사유 판단
+                                sell_reason = self._get_sell_reason(profit_rate)
+
+                                trading_logger.log_sell(
+                                    code=code,
+                                    name=code_name if code_name else code,
+                                    price=sell_price,
+                                    quantity=quantity,
+                                    total_value=total_value,
+                                    profit=profit,
+                                    profit_rate=profit_rate,
+                                    reason=sell_reason
+                                )
+                            except Exception as e:
+                                logger.warning(f"매도 로깅 실패: {e}")
                         else:
                             logger.debug("all db에 존재하고 수량 남겨 놓고 매도하는 경우!!!!!")
                             self.sell_chegyul_fail_check(code)
@@ -1779,3 +1866,232 @@ class open_api(QAxWidget):
         for x in data.split(';'):
             temp.append(x[1:])
         return temp
+
+    # ============================================================================
+    # 고급 전략 통합 (Advanced Strategy Integration)
+    # ============================================================================
+
+    def init_advanced_trading_engine(self, portfolio_value: float = None):
+        """
+        고급 매매 엔진 초기화
+
+        Parameters:
+        -----------
+        portfolio_value : float
+            포트폴리오 가치 (없으면 자동 계산)
+        """
+        try:
+            from library.advanced_trading_engine import AdvancedTradingEngine
+
+            # 포트폴리오 가치 계산
+            if portfolio_value is None:
+                self.check_balance()
+                self.get_d2_deposit()
+                portfolio_value = int(self.d2_deposit_before_format) + int(self.total_purchase_price)
+
+            # 엔진 초기화
+            self.advanced_engine = AdvancedTradingEngine(
+                portfolio_value=portfolio_value,
+                db_name=self.db_name,
+                risk_profile='aggressive',  # 설정 가능
+                use_date_based_strategy=True
+            )
+
+            logger.info(f"✅ 고급 매매 엔진 초기화 완료 (포트폴리오: {portfolio_value:,}원)")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ 고급 매매 엔진 초기화 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def get_advanced_buy_list(self, use_advanced_strategy: bool = True):
+        """
+        고급 전략으로 매수 리스트 가져오기
+
+        Parameters:
+        -----------
+        use_advanced_strategy : bool
+            True: 고급 전략 사용
+            False: 기존 방식 사용
+        """
+        # 기존 방식
+        if not use_advanced_strategy:
+            return self.get_today_buy_list()
+
+        logger.info("\n" + "="*80)
+        logger.info("🚀 고급 전략으로 매수 리스트 생성")
+        logger.info("="*80)
+
+        try:
+            # 엔진 초기화 확인
+            if not hasattr(self, 'advanced_engine'):
+                if not self.init_advanced_trading_engine():
+                    logger.error("고급 엔진 초기화 실패 - 기존 방식 사용")
+                    return self.get_today_buy_list()
+
+            # 현재 포지션 가져오기
+            self.check_balance()
+            current_positions = self._get_current_positions()
+
+            # 오늘 손익 계산
+            today_pnl = self._calculate_today_pnl()
+
+            # 매수 리스트 생성
+            buy_list = self.advanced_engine.get_today_buy_list(
+                current_positions=current_positions,
+                today_pnl=today_pnl,
+                top_n=20
+            )
+
+            if not buy_list:
+                logger.warning("❌ 고급 전략에서 매수 후보를 찾지 못했습니다.")
+                return
+
+            # 출력
+            self.advanced_engine.print_buy_list(buy_list)
+
+            # realtime_daily_buy_list 테이블에 저장 (기존 시스템과 호환)
+            self._save_buy_list_to_db(buy_list)
+
+            # 기존 방식으로 매수 실행
+            self.get_today_buy_list()
+
+        except Exception as e:
+            logger.error(f"❌ 고급 전략 매수 리스트 생성 오류: {e}")
+            import traceback
+            traceback.print_exc()
+
+            # 오류 시 기존 방식 사용
+            logger.warning("기존 방식으로 전환합니다...")
+            self.get_today_buy_list()
+
+    def get_advanced_sell_list(self):
+        """
+        고급 전략으로 매도 리스트 가져오기
+
+        Returns:
+        --------
+        List[Dict] : 매도 시그널 리스트
+        """
+        try:
+            # 엔진 초기화 확인
+            if not hasattr(self, 'advanced_engine'):
+                logger.warning("고급 엔진이 초기화되지 않음 - 기존 방식 사용")
+                return []
+
+            # 현재 포지션 가져오기
+            current_positions = self._get_current_positions()
+
+            if not current_positions:
+                logger.info("보유 종목이 없습니다.")
+                return []
+
+            # 매도 리스트 생성
+            sell_list = self.advanced_engine.get_today_sell_list(current_positions)
+
+            # 출력
+            if sell_list:
+                self.advanced_engine.print_sell_list(sell_list)
+
+            return sell_list
+
+        except Exception as e:
+            logger.error(f"❌ 고급 전략 매도 리스트 생성 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    def _get_current_positions(self):
+        """
+        현재 보유 포지션 가져오기 (advanced_engine 형식으로 변환)
+        """
+        positions = []
+
+        try:
+            # possessed_item 테이블에서 보유 종목 가져오기
+            # 주의: puchase_price는 철자 오류지만 실제 DB 컬럼명임
+            sql = """
+            SELECT code, date, puchase_price, holding_amount
+            FROM possessed_item
+            WHERE holding_amount > 0
+            """
+
+            rows = self.engine_JB.execute(sql).fetchall()
+
+            for row in rows:
+                code, buy_date, puchase_price, holding_amount = row
+
+                # 매수일 변환
+                if isinstance(buy_date, str):
+                    entry_date = datetime.datetime.strptime(buy_date, "%Y%m%d")
+                else:
+                    entry_date = buy_date
+
+                positions.append({
+                    'code': code,
+                    'entry_price': float(puchase_price),
+                    'entry_date': entry_date,
+                    'shares': int(holding_amount),
+                    'highest_price': float(puchase_price)  # TODO: 실제 최고가 추적 필요
+                })
+
+            logger.debug(f"현재 보유 종목: {len(positions)}개")
+
+        except Exception as e:
+            logger.error(f"포지션 조회 오류: {e}")
+
+        return positions
+
+    def _calculate_today_pnl(self) -> float:
+        """
+        오늘 손익 계산
+        """
+        try:
+            # 총 평가손익에서 계산
+            if hasattr(self, 'total_eval_profit_loss_val_total'):
+                return float(self.total_eval_profit_loss_val_total)
+            return 0.0
+        except:
+            return 0.0
+
+    def _save_buy_list_to_db(self, buy_list):
+        """
+        매수 리스트를 realtime_daily_buy_list 테이블에 저장
+
+        Parameters:
+        -----------
+        buy_list : List[Dict]
+            고급 전략에서 생성된 매수 리스트
+        """
+        try:
+            # 테이블이 없으면 생성
+            if not self.sf.is_simul_table_exist(self.db_name, "realtime_daily_buy_list"):
+                logger.info("realtime_daily_buy_list 테이블 생성...")
+                # TODO: 테이블 생성 로직 (기존 시스템 참고)
+                return
+
+            # 기존 데이터 삭제
+            sql = "DELETE FROM realtime_daily_buy_list"
+            self.engine_JB.execute(sql)
+
+            # 새 데이터 삽입
+            for item in buy_list:
+                sql = """
+                INSERT INTO realtime_daily_buy_list
+                (code, close, check_item, date)
+                VALUES ('%s', %s, 0, '%s')
+                """
+                self.engine_JB.execute(sql % (
+                    item['code'],
+                    item['current_price'],
+                    self.today
+                ))
+
+            logger.info(f"✅ realtime_daily_buy_list에 {len(buy_list)}개 종목 저장 완료")
+
+        except Exception as e:
+            logger.error(f"매수 리스트 DB 저장 오류: {e}")
+            import traceback
+            traceback.print_exc()

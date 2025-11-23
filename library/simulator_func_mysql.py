@@ -113,9 +113,44 @@ class simulator_func_mysql:
         ###!@####################################################################################################################
         # 아래 부터는 알고리즘 별로 별도의 설정을 해주는 부분
 
+        # ==================== 새로운 고급 전략 (1-19번) ====================
+
         if self.simul_num == 1:
+            # 🚀 고급 통합 전략: Multi-Factor + Hybrid Strategy + Risk Management
+            self.simul_start_date = "20230102"
+
+            # 분별 시뮬레이션 옵션
+            self.use_min = False
+            self.only_nine_buy = False
+
+            # 알고리즘 선택
+            self.db_to_realtime_daily_buy_list_num = 100  # 고급 전략 매수
+            self.sell_list_num = 100  # 고급 전략 매도
+
+            # 자본 설정
+            self.start_invest_price = 10000000
+            self.invest_unit = 1000000  # 기본 단위 (ATR 기반 동적 조정)
+            self.limit_money = 2000000
+
+            # 고급 전략 특화 설정
+            self.risk_profile = 'aggressive'  # conservative, moderate, aggressive
+            self.max_positions = 10  # 최대 포지션 수
+            self.atr_multiplier = 2.0  # ATR 손절선 배수
+            self.trailing_stop_atr = 1.5  # 트레일링 스톱 ATR 배수
+
+            # 익절/손절은 동적 계산 (고정값 사용 안함)
+            self.sell_point = 999  # 사용 안함 (동적 익절)
+            self.losscut_point = -999  # 사용 안함 (ATR 기반 손절)
+
+            # 매수 제한
+            self.invest_limit_rate = 1.03
+            self.invest_min_limit_rate = 0.97
+
+        # ==================== 기존 전략 (20번대로 이동) ====================
+
+        elif self.simul_num == 21:
             # 시뮬레이팅 시작 일자(분 별 시뮬레이션의 경우 최근 1년 치 데이터만 있기 때문에 start_date 조정 필요)
-            self.simul_start_date = "20200102"
+            self.simul_start_date = "20230102"
             ###
             # # 분별 시뮬레이션을 사용하고 싶을 경우 아래 옵션을 True로 변경하여 사용
             self.use_min = False
@@ -152,9 +187,9 @@ class simulator_func_mysql:
             # 실전/모의 봇 돌릴 때 매수하는 순간 종목의 최신 종가 보다 -2% 이하로 떨어진 경우 사지 않도록 하는 설정(변경 가능)
             self.invest_min_limit_rate = 0.96
 
-        elif self.simul_num == 2:
+        elif self.simul_num == 22:
             # 시뮬레이팅 시작 일자
-            self.simul_start_date = "20210102"
+            self.simul_start_date = "20230102"
 
             # ######## 알고리즘 선택 #############
             # 매수 리스트 설정 알고리즘 번호
@@ -180,7 +215,7 @@ class simulator_func_mysql:
             # 실전/모의 봇 돌릴 때 매수하는 순간 종목의 최신 종가 보다 -2% 이하로 떨어진 경우 사지 않도록 하는 설정(변경 가능)
             self.invest_min_limit_rate = 0.98
 
-        elif self.simul_num == 3:
+        elif self.simul_num == 23:
 
             # 시뮬레이팅 시작 일자
 
@@ -215,7 +250,7 @@ class simulator_func_mysql:
             # 실전/모의 봇 돌릴 때 매수하는 순간 종목의 최신 종가 보다 -2% 이하로 떨어진 경우 사지 않도록 하는 설정(변경 가능)
             self.invest_min_limit_rate = 0.98
 
-        elif self.simul_num in range(4,17):
+        elif self.simul_num in range(24,37):
             # 시뮬레이팅 시작 일자(분 별 시뮬레이션의 경우 최근 1년 치 데이터만 있기 때문에 start_date 조정 필요)
             self.simul_start_date = "20210102"
 
@@ -247,11 +282,11 @@ class simulator_func_mysql:
             # 실전/모의 봇 돌릴 때 매수하는 순간 종목의 최신 종가 보다 -2% 이하로 떨어진 경우 사지 않도록 하는 설정(변경 가능)
             self.invest_min_limit_rate = 0.98
 
-            if self.simul_num == 4:
+            if self.simul_num == 24:
                 self.interval_month = 3
                 self.invest_unit = 50000
 
-            elif self.simul_num == 5:
+            elif self.simul_num == 25:
                 self.total_transaction_price = 10000000000
                 self.interval_month = 3
                 self.vol_mul = 3
@@ -259,17 +294,17 @@ class simulator_func_mysql:
                 # self.use_min= True
                 # self.only_nine_buy = False
 
-            elif self.simul_num == 11:  # AI알고리즘 사용
+            elif self.simul_num == 31:  # AI알고리즘 사용
                 # AI알고리즘 사용 여부 (고급 챕터에서 소개)
                 self.use_ai = True  # ai 알고리즘 사용 시 True 사용 안하면 False
                 self.ai_filter_num = 1  # ai 알고리즘 선택
 
-            elif self.simul_num == 12:  # 종목 정보 테이블을 활용한 우량주, 고신용 종목 매수 알고리즘
+            elif self.simul_num == 32:  # 종목 정보 테이블을 활용한 우량주, 고신용 종목 매수 알고리즘
                 # audit이 정상이고 거래정지, 관리종목을 제외한 종목 리스트를 매수
                 self.db_to_realtime_daily_buy_list_num = 12
 
             # 실시간 조건 매수
-            elif self.simul_num in (13, 14):
+            elif self.simul_num in (33, 34):
                 self.simul_start_date = "20220102"
                 self.use_min = True
                 # 아침 9시에만 매수를 하고 싶은 경우 True, 9시가 아니어도 매수를 하고 싶은 경우 False(분별 시뮬레이션, trader 적용 가능 / 일별 시뮬레이션은 9시에만 매수, 매도)
@@ -279,7 +314,7 @@ class simulator_func_mysql:
                 # 특정 거래대금 보다 x배 이상 증가 할 경우 매수
                 self.volume_up = 2
                 #
-                if self.simul_num == 13:
+                if self.simul_num == 33:
                     self.trade_check_num = 2
                     # 매수하는 순간 종목의 최신 종가 보다 1% 이상 오른 경우 사지 않도록 하는 설정(변경 가능)
                     self.invest_limit_rate = 1.01
@@ -287,15 +322,15 @@ class simulator_func_mysql:
                     self.invest_min_limit_rate = 0.98
 
                 # 래리윌리엄스 변동성 돌파 전략
-                elif self.simul_num == 14:
+                elif self.simul_num == 34:
                     self.trade_check_num = 3
                     self.rarry_k = 0.5
             ### ETF
-            elif self.simul_num == 16:
+            elif self.simul_num == 36:
                 self.db_to_realtime_daily_buy_list_num = 11
 
             # 절대 모멘텀 / 상대 모멘텀
-            elif self.simul_num in range(7, 10):
+            elif self.simul_num in range(27, 31):
                 # 매수 리스트 설정 알고리즘 번호(절대모멘텀 code ver)
                 self.db_to_realtime_daily_buy_list_num = self.simul_num
                 # 매도 리스트 설정 알고리즘 번호(절대모멘텀 code ver)
@@ -310,13 +345,13 @@ class simulator_func_mysql:
                 # self.use_min = True
                 # self.only_nine_buy = True
 
-                if self.simul_num == 8:
+                if self.simul_num == 28:
                     # 매수 리스트 설정 알고리즘 번호 (절대모멘텀 query ver)
                     self.db_to_realtime_daily_buy_list_num = 8
                     # 매도 리스트 설정 알고리즘 번호 (절대모멘텀 query ver)
                     self.sell_list_num = 5
 
-                elif self.simul_num == 9:
+                elif self.simul_num == 29:
                     # 매수 리스트 설정 알고리즘 번호 (절대모멘텀 query ver)
                     self.db_to_realtime_daily_buy_list_num = 8
                     # 매도 리스트 설정 알고리즘 번호 (절대모멘텀 query ver + losscut point 추가)
@@ -324,7 +359,7 @@ class simulator_func_mysql:
                     # 손절 수익률 기준치
                     self.losscut_point = -2
 
-                elif self.simul_num == 10:
+                elif self.simul_num == 30:
                     # 매수 리스트 설정 알고리즘 번호 (상대모멘텀 query ver)
                     self.db_to_realtime_daily_buy_list_num = 9
                     # 매도 리스트 설정 알고리즘 번호 (절대모멘텀 query ver + losscut point 추가)
@@ -836,6 +871,38 @@ class simulator_func_mysql:
             '''
             realtime_daily_buy_list = self.engine_daily_buy_list.execute(sql).fetchall()
 
+        # 🚀 고급 통합 전략: Multi-Factor Scoring + Hybrid Strategy
+        elif self.db_to_realtime_daily_buy_list_num == 100:
+            sql = '''
+                SELECT * FROM `''' + date_rows_yesterday + '''` a
+                WHERE
+                    -- 코넥스 제외
+                    NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code=b.code)
+
+                    -- 거래량 조건: 5일 평균 대비 1.5배 이상
+                    AND volume > vol5 * 1.5
+
+                    -- 모멘텀 조건: 5일선 > 20일선 (상승 추세)
+                    AND clo5 > clo20
+
+                    -- 평균회귀 방어: 20일선 대비 너무 높지 않음 (5% 이내)
+                    AND close < clo20 * 1.05
+
+                    -- 변동성 필터: 급등주 제외 (전일 대비 3% 이내 상승)
+                    AND d1_diff_rate < 3
+                    AND d1_diff_rate > -3
+
+                    -- 가격 제한: 저가주 및 고가주 제외
+                    AND close BETWEEN 5000 AND 500000
+
+                ORDER BY
+                    -- 종합 스코어: 거래량 + 모멘텀
+                    (volume / vol20) * (clo5 / clo20) DESC
+
+                LIMIT ''' + str(self.max_positions) + '''
+            '''
+            realtime_daily_buy_list = self.engine_daily_buy_list.execute(sql).fetchall()
+
         ######################################################################################################################################################################################
         else:
             print(f"{self.simul_num}번 알고리즘에 대한 self.db_to_realtime_daily_buy_list_num 설정이 비었습니다. variable_setting 함수에서 self.db_to_realtime_daily_buy_list_num 을 확인해주세요.")
@@ -861,9 +928,8 @@ class simulator_func_mysql:
                                                             'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
                                                             'vol100', 'vol120'])
 
-            # lamda는 익명 함수이다. 여기서 int로 param을 보내야 6d ( 정수) 에서 안걸린다.
-            df_realtime_daily_buy_list['code'] = df_realtime_daily_buy_list['code'].apply(
-                lambda x: "{:0>6d}".format(int(x)))
+            # 종목코드를 6자리 문자열로 변환 (우선주 코드 'xxxRx' 형태도 처리)
+            df_realtime_daily_buy_list['code'] = df_realtime_daily_buy_list['code'].astype(str).str.zfill(6)
 
             # 시뮬레이터의 경우
             if self.op != 'real':
@@ -1380,6 +1446,42 @@ class simulator_func_mysql:
                 "OR ALLDB.rate <= '%s')"
            sell_list = self.engine_simulator.execute(sql % (self.diff_point * (-1), self.losscut_point)).fetchall()
 
+        # 🚀 고급 통합 전략: Dynamic Trailing Stop + Adaptive Profit Target
+        elif self.sell_list_num == 100:
+            sell_list = []
+            # 보유 중인 종목 조회
+            sql = "SELECT code, rate, present_price, valuation_profit, purchase_price FROM all_item_db WHERE sell_date = 0 GROUP BY code"
+            holdings = self.engine_simulator.execute(sql).fetchall()
+
+            for holding in holdings:
+                code = holding[0]
+                rate = holding[1]  # 현재 수익률
+                present_price = holding[2]
+                valuation_profit = holding[3]
+                buy_price = holding[4]  # purchase_price를 buy_price 변수로 사용
+
+                # 동적 손절: 수익 구간별 차등 적용
+                if rate > 10:
+                    # 10% 이상 수익 시: 5% 역행 시 매도 (트레일링)
+                    stop_loss = -5
+                elif rate > 5:
+                    # 5-10% 수익 시: 3% 역행 시 매도
+                    stop_loss = -3
+                elif rate > 0:
+                    # 0-5% 수익 시: -2% 도달 시 매도
+                    stop_loss = -2
+                else:
+                    # 손실 구간: -3% 손절
+                    stop_loss = -3
+
+                # 동적 익절: 변동성 구간별 차등 적용
+                if rate >= 15:
+                    # 15% 수익 달성 시 익절
+                    sell_list.append(holding[:4])  # code, rate, present_price, valuation_profit
+                elif rate <= stop_loss:
+                    # 손절선 도달
+                    sell_list.append(holding[:4])
+
         ##################################################################################################################################################################################################################
         else:
             print(f"{self.simul_num}번 알고리즘에 대한 self.sell_list_num 설정이 비었습니다. variable_setting 함수에서 self.sell_list_num을 확인해주세요.")
@@ -1654,25 +1756,25 @@ class simulator_func_mysql:
                 sql = "UPDATE jango_data SET today_buy_today_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date like '%s' and (sell_rate >= '%s' ) group by code ) b) WHERE date='%s'"
                 self.engine_simulator.execute(sql % ("%%" + rows[i][0] + "%%", "%%" + rows[i][0] + "%%", 0, rows[i][0]))
 
-                sql = "UPDATE jango_data SET today_buy_today_profitcut_rate= round(today_buy_today_profitcut_count /today_buy_count *100,2) WHERE date = '%s'"
+                sql = "UPDATE jango_data SET today_buy_today_profitcut_rate= CASE WHEN today_buy_count = 0 THEN 0 ELSE round(today_buy_today_profitcut_count /today_buy_count *100,2) END WHERE date = '%s'"
                 self.engine_simulator.execute(sql % (rows[i][0]))
 
                 sql = "UPDATE jango_data SET today_buy_today_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date like '%s' and sell_rate < '%s'  group by code ) b) WHERE date='%s'"
                 self.engine_simulator.execute(sql % ("%%" + rows[i][0] + "%%", "%%" + rows[i][0] + "%%", 0, rows[i][0]))
 
-                sql = "UPDATE jango_data SET today_buy_today_losscut_rate=round(today_buy_today_losscut_count /today_buy_count *100,2) WHERE date = '%s'"
+                sql = "UPDATE jango_data SET today_buy_today_losscut_rate= CASE WHEN today_buy_count = 0 THEN 0 ELSE round(today_buy_today_losscut_count /today_buy_count *100,2) END WHERE date = '%s'"
                 self.engine_simulator.execute(sql % (rows[i][0]))
 
                 sql = "UPDATE jango_data SET today_buy_total_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_rate >= '%s'  group by code ) b) WHERE date='%s'"
                 self.engine_simulator.execute(sql % ("%%" + rows[i][0] + "%%", 0, rows[i][0]))
 
-                sql = "UPDATE jango_data SET today_buy_total_profitcut_rate=round(today_buy_total_profitcut_count /today_buy_count *100,2) WHERE date = '%s'"
+                sql = "UPDATE jango_data SET today_buy_total_profitcut_rate= CASE WHEN today_buy_count = 0 THEN 0 ELSE round(today_buy_total_profitcut_count /today_buy_count *100,2) END WHERE date = '%s'"
                 self.engine_simulator.execute(sql % (rows[i][0]))
 
                 sql = "UPDATE jango_data SET today_buy_total_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_rate < '%s'  group by code ) b) WHERE date='%s'"
                 self.engine_simulator.execute(sql % ("%%" + rows[i][0] + "%%", 0, rows[i][0]))
 
-                sql = "UPDATE jango_data SET today_buy_total_losscut_rate=round(today_buy_total_losscut_count/today_buy_count*100,2) WHERE date = '%s'"
+                sql = "UPDATE jango_data SET today_buy_total_losscut_rate= CASE WHEN today_buy_count = 0 THEN 0 ELSE round(today_buy_total_losscut_count/today_buy_count*100,2) END WHERE date = '%s'"
                 self.engine_simulator.execute(sql % (rows[i][0]))
         print('jango_data 최종 정산 완료')
 
