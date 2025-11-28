@@ -1,5 +1,39 @@
 
 import pandas as pd
+import urllib.request
+import urllib.error
+from io import StringIO
+
+# KRX 데이터를 안전하게 가져오는 헬퍼 함수
+def safe_read_html(url):
+    """HTTPS 리다이렉트 없이 KRX 데이터를 가져옵니다"""
+    try:
+        # User-Agent 설정
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'text/html,application/xhtml+xml',
+        }
+        req = urllib.request.Request(url, headers=headers)
+
+        # 일반적인 요청으로 데이터 가져오기
+        with urllib.request.urlopen(req, timeout=30) as response:
+            # 바이트 데이터 읽기
+            data = response.read()
+
+            # 인코딩 감지 시도 (EUC-KR 또는 CP949)
+            try:
+                html = data.decode('euc-kr')
+            except UnicodeDecodeError:
+                try:
+                    html = data.decode('cp949')
+                except UnicodeDecodeError:
+                    html = data.decode('utf-8', errors='ignore')
+
+            return pd.read_html(StringIO(html), header=0)[0]
+
+    except Exception as e:
+        print(f"Error fetching data from {url}: {e}")
+        raise
 
 class StockItem():
     def __init__(self):
@@ -12,10 +46,7 @@ class StockItem():
     # 코스피 종목 리스트를 가져오는 메서드
     def get_item_kospi(self):
         print("get_item_kospi!!")
-        self.code_df_kospi = \
-        pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=stockMkt',
-                     header=0)[
-            0]  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
+        self.code_df_kospi = safe_read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=stockMkt')  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
 
         # 6자리 만들고 앞에 0을 붙인다.
         self.code_df_kospi.종목코드 = self.code_df_kospi.종목코드.map('{:06d}'.format)
@@ -30,10 +61,7 @@ class StockItem():
     # 코스닥 종목 리스트를 가져오는 메서드
     def get_item_kosdaq(self):
         print("get_item_kosdaq!!")
-        self.code_df_kosdaq = \
-        pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=kosdaqMkt',
-                     header=0)[
-            0]  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
+        self.code_df_kosdaq = safe_read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=kosdaqMkt')  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
 
         # 6자리 만들고 앞에 0을 붙인다.
         self.code_df_kosdaq.종목코드 = self.code_df_kosdaq.종목코드.map('{:06d}'.format)

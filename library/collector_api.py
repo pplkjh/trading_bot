@@ -782,7 +782,7 @@ class collector_api():
         logger.debug(today_profit_item)
 
         if len(today_profit_item) > 0:
-            today_profit_item.to_sql('today_profit_list', self.engine_JB, if_exists='append')
+            today_profit_item.to_sql('today_profit_list', self.engine_JB, if_exists='append', index=False)
         sql = "UPDATE setting_data SET today_profit='%s' limit 1"
         self.engine_JB.execute(sql % (self.open_api.today))
         # self.open_api.jackbot_db_con.commit()
@@ -893,8 +893,21 @@ class collector_api():
 
         jango.loc[0, 'total_losscut_count'] = int(rows[0][0])
 
+        # 데이터베이스에 존재하는 컬럼만 필터링
+        db_columns = ['date', 'total_asset', 'd2_deposit', 'total_invest', 'today_profit', 'today_earning_rate',
+                      'today_buy_count', 'today_sell_count', 'today_buy_total_sell_count', 'today_buy_total_possess_count',
+                      'today_buy_today_profitcut_count', 'today_buy_today_profitcut_rate',
+                      'today_buy_today_losscut_count', 'today_buy_today_losscut_rate',
+                      'today_buy_total_profitcut_count', 'today_buy_total_profitcut_rate',
+                      'today_buy_total_losscut_count', 'today_buy_total_losscut_rate']
+        jango_filtered = jango[[col for col in db_columns if col in jango.columns]]
+
+        # 오늘 날짜의 기존 레코드가 있으면 삭제 (중복 방지)
+        sql_delete = "DELETE FROM jango_data WHERE date='%s'"
+        self.engine_JB.execute(sql_delete % self.open_api.today)
+
         # 데이터베이스에 테이블이 존재할 때 수행 동작을 지정한다. 'fail', 'replace', 'append' 중 하나를 사용할 수 있는데 기본값은 'fail'이다. 'fail'은 데이터베이스에 테이블이 있다면 아무 동작도 수행하지 않는다. 'replace'는 테이블이 존재하면 기존 테이블을 삭제하고 새로 테이블을 생성한 후 데이터를 삽입한다. 'append'는 테이블이 존재하면 데이터만을 추가한다.
-        jango.to_sql('jango_data', self.engine_JB, if_exists='append')
+        jango_filtered.to_sql('jango_data', self.engine_JB, if_exists='append', index=False)
 
         sql = "select date from jango_data"
         rows = self.engine_JB.execute(sql).fetchall()
@@ -921,7 +934,7 @@ class collector_api():
             self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
 
             # today_buy_total_sell_count ( 익절, 손절 포함)
-            sql = "UPDATE jango_data SET today_buy_total_sell_count=(select count(*) from (select code from all_item_db a where buy_date like '%s' and (a.sell_date is not null or a.rate_std>='%s') group by code ) temp) WHERE date='%s'"
+            sql = "UPDATE jango_data SET today_buy_total_sell_count=(select count(*) from (select code from all_item_db a where buy_date like '%s' and a.sell_date != '%s' group by code ) temp) WHERE date='%s'"
 
             self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
 
@@ -929,10 +942,10 @@ class collector_api():
             sql = "UPDATE jango_data SET today_buy_total_possess_count=(select count(*) from (select code from all_item_db a where buy_date like '%s' and a.sell_date = '%s' group by code ) temp) WHERE date='%s'"
             self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
 
-            # today_buy_today_profitcut_count      rate_std가 0보다 큰 놈도 추가 (팔지않았더라도)
-            sql = "UPDATE jango_data SET today_buy_today_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date like '%s' and (sell_rate >='%s' or rate_std>='%s'  ) group by code ) temp) WHERE date='%s'"
+            # today_buy_today_profitcut_count
+            sql = "UPDATE jango_data SET today_buy_today_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date like '%s' and sell_rate >='%s' group by code ) temp) WHERE date='%s'"
             # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0] + "%%", 0, 0, rows[i][0]))
+            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0] + "%%", 0, rows[i][0]))
             # self.open_api.jackbot_db_con.commit()
 
             # today_buy_today_profitcut_rate , 오늘 산놈들 중에서 오늘 익절한놈
@@ -977,96 +990,99 @@ class collector_api():
             self.engine_JB.execute(sql % (rows[i][0], rows[i][0]))
             # self.open_api.jackbot_db_con.commit()
 
-            # today_buy_reinvest_count0_sell_count 오늘만 해당되는게 아니고 전체 다
-            sql = "UPDATE jango_data SET today_buy_reinvest_count0_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=0 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # NOTE: The following reinvest_count related queries are disabled because the all_item_db and jango_data tables
+            # do not have reinvest_count columns in the current schema
 
-            # today_buy_reinvest_count1_sell_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count1_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=1 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
-
-            # today_buy_reinvest_count2_sell_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count2_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=2 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
-
-            # today_buy_reinvest_count3_sell_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count3_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=3 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
-
-            # today_buy_reinvest_count4_sell_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count4_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=4 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
-
-            # today_buy_reinvest_count4_sell_profitcut_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count4_sell_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=4 and sell_rate >='%s' group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
-
-            #   today_buy_reinvest_count4_sell_losscut_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count4_sell_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=4 and sell_rate <'%s' group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
-
-            # today_buy_reinvest_count5_sell_count
-
-            sql = "UPDATE jango_data SET today_buy_reinvest_count5_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=5 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
-
-            # today_buy_reinvest_count5_sell_profitcut_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count5_sell_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=5 and sell_rate >='%s' group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
-
-            #  today_buy_reinvest_count5_sell_losscut_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count5_sell_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=5 and sell_rate <'%s' group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
-
-            # today_buy_reinvest_count0_remain_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count0_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=0 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
-
-            # today_buy_reinvest_count1_remain_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count1_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=1 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
-
-            # today_buy_reinvest_count2_remain_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count2_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=2 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
-
-            # today_buy_reinvest_count3_remain_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count3_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=3 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-
-            sql = "UPDATE jango_data SET today_buy_reinvest_count4_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=4 group by code ) tmp) WHERE date='%s'"
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-
-            sql = "UPDATE jango_data SET today_buy_reinvest_count5_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=5 group by code ) tmp) WHERE date='%s'"
-
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # today_buy_reinvest_count0_sell_count 오늘만 해당되는게 아니고 전체 다
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count0_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=0 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
+            #
+            # # today_buy_reinvest_count1_sell_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count1_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=1 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
+            #
+            # # today_buy_reinvest_count2_sell_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count2_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=2 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
+            #
+            # # today_buy_reinvest_count3_sell_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count3_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=3 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
+            #
+            # # today_buy_reinvest_count4_sell_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count4_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=4 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
+            #
+            # # today_buy_reinvest_count4_sell_profitcut_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count4_sell_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=4 and sell_rate >='%s' group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
+            #
+            # #   today_buy_reinvest_count4_sell_losscut_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count4_sell_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=4 and sell_rate <'%s' group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
+            #
+            # # today_buy_reinvest_count5_sell_count
+            #
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count5_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=5 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
+            #
+            # # today_buy_reinvest_count5_sell_profitcut_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count5_sell_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=5 and sell_rate >='%s' group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
+            #
+            # #  today_buy_reinvest_count5_sell_losscut_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count5_sell_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=5 and sell_rate <'%s' group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
+            #
+            # # today_buy_reinvest_count0_remain_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count0_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=0 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
+            #
+            # # today_buy_reinvest_count1_remain_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count1_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=1 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
+            #
+            # # today_buy_reinvest_count2_remain_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count2_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=2 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
+            #
+            # # today_buy_reinvest_count3_remain_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count3_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=3 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            #
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count4_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=4 group by code ) tmp) WHERE date='%s'"
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            #
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count5_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=5 group by code ) tmp) WHERE date='%s'"
+            #
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
 
         sql = "UPDATE setting_data SET jango_data_db_check='%s' limit 1"
         self.engine_JB.execute(sql % (self.open_api.today))

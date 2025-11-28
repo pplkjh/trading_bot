@@ -1,0 +1,317 @@
+-- ================================================
+-- 트레이딩봇 전체 데이터베이스 초기화 스크립트
+-- ================================================
+-- 실행 방법: mysql -u root -p < 01_setup_all.sql
+--
+-- 이 스크립트는 다음을 수행합니다:
+-- 1. 데이터베이스 생성 (daily_craw, daily_buy_list, min_craw, JackBot1_imi1, JackBot1)
+-- 2. 사용자 권한 설정 (root@localhost)
+-- 3. 모든 테이블 스키마 생성
+-- ================================================
+
+-- ================================================
+-- STEP 1: 데이터베이스 생성
+-- ================================================
+CREATE DATABASE IF NOT EXISTS daily_craw CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS daily_buy_list CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS min_craw CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS JackBot1_imi1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS JackBot1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- ================================================
+-- STEP 2: 사용자 권한 설정
+-- ================================================
+-- root 사용자에게 모든 권한 부여
+GRANT ALL PRIVILEGES ON daily_craw.* TO 'root'@'localhost';
+GRANT ALL PRIVILEGES ON daily_buy_list.* TO 'root'@'localhost';
+GRANT ALL PRIVILEGES ON min_craw.* TO 'root'@'localhost';
+GRANT ALL PRIVILEGES ON JackBot1_imi1.* TO 'root'@'localhost';
+GRANT ALL PRIVILEGES ON JackBot1.* TO 'root'@'localhost';
+FLUSH PRIVILEGES;
+
+SELECT '✅ 데이터베이스 및 권한 설정 완료!' as status;
+
+-- ================================================
+-- STEP 3: daily_buy_list 데이터베이스 테이블 생성
+-- ================================================
+USE daily_buy_list;
+
+-- stock_item_all: 전체 종목 리스트 및 수집 상태 관리
+CREATE TABLE IF NOT EXISTS stock_item_all (
+    code VARCHAR(10) PRIMARY KEY COMMENT '종목코드 (6자리)',
+    code_name VARCHAR(100) NOT NULL COMMENT '종목명',
+    check_item TINYINT DEFAULT 0 COMMENT '활성 종목 여부 (0:비활성, 1:활성)',
+    check_daily_crawler TINYINT DEFAULT 0 COMMENT '일봉 수집 상태 (0:미수집, 1:완료, 3:과거완료, 4:업데이트필요)',
+    check_min_crawler TINYINT DEFAULT 0 COMMENT '분봉 수집 상태 (0:미수집, 1:완료)',
+
+    -- 종목 분류
+    market VARCHAR(10) COMMENT '시장 구분 (KOSPI, KOSDAQ, KONEX, ETF)',
+    sector VARCHAR(50) COMMENT '업종',
+
+    -- 관리 정보
+    is_managing TINYINT DEFAULT 0 COMMENT '관리종목 여부',
+    is_insincerity TINYINT DEFAULT 0 COMMENT '불성실법인종목 여부',
+    is_suspended TINYINT DEFAULT 0 COMMENT '거래정지 여부',
+
+    -- 시간 정보
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '생성일시',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '수정일시',
+
+    INDEX idx_code_name (code_name),
+    INDEX idx_check_item (check_item),
+    INDEX idx_market (market)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='전체 종목 리스트 및 수집 상태 관리';
+
+-- pred_signal: AI 예측 시그널
+CREATE TABLE IF NOT EXISTS pred_signal (
+    ref_date DATE NOT NULL,
+    code VARCHAR(6) NOT NULL,
+    pred_ret_5 DOUBLE NULL,
+    pred_std_5 DOUBLE NULL,
+    pred_ret_15 DOUBLE NULL,
+    pred_std_15 DOUBLE NULL,
+    regime VARCHAR(16) NULL,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ref_date, code),
+    KEY ix_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+COMMENT='AI 예측 시그널 데이터';
+
+SELECT '✅ daily_buy_list 테이블 생성 완료!' as status;
+
+-- ================================================
+-- STEP 4: JackBot1_imi1 (모의투자) 테이블 생성
+-- ================================================
+USE JackBot1_imi1;
+
+-- 1. setting_data: 전체 설정 관리
+CREATE TABLE IF NOT EXISTS setting_data (
+    -- 투자 금액 설정
+    loan_money INT DEFAULT 0 COMMENT '대출금',
+    limit_money INT DEFAULT 0 COMMENT '최소 보유 현금',
+    invest_unit INT DEFAULT 0 COMMENT '종목당 투자금액 (자동계산)',
+    max_invest_unit INT DEFAULT 0 COMMENT '최대 투자금액',
+    min_invest_unit INT DEFAULT 0 COMMENT '최소 투자금액',
+    set_invest_unit VARCHAR(20) DEFAULT '0' COMMENT '투자금액 설정 여부',
+
+    -- 실행 상태 플래그 (날짜 저장)
+    code_update VARCHAR(20) DEFAULT '0' COMMENT '종목 업데이트 마지막 실행일',
+    today_buy_stop VARCHAR(20) DEFAULT '0' COMMENT '당일 매수 중지 여부',
+    jango_data_db_check VARCHAR(20) DEFAULT '0' COMMENT 'jango_data 업데이트 마지막 실행일',
+    possessed_item VARCHAR(20) DEFAULT '0' COMMENT 'possessed_item 업데이트 마지막 실행일',
+    today_profit VARCHAR(20) DEFAULT '0' COMMENT '당일 수익 계산 마지막 실행일',
+    final_chegyul_check VARCHAR(20) DEFAULT '0' COMMENT '최종 체결 확인 마지막 실행일',
+    db_to_buy_list VARCHAR(20) DEFAULT '0' COMMENT 'buy_list DB 업데이트 마지막 실행일',
+    today_buy_list VARCHAR(20) DEFAULT '0' COMMENT '당일 매수리스트 생성 마지막 실행일',
+    daily_crawler VARCHAR(20) DEFAULT '0' COMMENT '일봉 수집 마지막 실행일',
+    min_crawler VARCHAR(20) DEFAULT '0' COMMENT '분봉 수집 마지막 실행일',
+    daily_buy_list VARCHAR(20) DEFAULT '0' COMMENT '매수후보 분석 마지막 실행일'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='전체 시스템 설정 및 실행 상태 관리 (단일 row)';
+
+-- 초기 데이터 삽입
+INSERT INTO setting_data (loan_money, limit_money, invest_unit)
+VALUES (0, 0, 0)
+ON DUPLICATE KEY UPDATE loan_money=loan_money;
+
+-- 2. jango_data: 일별 자산 및 성과 추적
+CREATE TABLE IF NOT EXISTS jango_data (
+    date VARCHAR(20) PRIMARY KEY COMMENT '날짜 (YYYYMMDD)',
+
+    -- 자산 정보
+    total_asset BIGINT DEFAULT 0 COMMENT '총 자산 (예수금 + 보유주식평가금)',
+    d2_deposit BIGINT DEFAULT 0 COMMENT 'D+2 예수금 (출금가능금액)',
+    total_invest BIGINT DEFAULT 0 COMMENT '총 투자금액',
+
+    -- 일일 수익
+    today_profit BIGINT DEFAULT 0 COMMENT '당일 실현+미실현 수익',
+    today_earning_rate DECIMAL(10,2) DEFAULT 0 COMMENT '당일 수익률 (%)',
+
+    -- 매수/매도 통계
+    today_buy_count INT DEFAULT 0 COMMENT '당일 매수 종목 수',
+    today_sell_count INT DEFAULT 0 COMMENT '당일 매도 종목 수',
+
+    today_buy_total_sell_count INT DEFAULT 0 COMMENT '당일 매수한 종목 중 매도된 수',
+    today_buy_total_possess_count INT DEFAULT 0 COMMENT '당일 매수한 종목 중 보유 중인 수',
+
+    -- 익절/손절 통계 (당일 매수 → 당일 매도)
+    today_buy_today_profitcut_count INT DEFAULT 0 COMMENT '당일 익절 수',
+    today_buy_today_profitcut_rate DECIMAL(10,2) DEFAULT 0 COMMENT '당일 익절률 (%)',
+    today_buy_today_losscut_count INT DEFAULT 0 COMMENT '당일 손절 수',
+    today_buy_today_losscut_rate DECIMAL(10,2) DEFAULT 0 COMMENT '당일 손절률 (%)',
+
+    -- 익절/손절 통계 (당일 매수 → 전체 기간)
+    today_buy_total_profitcut_count INT DEFAULT 0 COMMENT '당일 매수 종목의 누적 익절 수',
+    today_buy_total_profitcut_rate DECIMAL(10,2) DEFAULT 0 COMMENT '당일 매수 종목의 누적 익절률',
+    today_buy_total_losscut_count INT DEFAULT 0 COMMENT '당일 매수 종목의 누적 손절 수',
+    today_buy_total_losscut_rate DECIMAL(10,2) DEFAULT 0 COMMENT '당일 매수 종목의 누적 손절률',
+
+    INDEX idx_date (date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='일별 자산 및 매매 성과 추적';
+
+-- 3. all_item_db: 전체 매매 기록 (보유 + 매도 완료)
+CREATE TABLE IF NOT EXISTS all_item_db (
+    `index` INT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(10) NOT NULL COMMENT '종목코드',
+    code_name VARCHAR(100) NOT NULL COMMENT '종목명',
+
+    -- 매수 정보
+    buy_date VARCHAR(20) NOT NULL COMMENT '매수일 (YYYYMMDD)',
+    buy_time VARCHAR(20) COMMENT '매수시간 (HH:MM:SS)',
+    purchase_price INT NOT NULL COMMENT '매수가',
+    holding_amount INT NOT NULL COMMENT '보유 수량',
+
+    -- 현재 상태 (보유 중인 경우 실시간 업데이트)
+    present_price INT DEFAULT 0 COMMENT '현재가',
+    rate DECIMAL(10,2) DEFAULT 0 COMMENT '수익률 (%)',
+    valuation_profit BIGINT DEFAULT 0 COMMENT '평가손익',
+
+    -- 매도 정보 (매도 완료 시에만 입력)
+    sell_date VARCHAR(20) DEFAULT '0' COMMENT '매도일 (0: 보유중)',
+    sell_time VARCHAR(20) COMMENT '매도시간',
+    sell_price INT DEFAULT 0 COMMENT '매도가',
+    sell_rate DECIMAL(10,2) DEFAULT 0 COMMENT '매도 수익률 (%)',
+    realized_profit BIGINT DEFAULT 0 COMMENT '실현손익',
+
+    -- 기술적 지표 (매수 당시)
+    d1_diff_rate DECIMAL(10,2) DEFAULT 0 COMMENT 'D-1 대비 변동률',
+    yes_close INT DEFAULT 0 COMMENT '전일 종가',
+    volume BIGINT DEFAULT 0 COMMENT '거래량',
+    today_percent DECIMAL(10,2) DEFAULT 0 COMMENT '당일 변동률',
+
+    -- 이동평균선 (매수 당시)
+    ma5 INT DEFAULT 0 COMMENT '5일 이동평균',
+    ma10 INT DEFAULT 0 COMMENT '10일 이동평균',
+    ma20 INT DEFAULT 0 COMMENT '20일 이동평균',
+    ma60 INT DEFAULT 0 COMMENT '60일 이동평균',
+    ma120 INT DEFAULT 0 COMMENT '120일 이동평균',
+
+    INDEX idx_code (code),
+    INDEX idx_buy_date (buy_date),
+    INDEX idx_sell_date (sell_date),
+    INDEX idx_code_sell (code, sell_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='전체 매매 기록 (보유 중 + 매도 완료)';
+
+-- 4. possessed_item: 현재 보유 종목 (키움 계좌 미러링)
+CREATE TABLE IF NOT EXISTS possessed_item (
+    `index` INT AUTO_INCREMENT PRIMARY KEY,
+    code VARCHAR(10) NOT NULL COMMENT '종목코드',
+    code_name VARCHAR(100) NOT NULL COMMENT '종목명',
+
+    -- 보유 정보
+    holding_amount INT NOT NULL COMMENT '보유 수량',
+    purchase_price INT NOT NULL COMMENT '매수가 (평균)',
+    present_price INT NOT NULL COMMENT '현재가',
+
+    -- 수익 정보
+    valuation_profit BIGINT DEFAULT 0 COMMENT '평가손익',
+    rate DECIMAL(10,2) DEFAULT 0 COMMENT '수익률 (%)',
+
+    -- 매수일
+    first_buy_date VARCHAR(20) COMMENT '최초 매수일',
+
+    INDEX idx_code (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='현재 보유 종목 (키움 계좌와 동기화)';
+
+-- 5. realtime_daily_buy_list: 내일 매수할 종목 리스트
+CREATE TABLE IF NOT EXISTS realtime_daily_buy_list (
+    `index` INT AUTO_INCREMENT PRIMARY KEY,
+    date VARCHAR(20) NOT NULL COMMENT '기준일 (YYYYMMDD)',
+    code VARCHAR(10) NOT NULL COMMENT '종목코드',
+    code_name VARCHAR(100) NOT NULL COMMENT '종목명',
+
+    -- 가격 정보
+    d1_diff_rate DECIMAL(10,2) DEFAULT 0 COMMENT 'D-1 대비 변동률',
+    close INT NOT NULL COMMENT '종가',
+    open INT DEFAULT 0 COMMENT '시가',
+    high INT DEFAULT 0 COMMENT '고가',
+    low INT DEFAULT 0 COMMENT '저가',
+    volume BIGINT DEFAULT 0 COMMENT '거래량',
+
+    -- 이동평균선
+    ma5 INT DEFAULT 0 COMMENT '5일 이동평균',
+    ma10 INT DEFAULT 0 COMMENT '10일 이동평균',
+    ma20 INT DEFAULT 0 COMMENT '20일 이동평균',
+    ma40 INT DEFAULT 0 COMMENT '40일 이동평균',
+    ma60 INT DEFAULT 0 COMMENT '60일 이동평균',
+    ma80 INT DEFAULT 0 COMMENT '80일 이동평균',
+    ma100 INT DEFAULT 0 COMMENT '100일 이동평균',
+    ma120 INT DEFAULT 0 COMMENT '120일 이동평균',
+
+    -- 매수 실행 여부
+    check_item VARCHAR(20) DEFAULT '0' COMMENT '매수 실행 시간 (0: 미실행)',
+
+    INDEX idx_date (date),
+    INDEX idx_code (code),
+    INDEX idx_check (check_item)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='내일 매수할 종목 리스트 (collector가 생성)';
+
+-- 6. today_profit_list: 당일 종목별 손익 내역
+CREATE TABLE IF NOT EXISTS today_profit_list (
+    `index` INT AUTO_INCREMENT PRIMARY KEY,
+    date VARCHAR(20) NOT NULL COMMENT '날짜 (YYYYMMDD)',
+    code VARCHAR(10) NOT NULL COMMENT '종목코드',
+    code_name VARCHAR(100) NOT NULL COMMENT '종목명',
+
+    -- 수량 및 손익 정보
+    amount INT DEFAULT 0 COMMENT '수량',
+    today_profit BIGINT DEFAULT 0 COMMENT '당일 손익',
+    earning_rate DECIMAL(10,2) DEFAULT 0 COMMENT '수익률 (%)',
+
+    INDEX idx_date (date),
+    INDEX idx_code (code),
+    INDEX idx_profit (today_profit)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='당일 종목별 손익 내역 (opt10073 API 데이터)';
+
+SELECT '✅ JackBot1_imi1 테이블 생성 완료!' as status;
+
+-- ================================================
+-- STEP 5: JackBot1 (실전) 테이블 생성 (동일 구조)
+-- ================================================
+USE JackBot1;
+
+CREATE TABLE IF NOT EXISTS setting_data LIKE JackBot1_imi1.setting_data;
+CREATE TABLE IF NOT EXISTS jango_data LIKE JackBot1_imi1.jango_data;
+CREATE TABLE IF NOT EXISTS all_item_db LIKE JackBot1_imi1.all_item_db;
+CREATE TABLE IF NOT EXISTS possessed_item LIKE JackBot1_imi1.possessed_item;
+CREATE TABLE IF NOT EXISTS realtime_daily_buy_list LIKE JackBot1_imi1.realtime_daily_buy_list;
+CREATE TABLE IF NOT EXISTS today_profit_list LIKE JackBot1_imi1.today_profit_list;
+
+-- 초기 데이터 삽입
+INSERT INTO setting_data (loan_money, limit_money, invest_unit)
+VALUES (0, 0, 0)
+ON DUPLICATE KEY UPDATE loan_money=loan_money;
+
+SELECT '✅ JackBot1 테이블 생성 완료!' as status;
+
+-- ================================================
+-- 완료 메시지
+-- ================================================
+SELECT '
+================================================
+✅ 모든 데이터베이스 및 테이블 생성 완료!
+================================================
+
+생성된 데이터베이스:
+- daily_craw         (일봉 데이터 저장소)
+- daily_buy_list     (매수 후보 분석)
+- min_craw           (분봉 데이터 저장소)
+- JackBot1_imi1      (모의투자)
+- JackBot1           (실전투자)
+
+다음 단계:
+1. library/cf.py 파일 설정 확인
+2. python collector_v3.py 실행 (데이터 수집)
+3. python trader.py 실행 (자동매매 시작)
+
+================================================
+' as '설치 완료';
+
+-- 테이블 목록 확인
+SHOW DATABASES;

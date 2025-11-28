@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(nul)",
+      "Bash(mysql:*)",
+      "Bash(where:*)",
+      "Bash(dir:*)",
+      "Bash(cmd /c \"c:\\Personal_project\\trading_bot\\batch\\collect_data.bat\")",
+      "Bash(C:Usersadminanaconda3envspy37_32python.exe -c \"import pandas as pd; print(''Pandas import OK''); df = pd.read_html(''http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=stockMkt'', header=0)[0]; print(f''KRX data loaded: {len(df)} rows'')\")",
+      "Bash(\"C:\\Users\\admin\\anaconda3\\envs\\py37_32\\python.exe\" -c \"import pandas as pd; print(''Test OK'')\")",
+      "Bash(\"C:\\Users\\admin\\anaconda3\\envs\\py37_32\\python.exe\" -c \"import requests; print(''requests available'')\")",
+      "Bash(\"C:\\Users\\admin\\anaconda3\\envs\\py37_32\\python.exe\" -c \"import sys; sys.path.insert(0, ''C:/Personal_project/trading_bot''); from get_item import safe_read_html; df = safe_read_html(''http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=stockMkt''); print(f''Success! Loaded {len(df)} stocks'')\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

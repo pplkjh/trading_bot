@@ -1,54 +1,63 @@
-# SQL 스키마 파일 가이드
+# SQL 데이터베이스 설치 가이드
 
-이 폴더에는 자동매매 시스템에 필요한 데이터베이스 스키마 파일들이 있습니다.
+트레이딩봇 자동매매 시스템에 필요한 데이터베이스를 설정합니다.
+
+---
+
+## 빠른 시작 (1분이면 완료!)
+
+```bash
+cd c:\Personal_project\trading_bot\sql
+
+# 전체 데이터베이스 및 테이블 생성
+mysql -u root -p < 01_setup_all.sql
+```
+
+**끝!** 이제 `python collector_v3.py`를 실행하면 됩니다.
 
 ---
 
 ## 📋 파일 목록
 
-| 파일 | 용도 | 실행 순서 |
-|------|------|----------|
-| `init_databases.sql` | 데이터베이스 생성 및 사용자 권한 설정 | ① 가장 먼저 |
-| `stock_item_all_schema.sql` | 종목 리스트 테이블 생성 | ② 두 번째 |
-| `jackbot_schema.sql` | 매매 실행 테이블 생성 | ③ 세 번째 |
-| `pred_signal.sql` | AI 예측 테이블 (이미 stock_item_all_schema.sql에 포함됨) | (선택) |
+### 필수 파일
+
+| 파일 | 용도 |
+|------|------|
+| `01_setup_all.sql` | **전체 설치** - 데이터베이스, 권한, 테이블 모두 생성 (처음 한 번만 실행) |
+
+### 문제 해결 파일 (필요시에만 사용)
+
+| 파일 | 용도 |
+|------|------|
+| `02_fix_charset.sql` | 한글 깨짐 문제 해결 (utf8mb4 변환) |
+| `03_reset_tables.sql` | 테이블 초기화 (문제 발생시 복구용) |
 
 ---
 
-## 🚀 빠른 시작 (3분)
+## 🗄️ 생성되는 데이터베이스
 
-### 방법 1: 전체 자동 설치 (권장)
+`01_setup_all.sql` 실행 시 다음 데이터베이스와 테이블이 생성됩니다:
 
-```bash
-# MySQL root로 로그인해서 전체 실행
-cd /home/user/trading_bot/sql
+### 1. daily_buy_list - 매수 후보 분석
+- `stock_item_all`: 전체 종목 리스트
+- `pred_signal`: AI 예측 시그널
 
-# 1. 데이터베이스 및 사용자 생성
-mysql -u root -p < init_databases.sql
+### 2. daily_craw - 일봉 데이터
+- 종목별로 동적 생성 (collector_v3.py가 자동 생성)
 
-# 2. stock_item_all 테이블 생성
-mysql -u bot -p daily_buy_list < stock_item_all_schema.sql
+### 3. min_craw - 분봉 데이터
+- 종목별로 동적 생성 (collector_v3.py가 자동 생성)
 
-# 3. 매매 관련 테이블 생성 (모의투자)
-mysql -u bot -p JackBot1_imi1 < jackbot_schema.sql
+### 4. JackBot1_imi1 - 모의투자
+- `setting_data`: 시스템 설정
+- `jango_data`: 일별 자산 추적
+- `all_item_db`: 전체 매매 기록
+- `possessed_item`: 현재 보유 종목
+- `realtime_daily_buy_list`: 내일 매수 종목
+- `today_profit_list`: 당일 종목별 손익
 
-# 완료!
-```
-
-비밀번호 입력:
-- `root` 비밀번호: MySQL root 비밀번호
-- `bot` 비밀번호: `qwer1234` (init_databases.sql에서 설정한 비밀번호)
-
----
-
-### 방법 2: MySQL Workbench 사용
-
-1. MySQL Workbench 실행
-2. root 계정으로 연결
-3. 각 파일을 열어서 실행 (순서대로):
-   - `init_databases.sql`
-   - `stock_item_all_schema.sql`
-   - `jackbot_schema.sql`
+### 5. JackBot1 - 실전투자
+- JackBot1_imi1과 동일한 구조
 
 ---
 
@@ -56,8 +65,7 @@ mysql -u bot -p JackBot1_imi1 < jackbot_schema.sql
 
 ```sql
 -- MySQL에 로그인
-mysql -u bot -p
--- 비밀번호: qwer1234
+mysql -u root -p
 
 -- 데이터베이스 목록 확인
 SHOW DATABASES;
@@ -77,22 +85,7 @@ SHOW DATABASES;
 ```
 
 ```sql
--- 테이블 확인
-USE daily_buy_list;
-SHOW TABLES;
-```
-
-**예상 결과:**
-```
-+---------------------------+
-| Tables_in_daily_buy_list  |
-+---------------------------+
-| pred_signal               |
-| stock_item_all            |
-+---------------------------+
-```
-
-```sql
+-- JackBot1_imi1 테이블 확인
 USE JackBot1_imi1;
 SHOW TABLES;
 ```
@@ -107,135 +100,94 @@ SHOW TABLES;
 | possessed_item          |
 | realtime_daily_buy_list |
 | setting_data            |
+| today_profit_list       |
 +-------------------------+
-```
-
----
-
-## 📊 데이터베이스 구조 설명
-
-### 1. **daily_craw** - 일봉 데이터 저장소
-- 종목별로 테이블 생성 (동적)
-- 예: `005930` (삼성전자 테이블)
-- collector_v3.py가 자동 생성
-
-### 2. **daily_buy_list** - 매수 후보 분석
-- `stock_item_all`: 전체 종목 리스트
-- `pred_signal`: AI 예측 시그널
-- 날짜별 매수 후보 테이블 (동적 생성)
-
-### 3. **min_craw** - 분봉 데이터 저장소
-- 종목별로 테이블 생성 (동적)
-- collector_v3.py가 자동 생성
-
-### 4. **JackBot1_imi1** - 모의투자 매매 실행
-- `setting_data`: 시스템 설정
-- `jango_data`: 일별 자산 추적
-- `all_item_db`: 전체 매매 기록
-- `possessed_item`: 현재 보유 종목
-- `realtime_daily_buy_list`: 내일 매수 종목
-
-### 5. **JackBot1** - 실전 투자 (구조 동일)
-- JackBot1_imi1과 동일한 테이블 구조
-
----
-
-## 🔧 비밀번호 변경하기
-
-기본 비밀번호 `qwer1234`를 변경하려면:
-
-```sql
--- MySQL에 root로 로그인
-mysql -u root -p
-
--- bot 사용자 비밀번호 변경
-ALTER USER 'bot'@'localhost' IDENTIFIED BY '새로운비밀번호';
-FLUSH PRIVILEGES;
-```
-
-**주의:** 비밀번호 변경 후 `library/cf.py` 파일도 수정해야 합니다!
-
-```python
-# library/cf.py
-db_passwd = '새로운비밀번호'
 ```
 
 ---
 
 ## 🆘 문제 해결
 
-### 오류: "ERROR 1396: Operation CREATE USER failed"
+### 문제 1: 한글이 깨져서 보여요
 
-**원인:** 'bot' 사용자가 이미 존재
-
-**해결:**
-```sql
--- 기존 사용자 삭제 후 다시 생성
-DROP USER IF EXISTS 'bot'@'localhost';
--- 그 다음 init_databases.sql 다시 실행
+```bash
+mysql -u root -p < 02_fix_charset.sql
 ```
 
-### 오류: "ERROR 1044: Access denied"
+### 문제 2: "Unknown column 'today_profit'" 에러
 
-**원인:** 권한 부족
+**원인:** `today_profit_list` 테이블이 없거나 구조가 잘못됨
 
 **해결:**
-```sql
--- root 권한으로 다시 권한 부여
-GRANT ALL PRIVILEGES ON *.* TO 'bot'@'localhost';
-FLUSH PRIVILEGES;
+```bash
+# 테이블 초기화 후 재생성
+mysql -u root -p < 03_reset_tables.sql
+mysql -u root -p < 01_setup_all.sql
 ```
 
-### 오류: "ERROR 1007: Can't create database; database exists"
+### 문제 3: "Access denied for user 'bot'@'localhost'"
+
+**원인:** 이전 버전에서 'bot' 사용자를 사용했으나, 현재는 'root' 사용자 사용
+
+**해결:** 이미 해결됨! `01_setup_all.sql`은 'root' 사용자로 실행됩니다.
+
+### 문제 4: "Can't create database; database exists"
 
 **원인:** 데이터베이스가 이미 존재
 
-**해결:**
+**해결:** 괜찮습니다! `CREATE DATABASE IF NOT EXISTS`를 사용하므로 에러가 발생하지 않습니다. 만약 완전히 새로 시작하고 싶다면:
+
 ```sql
--- 기존 데이터 삭제하고 새로 시작 (주의: 데이터 손실!)
+-- 주의: 모든 데이터가 삭제됩니다!
 DROP DATABASE IF EXISTS daily_craw;
 DROP DATABASE IF EXISTS daily_buy_list;
+DROP DATABASE IF EXISTS min_craw;
 DROP DATABASE IF EXISTS JackBot1_imi1;
+DROP DATABASE IF EXISTS JackBot1;
 
--- 그 다음 init_databases.sql 다시 실행
+-- 그 다음 01_setup_all.sql 다시 실행
 ```
 
 ---
 
 ## 📌 다음 단계
 
-스키마 설치 완료 후:
+데이터베이스 설치 완료 후:
 
-1. **설정 파일 수정**
-   ```bash
-   # library/cf.py 파일 수정
-   nano library/cf.py
-   ```
-   - `db_passwd`: MySQL 비밀번호
-   - `imi1_accout`: 모의투자 계좌번호
+### 1. 설정 파일 확인
+```python
+# library/cf.py 파일 확인
+# 데이터베이스 사용자가 'root'로 설정되어 있는지 확인
+```
 
-2. **데이터 수집 시작**
-   ```bash
-   python collector_v3.py
-   ```
-   - 최초 실행: 6-8시간 소요
-   - 전체 종목 데이터 수집
+### 2. 데이터 수집 시작
+```bash
+python collector_v3.py
+```
+- 최초 실행: 6-8시간 소요
+- 전체 종목 데이터 수집
 
-3. **트레이더 실행**
-   ```bash
-   python trader.py
-   ```
-   - `1` 입력: 모의투자 시작
+### 3. 자동매매 시작
+```bash
+python trader.py
+```
+- `1` 입력: 모의투자 시작
 
 ---
 
-## 📚 참고 문서
+## 🗂️ 이전 파일들 (old/ 폴더로 이동됨)
 
-- [QUICK_START.md](../QUICK_START.md) - 10분 빠른 시작
-- [USER_MANUAL.md](../USER_MANUAL.md) - 완전 사용 설명서
-- [ADVANCED_STRATEGY_GUIDE.md](../ADVANCED_STRATEGY_GUIDE.md) - 고급 전략
+다음 파일들은 참고용으로 `old/` 폴더에 보관되어 있습니다:
+
+- `init_databases.sql` → `01_setup_all.sql`에 통합
+- `stock_item_all_schema.sql` → `01_setup_all.sql`에 통합
+- `jackbot_schema.sql` → `01_setup_all.sql`에 통합
+- `fix_charset.sql` → `02_fix_charset.sql`로 업데이트
+- `reset_tables.sql` → `03_reset_tables.sql`로 업데이트
+- `cleanup_kind_tables.sql` → `03_reset_tables.sql`에 통합
+- `pred_signal.sql` → `01_setup_all.sql`에 통합
 
 ---
 
-**작성일**: 2024-11-18
-**버전**: 1.0
+**작성일**: 2025-11-23
+**버전**: 2.0 (통합 버전)

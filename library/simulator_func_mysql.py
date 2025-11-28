@@ -1142,7 +1142,17 @@ class simulator_func_mysql:
         # AttributeError: 'numpy.int64' object has no attribute 'translate' 에러 발생
         self.df_all_item = self.df_all_item.fillna(0)
 
-        self.df_all_item.to_sql('all_item_db', self.engine_simulator, if_exists='append')
+        # all_item_db 테이블에 실제로 존재하는 컬럼만 필터링
+        db_columns = ['code', 'code_name', 'buy_date', 'buy_time', 'purchase_price',
+                      'holding_amount', 'present_price', 'rate', 'valuation_profit',
+                      'sell_date', 'sell_time', 'sell_price', 'sell_rate', 'realized_profit',
+                      'd1_diff_rate', 'yes_close', 'volume', 'today_percent',
+                      'ma5', 'ma10', 'ma20', 'ma60', 'ma120']
+
+        # DataFrame에 존재하는 컬럼만 선택
+        all_item_filtered = self.df_all_item[[col for col in db_columns if col in self.df_all_item.columns]]
+
+        all_item_filtered.to_sql('all_item_db', self.engine_simulator, if_exists='append', index=False)
 
     # 보유한 종목들을 가져오는 함수
     # sell_date가 0이면 현재 보유 중인 종목이다. 매도를 할 경우 sell_date에 매도 한 날짜가 찍힌다.
@@ -1718,12 +1728,25 @@ class simulator_func_mysql:
         # self.jango.loc[0, 'today_buy_reinvest_count4_remain_count'] = 0
         # self.jango.loc[0, 'today_buy_reinvest_count5_remain_count'] = 0
 
+        # 데이터베이스에 존재하는 컬럼만 필터링
+        db_columns = ['date', 'total_asset', 'd2_deposit', 'total_invest', 'today_profit', 'today_earning_rate',
+                      'today_buy_count', 'today_sell_count', 'today_buy_total_sell_count', 'today_buy_total_possess_count',
+                      'today_buy_today_profitcut_count', 'today_buy_today_profitcut_rate',
+                      'today_buy_today_losscut_count', 'today_buy_today_losscut_rate',
+                      'today_buy_total_profitcut_count', 'today_buy_total_profitcut_rate',
+                      'today_buy_total_losscut_count', 'today_buy_total_losscut_rate']
+        jango_filtered = self.jango[[col for col in db_columns if col in self.jango.columns]]
+
+        # 오늘 날짜의 기존 레코드가 있으면 삭제 (중복 방지)
+        sql_delete = "DELETE FROM jango_data WHERE date='%s'"
+        self.engine_simulator.execute(sql_delete % date_rows_today)
+
         # # 데이터베이스에 테이블이 존재할 때 수행 동작을 지정한다.
         # 'fail', 'replace', 'append' 중 하나를 사용할 수 있는데 기본값은 'fail'이다.
         # 'fail'은 데이터베이스에 테이블이 있다면 아무 동작도 수행하지 않는다.
         # 'replace'는 테이블이 존재하면 기존 테이블을 삭제하고 새로 테이블을 생성한 후 데이터를 삽입한다.
         # 'append'는 테이블이 존재하면 데이터만을 추가한다.
-        self.jango.to_sql('jango_data', self.engine_simulator, if_exists='append')
+        jango_filtered.to_sql('jango_data', self.engine_simulator, if_exists='append', index=False)
 
         #     # today_earning_rate
         sql = "update jango_data set today_earning_rate =round(today_profit / total_invest * '%s',2) WHERE date='%s'"

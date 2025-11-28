@@ -1,5 +1,5 @@
 # db 계정
-db_id='bot' # [mysql ID를 넣어주세요]
+db_id='root' # [mysql ID를 넣어주세요]
 # db ip
 db_ip='localhost'
 # db 패스워드
@@ -39,7 +39,7 @@ TR_REQ_TIME_INTERVAL_LONG = 1
 # api를 최대 몇 번까지 호출 하고 봇을 끌지 설정 하는 옵션
 # 데이터 수집 시: 99999 (거의 무제한)
 # 일반 트레이딩 시: 999 (안전)
-max_api_call = 99999
+max_api_call = 3000
 
 # dart api key (고급클래스에서 소개)
 dart_api_key = ''

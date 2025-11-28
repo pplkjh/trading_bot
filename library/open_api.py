@@ -522,21 +522,24 @@ class open_api(QAxWidget):
         # 컬럼 중에 nan 값이 있는 경우 0으로 변경 -> 이렇게 안하면 아래 데이터베이스에 넣을 때
         # AttributeError: 'numpy.int64' object has no attribute 'translate' 에러 발생
         self.sf.df_all_item = self.sf.df_all_item.fillna(0)
-        self.sf.df_all_item.to_sql('all_item_db', self.engine_JB, if_exists='append', dtype={
+
+        # all_item_db 테이블에 실제로 존재하는 컬럼만 필터링
+        db_columns = ['code', 'code_name', 'buy_date', 'buy_time', 'purchase_price',
+                      'holding_amount', 'present_price', 'rate', 'valuation_profit',
+                      'sell_date', 'sell_time', 'sell_price', 'sell_rate', 'realized_profit',
+                      'd1_diff_rate', 'yes_close', 'volume', 'today_percent',
+                      'ma5', 'ma10', 'ma20', 'ma60', 'ma120']
+
+        # DataFrame에 존재하는 컬럼만 선택
+        all_item_filtered = self.sf.df_all_item[[col for col in db_columns if col in self.sf.df_all_item.columns]]
+
+        all_item_filtered.to_sql('all_item_db', self.engine_JB, if_exists='append', index=False, dtype={
             'code_name': Text,
             'rate': Float,
             'sell_rate': Float,
-            'purchase_rate': Float,
             'sell_date': Text,
             'd1_diff_rate': Float,
-            'clo5_diff_rate': Float,
-            'clo10_diff_rate': Float,
-            'clo20_diff_rate': Float,
-            'clo40_diff_rate': Float,
-            'clo60_diff_rate': Float,
-            'clo80_diff_rate': Float,
-            'clo100_diff_rate': Float,
-            'clo120_diff_rate': Float
+            'today_percent': Float
         })
 
     def check_balance(self):
