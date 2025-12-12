@@ -627,19 +627,46 @@ def get_stock_score(code: str, db_name: str = 'daily_buy_list', lookback: int = 
     Dict : 종합 스코어 및 모든 팩터 점수
     """
     try:
+        # 1. stock_item_all에서 종목코드로 종목명 조회
         con = pymysql.connect(
             user=db_id,
             passwd=db_passwd,
             host=db_ip,
+<<<<<<< Updated upstream
             db=db_name,
+=======
+            db='daily_buy_list',
+            charset='utf8',
+            port=int(db_port)
+        )
+
+        query_get_name = f"""
+        SELECT code_name FROM stock_item_all WHERE code = '{code}' LIMIT 1
+        """
+        code_name_result = pd.read_sql(query_get_name, con)
+        con.close()
+
+        if len(code_name_result) == 0:
+            return {'composite_score': 0, 'error': 'Code not found in stock_item_all'}
+
+        code_name = code_name_result.iloc[0]['code_name']
+
+        # 2. daily_craw에서 일봉 데이터 로드 (종목명을 테이블명으로 사용)
+        con = pymysql.connect(
+            user=db_id,
+            passwd=db_passwd,
+            host=db_ip,
+            db='daily_craw',
+>>>>>>> Stashed changes
             charset='utf8',
             port=int(db_port)
         )
 
         query = f"""
-        SELECT ref_date, open, high, low, close, volume
-        FROM `{code}`
-        ORDER BY ref_date DESC
+        SELECT date, open, high, low, close, volume
+        FROM `{code_name}`
+        WHERE code = '{code}'
+        ORDER BY date DESC
         LIMIT {lookback}
         """
 
@@ -649,8 +676,11 @@ def get_stock_score(code: str, db_name: str = 'daily_buy_list', lookback: int = 
         if len(df) < 20:
             return {'composite_score': 0, 'error': 'Insufficient data'}
 
-        # 데이터 정렬 (오래된 것부터)
-        df = df.sort_values('ref_date').reset_index(drop=True)
+        # 데이터 정렬 (오래된 것부터, date 컬럼 사용)
+        df = df.sort_values('date').reset_index(drop=True)
+
+        # date 컬럼을 ref_date로 이름 변경 (기존 코드 호환성 유지)
+        df = df.rename(columns={'date': 'ref_date'})
 
         # 스코어 계산
         scorer = MultiFactorScoring()

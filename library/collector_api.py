@@ -33,69 +33,166 @@ class collector_api():
                                 self.open_api.cf.real_daily_buy_list_db_name)
         self.dbl = daily_buy_list()
 
+    def print_progress(self, current, total, task_name, start_time=None):
+        """진행률 표시 함수"""
+        percent = (current / total) * 100
+        bar_length = 50
+        filled = int(bar_length * current / total)
+        bar = '█' * filled + '░' * (bar_length - filled)
+
+        # 예상 종료 시간 계산
+        eta_str = ""
+        if start_time and current > 0:
+            elapsed = time.time() - start_time
+            rate = current / elapsed
+            remaining = (total - current) / rate if rate > 0 else 0
+            eta_str = f" | ETA: {int(remaining//60)}분 {int(remaining%60)}초"
+
+        print(f"\r{task_name}: [{bar}] {percent:>5.1f}% ({current}/{total}){eta_str}", end='', flush=True)
+
+        if current == total:
+            print()  # 완료 시 줄바꿈
+
     # 콜렉팅을 실행하는 함수
     def code_update_check(self):
         logger.debug("code_update_check 함수에 들어왔습니다.")
+
+        print("\n" + "="*100)
+        print("📊 데이터 수집 시작")
+        print("="*100 + "\n")
+
+        overall_start = time.time()
+
         sql = "select code_update,jango_data_db_check, possessed_item, today_profit, final_chegyul_check, db_to_buy_list,today_buy_list, daily_crawler , min_crawler, daily_buy_list from setting_data limit 1"
 
         rows = self.engine_JB.execute(sql).fetchall()
+
+        # 전체 작업 수 계산
+        total_tasks = 0
+        current_task = 0
+
+        if rows[0][0] != self.open_api.today:
+            total_tasks += 1
+        if rows[0][1] != self.open_api.today or rows[0][2] != self.open_api.today:
+            total_tasks += 3
+        if rows[0][2] != self.open_api.today:
+            total_tasks += 1
+        if rows[0][7] != self.open_api.today:
+            total_tasks += 1
+        if rows[0][9] != self.open_api.today:
+            total_tasks += 1
+        if rows[0][4] != self.open_api.today:
+            total_tasks += 1
+        if rows[0][6] != self.open_api.today:
+            total_tasks += 1
+        if self.open_api.cf.use_min_crawler and rows[0][8] != self.open_api.today:
+            total_tasks += 1
+        total_tasks += 1  # kind.craw()
+
+        if total_tasks == 0:
+            print("✅ 모든 데이터가 최신 상태입니다. 수집할 항목이 없습니다.\n")
+            return
 
         # stock_item_all(kospi,kosdaq,konex)
         # kospi(stock_kospi), kosdaq(stock_kosdaq), konex(stock_konex)
         # 관리종목(stock_managing), 불성실법인종목(stock_insincerity) 업데이트
         if rows[0][0] != self.open_api.today:
-            self.get_code_list()  # 촬영 후 일부 업데이트 되었습니다.
-            
-            # stock info 테이블 추가 수집 : 시장 구분, 종목 분류 등 
-            # stcok info 테이블 만드는 방법 text 참고
-            # self._create_stock_info()
-            # check_sql = f"UPDATE setting_data SET code_update='{self.open_api.today}' limit 1"
-            # self.engine_JB.execute(check_sql)
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 📋 종목 코드 업데이트 중...")
+            task_start = time.time()
+            self.get_code_list()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
 
         # 촬영 후 콜렉팅 순서가 일부 업데이트 되었습니다.
         # 잔고 및 보유종목 현황 db setting  & 당일 종목별 실현 손익
         if rows[0][1] != self.open_api.today or rows[0][2] != self.open_api.today:
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 💰 투자 단위 설정 중...")
+            task_start = time.time()
             self.open_api.set_invest_unit()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
+
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 📊 당일 손익 리스트 업데이트 중...")
+            task_start = time.time()
             self.db_to_today_profit_list()
             self.py_check_balance()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
+
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 💼 잔고 데이터 업데이트 중...")
+            task_start = time.time()
             self.db_to_jango()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
         # possessed_item(현재 보유종목) 테이블 업데이트
         if rows[0][2] != self.open_api.today:
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 📌 보유 종목 업데이트 중...")
+            task_start = time.time()
             self.open_api.db_to_possesed_item()
             self.open_api.setting_data_possesed_item()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
         # daily_craw db 업데이트
         if rows[0][7] != self.open_api.today:
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 📈 일봉 데이터 수집 중...")
+            task_start = time.time()
             self.daily_crawler_check()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
         # daily_buy_list db 업데이트
         if rows[0][9] != self.open_api.today:
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 🎯 매수 후보 분석 중...")
+            task_start = time.time()
             self.daily_buy_list_check()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
         # daily_buy_list db업데이트 이 후에 들어가야함
         if rows[0][4] != self.open_api.today:
-            # 매수했는데 all_item_db에 없는 종목들 넣어준다.
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 🔍 체결 확인 및 업데이트 중...")
+            task_start = time.time()
             self.open_api.chegyul_check()
-            # 매도 했는데 bot이 꺼져있을때 매도해서 all_item_db에 sell_date에 오늘 일자가 안 찍힌 종목들에 date 값을 넣어 준다. (이때 sell_rate는 0.0으로 찍힌다.)
             self.open_api.final_chegyul_check()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
         # 내일 매수 종목 업데이트 (realtime_daily_buy_list)
         if rows[0][6] != self.open_api.today:
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 🚀 실시간 매수 리스트 생성 중...")
+            task_start = time.time()
             self.realtime_daily_buy_list_check()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
         # min_craw db (분별 데이터) 업데이트
         # cf.use_min_crawler = True일 때만 실행
         if self.open_api.cf.use_min_crawler and rows[0][8] != self.open_api.today:
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] ⏱️  분봉 데이터 수집 중...")
+            task_start = time.time()
             self.min_crawler_check()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
+        current_task += 1
+        print(f"\n[{current_task}/{total_tasks}] 🌐 KIND 데이터 크롤링 중...")
+        task_start = time.time()
         self.kind.craw()
+        print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
+
+        # 전체 완료
+        total_time = time.time() - overall_start
+        print("\n" + "="*100)
+        print(f"✅ 모든 데이터 수집 완료! (총 소요 시간: {int(total_time//60)}분 {int(total_time%60)}초)")
+        print("="*100)
 
         logger.debug("collecting 작업을 모두 정상적으로 마쳤습니다.")
 
-        # cmd 콘솔창 종료
-        os.system("@taskkill /f /im cmd.exe")
+        # cmd 콘솔창 종료 - 주석 처리 (collector_v3.py의 60초 대기를 방해함)
+        # os.system("@taskkill /f /im cmd.exe")
 
         # # AI 알고리즘 적용
         if self.open_api.sf.use_ai:
@@ -162,7 +259,15 @@ class collector_api():
         target_code = self.open_api.engine_daily_buy_list.execute(sql).fetchall()
         num = len(target_code)
 
+        # 수집 대상 종목 수 계산
+        targets_to_collect = sum(1 for code in target_code if int(code[2]) == 0)
+
+        print(f"    총 {num}개 종목 중 {targets_to_collect}개 종목 수집 예정")
+
         sql = "UPDATE stock_item_all SET check_min_crawler='%s' WHERE code='%s'"
+
+        collected = 0
+        start_time = time.time()
 
         for i in range(num):
             # check_item 확인
@@ -172,7 +277,12 @@ class collector_api():
             code = target_code[i][0]
             code_name = target_code[i][1]
 
-            logger.debug("++++++++++++++" + str(code_name) + "++++++++++++++++++++" + str(i + 1) + '/' + str(num))
+            collected += 1
+            logger.debug("++++++++++++++" + str(code_name) + "++++++++++++++++++++" + str(collected) + '/' + str(targets_to_collect))
+
+            # 진행률 표시 (10개마다 또는 마지막)
+            if collected % 10 == 0 or collected == targets_to_collect:
+                self.print_progress(collected, targets_to_collect, "    분봉 수집", start_time)
 
             check_item_gubun = self.set_min_crawler_table(code, code_name)
 
@@ -187,8 +297,16 @@ class collector_api():
 
         target_code = self.open_api.engine_daily_buy_list.execute(sql).fetchall()
         num = len(target_code)
-        # mark = ".KS"
+
+        # 수집 대상 종목 수 계산
+        targets_to_collect = sum(1 for code in target_code if int(code[2]) not in (1, 3))
+
+        print(f"    총 {num}개 종목 중 {targets_to_collect}개 종목 수집 예정")
+
         sql = "UPDATE stock_item_all SET check_daily_crawler='%s' WHERE code='%s'"
+
+        collected = 0
+        start_time = time.time()
 
         for i in range(num):
             # check_daily_crawler 확인 후 1, 3이 아닌 경우만 업데이트
@@ -199,7 +317,12 @@ class collector_api():
             code = target_code[i][0]
             code_name = target_code[i][1]
 
-            logger.debug("++++++++++++++" + str(code_name) + "++++++++++++++++++++" + str(i + 1) + '/' + str(num))
+            collected += 1
+            logger.debug("++++++++++++++" + str(code_name) + "++++++++++++++++++++" + str(collected) + '/' + str(targets_to_collect))
+
+            # 진행률 표시 (10개마다 또는 마지막)
+            if collected % 10 == 0 or collected == targets_to_collect:
+                self.print_progress(collected, targets_to_collect, "    일봉 수집", start_time)
 
             check_item_gubun = self.set_daily_crawler_table(code, code_name)
 

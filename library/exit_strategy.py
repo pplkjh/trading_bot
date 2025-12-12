@@ -516,24 +516,60 @@ def get_exit_signals(
     exit_signals = []
     exit_strategy = ExitStrategy()
 
+    # 에러 추적
+    error_count = 0
+    table_not_found_count = 0
+    first_table_error_shown = False
+
     for position in positions:
         try:
             code = position['code']
 
+<<<<<<< Updated upstream
             # 데이터 로드
+=======
+            # 1. stock_item_all에서 종목코드로 종목명 조회
+>>>>>>> Stashed changes
             con = pymysql.connect(
                 user=db_id,
                 passwd=db_passwd,
                 host=db_ip,
+<<<<<<< Updated upstream
                 db=db_name,
+=======
+                db='daily_buy_list',
+                charset='utf8',
+                port=int(db_port)
+            )
+
+            query_get_name = f"""
+            SELECT code_name FROM stock_item_all WHERE code = '{code}' LIMIT 1
+            """
+            code_name_result = pd.read_sql(query_get_name, con)
+            con.close()
+
+            if len(code_name_result) == 0:
+                print(f"포지션 {code} 종목명을 찾을 수 없습니다 (stock_item_all에 없음)")
+                continue
+
+            code_name = code_name_result.iloc[0]['code_name']
+
+            # 2. daily_craw에서 일봉 데이터 로드 (종목명을 테이블명으로 사용)
+            con = pymysql.connect(
+                user=db_id,
+                passwd=db_passwd,
+                host=db_ip,
+                db='daily_craw',
+>>>>>>> Stashed changes
                 charset='utf8',
                 port=int(db_port)
             )
 
             query = f"""
-            SELECT ref_date, open, high, low, close, volume
-            FROM `{code}`
-            ORDER BY ref_date DESC
+            SELECT date, open, high, low, close, volume
+            FROM `{code_name}`
+            WHERE code = '{code}'
+            ORDER BY date DESC
             LIMIT 60
             """
 
@@ -543,8 +579,11 @@ def get_exit_signals(
             if len(df) < 20:
                 continue
 
-            # 시간순 정렬
-            df = df.sort_values('ref_date').reset_index(drop=True)
+            # 시간순 정렬 (date 컬럼 사용)
+            df = df.sort_values('date').reset_index(drop=True)
+
+            # date 컬럼을 ref_date로 이름 변경 (기존 코드 호환성 유지)
+            df = df.rename(columns={'date': 'ref_date'})
 
             # 청산 판단
             exit_decision = exit_strategy.get_exit_decision(position, df)
@@ -559,8 +598,40 @@ def get_exit_signals(
                 })
 
         except Exception as e:
-            print(f"포지션 {position.get('code', 'Unknown')} 청산 시그널 생성 오류: {e}")
+            error_count += 1
+            error_msg = str(e)
+
+            # 테이블 없음 오류 감지
+            if "Table" in error_msg and "doesn't exist" in error_msg:
+                table_not_found_count += 1
+
+                # 첫 번째 테이블 없음 오류 시 상세 안내
+                if not first_table_error_shown:
+                    first_table_error_shown = True
+                    print(f"\n⚠️  경고: 일봉 데이터 테이블이 없습니다!")
+                    print(f"   종목 코드: {position.get('code', 'Unknown')}")
+                    print(f"   오류 메시지: {e}")
+                    print(f"\n💡 해결 방법:")
+                    print(f"   1. collector_v3.py를 먼저 실행하여 일봉 데이터를 수집하세요")
+                    print(f"   2. daily_craw 데이터베이스에 종목 코드별 테이블이 생성되는지 확인하세요\n")
+                else:
+                    print(f"포지션 {position.get('code', 'Unknown')} 테이블 없음 (스킵)")
+            else:
+                print(f"포지션 {position.get('code', 'Unknown')} 청산 시그널 생성 오류: {e}")
+
             continue
+
+    # 전체 에러 요약
+    if error_count > 0:
+        print(f"\n📊 청산 시그널 생성 결과:")
+        print(f"   전체 포지션: {len(positions)}개")
+        print(f"   에러 발생: {error_count}개")
+        print(f"   테이블 없음: {table_not_found_count}개")
+        print(f"   청산 시그널: {len(exit_signals)}개\n")
+
+        if table_not_found_count == len(positions):
+            print(f"⚠️  모든 종목의 일봉 데이터가 없습니다!")
+            print(f"   반드시 collector_v3.py를 먼저 실행하세요!\n")
 
     # 우선순위 순으로 정렬
     exit_signals.sort(key=lambda x: x['decision']['priority'], reverse=True)

@@ -19,10 +19,10 @@ echo.
 
 REM Python 경로 설정
 set PYTHON_PATH=python
+set SCRIPT_DIR=%~dp0
 
-REM 프로젝트 경로 (필요시 수정)
-REM set PROJECT_PATH=C:\Users\USER\Desktop\Personal project\trading_bot
-REM cd /d "%PROJECT_PATH%"
+REM 프로젝트 루트 디렉토리로 이동
+cd /d %SCRIPT_DIR%..
 
 :LOOP
     echo.

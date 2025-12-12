@@ -15,8 +15,8 @@ REM Python 경로 설정 (본인 환경에 맞게 수정)
 set PYTHON_PATH=python
 set SCRIPT_DIR=%~dp0
 
-REM 작업 디렉토리로 이동
-cd /d %SCRIPT_DIR%
+REM 작업 디렉토리로 이동 (프로젝트 루트 폴더)
+cd /d %SCRIPT_DIR%..
 
 echo [1/3] 데이터 수집 중...
 echo.
@@ -69,7 +69,12 @@ echo.
 REM 로그 파일에 기록
 echo %date% %time% - 데이터 수집 완료 >> automation_log.txt
 
-REM 5초 후 자동 종료
-timeout /t 5
+echo.
+echo 💡 작업이 완료되었습니다.
+echo    로그를 확인하려면 아무 키나 누르세요...
+echo.
+
+REM 사용자가 로그를 확인할 수 있도록 대기
+pause
 
 exit /b 0

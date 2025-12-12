@@ -97,6 +97,35 @@ def scan_buy_candidates_from_date_table(
             port=int(db_port)
         )
 
+        # 필터링 테이블 존재 여부 체크
+        cursor = con.cursor()
+        cursor.execute("""
+            SELECT TABLE_NAME
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = %s
+            AND TABLE_NAME IN ('stock_konex', 'stock_invest_warning', 'stock_invest_danger', 'stock_invest_caution')
+        """, (db_name,))
+        existing_tables = {row[0] for row in cursor.fetchall()}
+
+        # 코넥스 제외 쿼리
+        konex_exclusion = ""
+        if 'stock_konex' in existing_tables:
+            konex_exclusion = "AND code NOT IN (SELECT code FROM stock_konex WHERE 1=1)"
+
+        # 투자위험 종목 제외 쿼리 동적 생성
+        warning_exclusion = ""
+        warning_tables = [t for t in ['stock_invest_warning', 'stock_invest_danger', 'stock_invest_caution'] if t in existing_tables]
+        if warning_tables:
+            warning_unions = []
+            for table in warning_tables:
+                warning_unions.append(f"SELECT code FROM {table}")
+            warning_exclusion = f"""
+            -- 투자위험 종목 제외
+            AND code NOT IN (
+                {' UNION '.join(warning_unions)}
+            )
+            """
+
         # 매수 후보 종목 스캔 쿼리
         query = f"""
         SELECT
@@ -164,15 +193,18 @@ def scan_buy_candidates_from_date_table(
             AND clo5 > 0
             AND clo20 > 0
 
-            -- 코넥스 제외
-            AND code NOT IN (SELECT code FROM stock_konex WHERE 1=1)
+            {konex_exclusion}
 
+<<<<<<< Updated upstream
             -- 투자위험 종목 제외 (투자주의는 허용)
             AND code NOT IN (
                 SELECT code FROM stock_invest_warning
                 UNION
                 SELECT code FROM stock_invest_danger
             )
+=======
+            {warning_exclusion}
+>>>>>>> Stashed changes
 
             -- 매수 조건
             AND volume > vol5 * 1.5  -- 거래량 급증

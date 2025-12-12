@@ -27,10 +27,15 @@ logger = logging.getLogger(__name__)
 # print 를 logger.debug로 모두 대체 해서 사용하면 logger 출력 위치를 알 수 있기 때문에 도움이 됨
 logger.setLevel(logging.DEBUG)
 
+# 콘솔 핸들러 (INFO 이상만 표시)
 stream_handler = logging.StreamHandler()
+stream_handler.setLevel(logging.INFO)  # 콘솔에는 INFO 이상만 출력
 
+# 파일 핸들러 (DEBUG 모두 기록)
 file_handler = TimedRotatingFileHandler(file_path, when="midnight", encoding='utf-8')
-# formmater 생성
+file_handler.setLevel(logging.DEBUG)  # 파일에는 DEBUG 모두 기록
+
+# formatter 생성
 formatter = logging.Formatter('[%(levelname)s|%(filename)s:%(lineno)s] %(asctime)s > %(message)s')
 stream_handler.setFormatter(formatter)
 file_handler.setFormatter(formatter)

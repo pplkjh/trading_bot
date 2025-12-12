@@ -419,20 +419,50 @@ class HybridStrategy:
 
         for code in stock_codes:
             try:
+<<<<<<< Updated upstream
                 # 데이터 로드
+=======
+                # 1. stock_item_all에서 종목코드로 종목명 조회
+>>>>>>> Stashed changes
                 con = pymysql.connect(
                     user=db_id,
                     passwd=db_passwd,
                     host=db_ip,
+<<<<<<< Updated upstream
                     db=db_name,
+=======
+                    db='daily_buy_list',
+                    charset='utf8',
+                    port=int(db_port)
+                )
+
+                query_get_name = f"""
+                SELECT code_name FROM stock_item_all WHERE code = '{code}' LIMIT 1
+                """
+                code_name_result = pd.read_sql(query_get_name, con)
+                con.close()
+
+                if len(code_name_result) == 0:
+                    continue
+
+                code_name = code_name_result.iloc[0]['code_name']
+
+                # 2. daily_craw에서 일봉 데이터 로드 (종목명을 테이블명으로 사용)
+                con = pymysql.connect(
+                    user=db_id,
+                    passwd=db_passwd,
+                    host=db_ip,
+                    db='daily_craw',
+>>>>>>> Stashed changes
                     charset='utf8',
                     port=int(db_port)
                 )
 
                 query = f"""
-                SELECT ref_date, open, high, low, close, volume
-                FROM `{code}`
-                ORDER BY ref_date DESC
+                SELECT date, open, high, low, close, volume
+                FROM `{code_name}`
+                WHERE code = '{code}'
+                ORDER BY date DESC
                 LIMIT 120
                 """
 
@@ -442,8 +472,11 @@ class HybridStrategy:
                 if len(df) < 60:
                     continue
 
-                # 시간순 정렬
-                df = df.sort_values('ref_date').reset_index(drop=True)
+                # 시간순 정렬 (date 컬럼 사용)
+                df = df.sort_values('date').reset_index(drop=True)
+
+                # date 컬럼을 ref_date로 이름 변경 (기존 코드 호환성 유지)
+                df = df.rename(columns={'date': 'ref_date'})
 
                 # 시그널 생성
                 signal_result = self.get_hybrid_signal(df)
