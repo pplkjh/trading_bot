@@ -1,101 +1,87 @@
 @echo off
 REM ===================================================
-REM ìžë™ íŠ¸ë ˆì´ë” ì‹¤í–‰ ë°°ì¹˜ íŒŒì¼
-REM ìž¥ ì‹œìž‘ 30ë¶„ ì „ì— ì‹¤í–‰í•˜ì—¬ ìžë™ ë§¤ë§¤ë¥¼ ì‹œìž‘í•©ë‹ˆë‹¤
+REM ÀÚµ¿ Æ®·¹ÀÌ´õ ½ÇÇà ¹èÄ¡ ÆÄÀÏ
+REM Àå ½ÃÀÛ 30ºÐ Àü¿¡ ½ÇÇàÇÏ¿© ÀÚµ¿ ¸Å¸Å¸¦ ½ÃÀÛÇÕ´Ï´Ù
 REM ===================================================
 
 echo ========================================
-echo ìžë™ ë§¤ë§¤ íŠ¸ë ˆì´ë” ì‹œìž‘
+echo ÀÚµ¿ ¸Å¸Å Æ®·¹ÀÌ´õ ½ÃÀÛ
 echo ========================================
 echo.
-echo ì‹œìž‘ ì‹œê°„: %date% %time%
+echo ½ÃÀÛ ½Ã°£: %date% %time%
 echo.
 
-REM Python ê²½ë¡œ ì„¤ì •
+REM Python °æ·Î ¼³Á¤
 set PYTHON_PATH=python
 set SCRIPT_DIR=%~dp0
 
-REM ìž‘ì—… ë””ë ‰í† ë¦¬ë¡œ ì´ë™ (batch í´ë”ì˜ ìƒìœ„ ë””ë ‰í† ë¦¬)
+REM ÀÛ¾÷ µð·ºÅä¸®·Î ÀÌµ¿ (batch Æú´õÀÇ »óÀ§ µð·ºÅä¸®)
 cd /d %SCRIPT_DIR%..
 
-echo [INFO] ìž‘ì—… ë””ë ‰í† ë¦¬: %cd%
+echo [INFO] ÀÛ¾÷ µð·ºÅä¸®: %cd%
 echo.
 
-REM ê¸°ì¡´ trader.py í”„ë¡œì„¸ìŠ¤ í™•ì¸
-tasklist /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq trader.py*" 2>NUL | find /I /N "python.exe">NUL
-if "%ERRORLEVEL%"=="0" (
-    echo âš ï¸  ì´ë¯¸ trader.pyê°€ ì‹¤í–‰ ì¤‘ìž…ë‹ˆë‹¤.
-    echo ê¸°ì¡´ í”„ë¡œì„¸ìŠ¤ë¥¼ ì¢…ë£Œí•˜ì‹œê² ìŠµë‹ˆê¹Œ? (Y/N)
-    set /p KILL_PROCESS=
-
-    if /i "%KILL_PROCESS%"=="Y" (
-        echo ê¸°ì¡´ í”„ë¡œì„¸ìŠ¤ ì¢…ë£Œ ì¤‘...
-        taskkill /F /FI "WINDOWTITLE eq trader.py*" >NUL 2>&1
-        timeout /t 3 >NUL
-    ) else (
-        echo ê¸°ì¡´ í”„ë¡œì„¸ìŠ¤ë¥¼ ìœ ì§€í•©ë‹ˆë‹¤.
-        pause
-        exit /b 0
-    )
-)
-
-echo [1/2] í‚¤ì›€ OpenAPI ì—°ê²° í™•ì¸ ì¤‘...
-echo.
-
-REM ëª¨ì˜íˆ¬ìž(1) ë˜ëŠ” ì‹¤ì „íˆ¬ìž(2) ì„ íƒ
-echo ë§¤ë§¤ ëª¨ë“œë¥¼ ì„ íƒí•˜ì„¸ìš”:
-echo   1 = ëª¨ì˜íˆ¬ìž (ì•ˆì „)
-echo   2 = ì‹¤ì „íˆ¬ìž (ì£¼ì˜!)
-echo.
-set /p TRADE_MODE=ëª¨ë“œ ì„ íƒ (1 ë˜ëŠ” 2):
-
-if "%TRADE_MODE%"=="1" (
+REM ¿µ¾÷ÀÏ Ã¼Å©
+echo [INFO] ÁÖ½Ä Àå ¿µ¾÷ÀÏ È®ÀÎ Áß...
+%PYTHON_PATH% check_trading_day.py
+if %errorlevel% neq 0 (
     echo.
-    echo âœ… ëª¨ì˜íˆ¬ìž ëª¨ë“œë¡œ ì‹œìž‘í•©ë‹ˆë‹¤
-    echo.
-) else if "%TRADE_MODE%"=="2" (
-    echo.
-    echo âš ï¸âš ï¸âš ï¸ ì‹¤ì „íˆ¬ìž ëª¨ë“œìž…ë‹ˆë‹¤! âš ï¸âš ï¸âš ï¸
-    echo ì •ë§ ì‹¤ì „ ê³„ì¢Œë¡œ ë§¤ë§¤í•˜ì‹œê² ìŠµë‹ˆê¹Œ? (YES ìž…ë ¥)
-    set /p CONFIRM=í™•ì¸:
-
-    if not "%CONFIRM%"=="YES" (
-        echo ì·¨ì†Œë˜ì—ˆìŠµë‹ˆë‹¤.
-        pause
-        exit /b 0
-    )
-) else (
-    echo âŒ ìž˜ëª»ëœ ìž…ë ¥ìž…ë‹ˆë‹¤.
+    echo [ERROR] ¿À´ÃÀº ÁÖ½Ä ÀåÀÌ ¿­¸®Áö ¾Ê´Â ³¯ÀÔ´Ï´Ù.
+    echo [INFO] ÀÚ¼¼ÇÑ ³»¿ëÀº À§ ¸Þ½ÃÁö¸¦ È®ÀÎÇÏ¼¼¿ä.
     pause
     exit /b 1
 )
-
-echo [2/2] íŠ¸ë ˆì´ë” ì‹¤í–‰ ì¤‘...
-echo.
-echo ðŸ“Š trader.pyê°€ ì‹¤í–‰ë©ë‹ˆë‹¤.
-echo ðŸ’¡ í‚¤ì›€ ë¡œê·¸ì¸ ì°½ì´ ë‚˜íƒ€ë‚˜ë©´ ë¡œê·¸ì¸í•˜ì„¸ìš”.
 echo.
 
-REM trader.py ì‹¤í–‰ (ëª¨ë“œë¥¼ ìžë™ ìž…ë ¥)
-echo %TRADE_MODE%| %PYTHON_PATH% trader.py
+REM ±âÁ¸ trader_advanced.py ÇÁ·Î¼¼½º È®ÀÎ
+tasklist /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq trader_advanced.py*" 2>NUL | find /I /N "python.exe">NUL
+if "%ERRORLEVEL%"=="0" (
+    echo [WARNING] ÀÌ¹Ì trader_advanced.py°¡ ½ÇÇà ÁßÀÔ´Ï´Ù.
+    echo ±âÁ¸ ÇÁ·Î¼¼½º¸¦ Á¾·áÇÏ½Ã°Ú½À´Ï±î? (Y/N)
+    set /p KILL_PROCESS=
+
+    if /i "%KILL_PROCESS%"=="Y" (
+        echo ±âÁ¸ ÇÁ·Î¼¼½º Á¾·á Áß...
+        taskkill /F /FI "WINDOWTITLE eq trader_advanced.py*" >NUL 2>&1
+        timeout /t 3 >NUL
+    ) else (
+        echo ±âÁ¸ ÇÁ·Î¼¼½º¸¦ À¯ÁöÇÕ´Ï´Ù.
+        pause
+        exit /b 0
+    )
+)
+
+echo [1/2] Å°¿ò OpenAPI ¿¬°á È®ÀÎ Áß...
+echo.
+echo [OK] ÀÚµ¿ ½ÇÇà ¸ðµå
+echo.
+
+echo [2/2] Æ®·¹ÀÌ´õ ½ÇÇà Áß...
+echo.
+echo [START] trader_advanced.py°¡ ½ÇÇàµË´Ï´Ù.
+echo [INFO] Å°¿ò ·Î±×ÀÎ Ã¢ÀÌ ³ªÅ¸³ª¸é ·Î±×ÀÎÇÏ¼¼¿ä.
+echo.
+
+REM trader_advanced.py ½ÇÇà
+%PYTHON_PATH% trader_advanced.py
 
 if %errorlevel% neq 0 (
     echo.
-    echo âŒ íŠ¸ë ˆì´ë” ì‹¤í–‰ ì‹¤íŒ¨!
-    echo ì˜¤ë¥˜ ì½”ë“œ: %errorlevel%
+    echo [ERROR] Æ®·¹ÀÌ´õ ½ÇÇà ½ÇÆÐ!
+    echo ¿À·ù ÄÚµå: %errorlevel%
     pause
     exit /b %errorlevel%
 )
 
 echo.
 echo ========================================
-echo íŠ¸ë ˆì´ë” ì¢…ë£Œë¨
-echo ì¢…ë£Œ ì‹œê°„: %date% %time%
+echo Æ®·¹ÀÌ´õ Á¾·áµÊ
+echo Á¾·á ½Ã°£: %date% %time%
 echo ========================================
 echo.
 
-REM ë¡œê·¸ ê¸°ë¡
-echo %date% %time% - íŠ¸ë ˆì´ë” ì¢…ë£Œ >> automation_log.txt
+REM ·Î±× ±â·Ï
+echo %date% %time% - Æ®·¹ÀÌ´õ Á¾·á >> automation_log.txt
 
 pause
 exit /b 0

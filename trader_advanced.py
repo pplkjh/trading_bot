@@ -192,7 +192,7 @@ class TraderAdvanced(QMainWindow):
         """
         try:
             if self.use_advanced_buy or self.use_advanced_sell:
-                logger.info("🔧 고급 전략 엔진 초기화 중...")
+                logger.info("🔧 고급 전략 사용 설정 확인...")
 
                 # 포트폴리오 가치 계산
                 self.open_api.check_balance()
@@ -201,23 +201,14 @@ class TraderAdvanced(QMainWindow):
                 portfolio_value = int(self.open_api.d2_deposit_before_format) + \
                                 int(self.open_api.total_purchase_price)
 
-                # 엔진 초기화
-                success = self.open_api.init_advanced_trading_engine(portfolio_value)
-
-                if success:
-                    logger.info(f"✅ 고급 전략 엔진 초기화 완료 (포트폴리오: {portfolio_value:,}원)")
-                    self.advanced_engine_ready = True
-                else:
-                    logger.warning("⚠️  고급 전략 엔진 초기화 실패 - 기존 방식 사용")
-                    self.advanced_engine_ready = False
-                    self.use_advanced_buy = False
-                    self.use_advanced_sell = False
+                logger.info(f"✅ 고급 전략 활성화 (포트폴리오: {portfolio_value:,}원)")
+                self.advanced_engine_ready = True
             else:
                 logger.info("ℹ️  기본 전략 사용 (고급 전략 미사용)")
                 self.advanced_engine_ready = False
 
         except Exception as e:
-            logger.error(f"❌ 고급 전략 엔진 초기화 오류: {e}")
+            logger.error(f"❌ 고급 전략 초기화 오류: {e}")
             logger.warning("기본 전략으로 전환합니다")
             self.advanced_engine_ready = False
             self.use_advanced_buy = False
@@ -251,7 +242,6 @@ class TraderAdvanced(QMainWindow):
 
                             # 매수 후보 없을 시 자동 종료 옵션 체크
                             if self.exit_on_no_candidates:
-                                # 보유 종목 확인
                                 self.open_api.check_balance()
                                 has_positions = len(self.open_api.opw00018_output['multi']) > 0
 
@@ -268,7 +258,6 @@ class TraderAdvanced(QMainWindow):
 
                         # 매수 후보 없을 시 자동 종료 옵션 체크
                         if self.exit_on_no_candidates:
-                            # 보유 종목 확인
                             self.open_api.check_balance()
                             has_positions = len(self.open_api.opw00018_output['multi']) > 0
 
@@ -278,6 +267,10 @@ class TraderAdvanced(QMainWindow):
                                 self.should_exit = True
                                 self.exit_reason = "매수 후보 확인 불가 (보유 종목 없음)"
                                 logger.info("🚪 매수 후보 확인 불가 및 보유 종목 없으므로 자동 종료합니다")
+
+                # 매수 후보가 있으면 실제 매수 실행
+                if self.buy_candidates_available:
+                    self.open_api.get_today_buy_list()
             else:
                 # 기존 방식으로 매수
                 logger.info("📋 기본 방식으로 매수")

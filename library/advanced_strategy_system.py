@@ -61,7 +61,7 @@ class AdvancedStrategySystem:
             'min_hybrid_score': 70.0,
             'max_positions': 10,
             'max_position_pct': 0.15,
-            'max_daily_loss_pct': -0.08,
+            'max_daily_loss_pct': -0.05,  # -8% → -5%로 변경
             'atr_stop_multiplier': 2.0,
             'trailing_stop_activation': 0.05,
             'max_holding_days': 10

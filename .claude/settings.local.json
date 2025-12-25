@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(dir:*)",
+      "Bash(ls:*)",
+      "Bash(git checkout:*)",
+      "Bash(grep:*)",
+      "Bash(git rm:*)",
+      "Bash(mysql:*)",
+      "Bash(cat:*)",
+      "Bash(powershell -Command \"cd ''c:\\\\Users\\\\USER\\\\Desktop\\\\Personal project\\\\trading_bot''; C:\\\\Users\\\\USER\\\\anaconda3\\\\envs\\\\py37_32\\\\python.exe check_buy_list_simple.py\")",
+      "Bash(powershell -Command:*)"
     ]
   }
 }

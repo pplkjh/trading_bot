@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Date>2024-11-18T00:00:00</Date>
+    <Date>2025-01-01T00:00:00</Date>
     <Author>TradingBot</Author>
-    <Description>장 시작 30분 전에 자동으로 트레이더를 실행합니다 (평일만)</Description>
+    <Description>장 시작 30분 전에 자동으로 트레이더를 실행합니다 (평일 08:30 - 완전 자동화)</Description>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
-      <StartBoundary>2024-01-01T08:30:00</StartBoundary>
+      <StartBoundary>2025-01-01T08:30:00</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByWeek>
         <DaysOfWeek>
@@ -48,8 +48,8 @@
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>C:\path\to\trading_bot\batch\start_trader.bat</Command>
-      <WorkingDirectory>C:\path\to\trading_bot</WorkingDirectory>
+      <Command>C:\Users\USER\Desktop\Personal project\trading_bot\batch\start_trader.bat</Command>
+      <WorkingDirectory>C:\Users\USER\Desktop\Personal project\trading_bot</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>

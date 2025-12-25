@@ -1,13 +1,22 @@
 -- ================================================
--- stock_item_all 테이블 생성 스크립트
+-- stock_item_all 테이블 생성 스크립트 (v1.5.0)
 -- ================================================
 -- 데이터베이스: daily_buy_list
 -- 용도: 전체 종목 리스트 및 수집 상태 관리
 -- ================================================
--- 실행 방법: mysql -u bot -p daily_buy_list < stock_item_all_schema.sql
+-- 실행 방법: mysql -u bot -p --default-character-set=utf8mb4 daily_buy_list < stock_item_all_schema.sql
+--
+-- ⚠️ 주의: DROP TABLE IF EXISTS로 기존 테이블을 삭제합니다!
 -- ================================================
 
+SET NAMES utf8mb4;
+SET CHARACTER SET utf8mb4;
+
 USE daily_buy_list;
+
+-- 기존 테이블 삭제 (재설치 시)
+DROP TABLE IF EXISTS stock_item_all;
+DROP TABLE IF EXISTS pred_signal;
 
 -- stock_item_all 테이블 생성
 CREATE TABLE IF NOT EXISTS stock_item_all (

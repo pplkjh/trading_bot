@@ -46,19 +46,41 @@ try:
 
         # 데이터 출력
         for idx, row in df_data.iterrows():
-            print(f"[{idx+1}] 종목코드: {row.get('code', 'N/A'):<10} "
-                  f"종목명: {row.get('code_name', 'N/A'):<20} ", end='')
+            print(f"[{idx+1}] {row.get('code', 'N/A'):<10} {row.get('code_name', 'N/A'):<20}")
 
             if 'close' in cols and pd.notna(row.get('close')):
-                print(f"현재가: {int(row['close']):>10,}원 ", end='')
-            if 'd1' in cols and pd.notna(row.get('d1')):
-                print(f"D1: {row['d1']:>6.2f} ", end='')
-            if 'd2' in cols and pd.notna(row.get('d2')):
-                print(f"D2: {row['d2']:>6.2f} ", end='')
-            if 'check_item' in cols and pd.notna(row.get('check_item')):
-                print(f"전략: {str(row['check_item'])[:15]}", end='')
+                print(f"      현재가:       {int(row['close']):>10,}원")
 
-            print()
+            # 고급 전략 정보
+            if 'strategy_type' in cols and pd.notna(row.get('strategy_type')):
+                strategy_names = {
+                    'momentum_breakout': '모멘텀 돌파',
+                    'mean_reversion': '평균회귀',
+                    'strong_uptrend': '강한 상승',
+                    'neutral': '중립',
+                    'basic': '기본전략'
+                }
+                strategy = row['strategy_type']
+                strategy_kr = strategy_names.get(strategy, strategy)
+                print(f"      전략:         {strategy_kr}")
+
+            if 'composite_score' in cols and pd.notna(row.get('composite_score')):
+                score = row['composite_score']
+                print(f"      종합 스코어:  {score:>10.1f}/100")
+
+            if 'volume_ratio' in cols and pd.notna(row.get('volume_ratio')):
+                vol_ratio = row['volume_ratio']
+                print(f"      거래량 비율:  {vol_ratio:>10.2f}x")
+
+            # 기존 지표들
+            if 'd1' in cols and pd.notna(row.get('d1')):
+                print(f"      D1:           {row['d1']:>10.2f}")
+            if 'd2' in cols and pd.notna(row.get('d2')):
+                print(f"      D2:           {row['d2']:>10.2f}")
+            if 'check_item' in cols and pd.notna(row.get('check_item')) and 'strategy_type' not in cols:
+                print(f"      전략 ID:      {row['check_item']}")
+
+            print()  # 빈 줄 추가
     else:
         print("❌ 매수 후보가 없습니다!")
         print("\n💡 해결 방법:")

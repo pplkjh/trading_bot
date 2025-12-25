@@ -116,12 +116,20 @@ def generate_collector_report(collector_api):
                                 })
 
                         processed += 1
-                        if processed % 100 == 0:
-                            print(f"  시장 분석 진행 중... {processed}/{len(df_stocks)}개 종목 처리")
+                        # 진행률 바 표시 (같은 줄에 업데이트)
+                        if processed % 100 == 0 or processed == len(df_stocks):
+                            progress = (processed / len(df_stocks)) * 100
+                            bar_length = 40
+                            filled = int(bar_length * processed / len(df_stocks))
+                            bar = '█' * filled + '░' * (bar_length - filled)
+                            print(f"\r  시장 분석: [{bar}] {progress:.1f}% ({processed}/{len(df_stocks)})", end='', flush=True)
 
                     except Exception:
                         # 해당 종목 테이블이 없거나 데이터가 없는 경우 무시
                         continue
+
+                # 진행률 바 완료 후 줄바꿈
+                print()
 
                 if market_data:
                     df_market = pd.DataFrame(market_data)

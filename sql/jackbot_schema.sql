@@ -1,17 +1,30 @@
 -- ================================================
--- JackBot 데이터베이스 스키마 생성 스크립트
+-- JackBot 데이터베이스 스키마 생성 스크립트 (v1.5.0)
 -- ================================================
--- 데이터베이스: JackBot1_imi1 (모의투자) 또는 JackBot1 (실전)
+-- 데이터베이스: jackbot1_imi1 (모의투자) 또는 jackbot1 (실전)
 -- 용도: 매매 실행, 포지션 관리, 성과 추적
 -- ================================================
 -- 실행 방법:
---   모의투자: mysql -u bot -p JackBot1_imi1 < jackbot_schema.sql
---   실전:     mysql -u bot -p JackBot1 < jackbot_schema.sql
+--   모의투자: mysql -u bot -p --default-character-set=utf8mb4 jackbot1_imi1 < jackbot_schema.sql
+--   실전:     mysql -u bot -p --default-character-set=utf8mb4 jackbot1 < jackbot_schema.sql
+--
+-- ⚠️ 주의: DROP TABLE IF EXISTS로 기존 테이블을 삭제합니다!
+--         기존 매매 데이터가 모두 손실됩니다!
 -- ================================================
 
+SET NAMES utf8mb4;
+SET CHARACTER SET utf8mb4;
+
 -- 주의: DATABASE 이름을 상황에 맞게 변경하세요!
--- USE JackBot1_imi1;  -- 모의투자
--- USE JackBot1;        -- 실전
+-- USE jackbot1_imi1;  -- 모의투자
+-- USE jackbot1;        -- 실전
+
+-- 기존 테이블 삭제 (완전 재설치 시)
+DROP TABLE IF EXISTS realtime_daily_buy_list;
+DROP TABLE IF EXISTS possessed_item;
+DROP TABLE IF EXISTS all_item_db;
+DROP TABLE IF EXISTS jango_data;
+DROP TABLE IF EXISTS setting_data;
 
 -- ================================================
 -- 1. setting_data: 전체 설정 관리
@@ -63,7 +76,6 @@ CREATE TABLE IF NOT EXISTS jango_data (
     -- 매수/매도 통계
     today_buy_count INT DEFAULT 0 COMMENT '당일 매수 종목 수',
     today_sell_count INT DEFAULT 0 COMMENT '당일 매도 종목 수',
-
     today_buy_total_sell_count INT DEFAULT 0 COMMENT '당일 매수한 종목 중 매도된 수',
     today_buy_total_possess_count INT DEFAULT 0 COMMENT '당일 매수한 종목 중 보유 중인 수',
 
@@ -90,6 +102,7 @@ CREATE TABLE IF NOT EXISTS all_item_db (
     `index` INT AUTO_INCREMENT PRIMARY KEY,
     code VARCHAR(10) NOT NULL COMMENT '종목코드',
     code_name VARCHAR(100) NOT NULL COMMENT '종목명',
+    chegyul_check VARCHAR(10) DEFAULT '0' COMMENT '체결 확인 (0: 체결완료, 1: 미체결)',
 
     -- 매수 정보
     buy_date VARCHAR(20) NOT NULL COMMENT '매수일 (YYYYMMDD)',
@@ -180,14 +193,28 @@ CREATE TABLE IF NOT EXISTS realtime_daily_buy_list (
     ma100 INT DEFAULT 0 COMMENT '100일 이동평균',
     ma120 INT DEFAULT 0 COMMENT '120일 이동평균',
 
+    -- 하이브리드 전략 (v1.5.0+)
+    strategy_type VARCHAR(50) DEFAULT 'basic' COMMENT '전략 타입 (date_based, momentum_breakout, mean_reversion, hybrid)',
+    composite_score DECIMAL(10,2) DEFAULT 0 COMMENT '종합 스코어 (0-100)',
+    volume_ratio DECIMAL(10,2) DEFAULT 1.0 COMMENT '거래량 비율 (현재/평균)',
+
+    -- 기술적 지표 (v1.5.0+)
+    rsi14 DECIMAL(10,2) DEFAULT 50.0 COMMENT 'RSI(14일)',
+    bb_upper INT DEFAULT 0 COMMENT '볼린저 밴드 상단',
+    bb_middle INT DEFAULT 0 COMMENT '볼린저 밴드 중간 (20일 MA)',
+    bb_lower INT DEFAULT 0 COMMENT '볼린저 밴드 하단',
+    atr14 INT DEFAULT 0 COMMENT 'ATR(14일) - Average True Range',
+
     -- 매수 실행 여부
     check_item VARCHAR(20) DEFAULT '0' COMMENT '매수 실행 시간 (0: 미실행)',
 
     INDEX idx_date (date),
     INDEX idx_code (code),
-    INDEX idx_check (check_item)
+    INDEX idx_check (check_item),
+    INDEX idx_strategy (strategy_type),
+    INDEX idx_score (composite_score)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-COMMENT='내일 매수할 종목 리스트 (collector가 생성)';
+COMMENT='내일 매수할 종목 리스트 (collector가 생성, 하이브리드 전략 지원)';
 
 -- ================================================
 -- 완료 메시지

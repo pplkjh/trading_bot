@@ -195,23 +195,14 @@ def scan_buy_candidates_from_date_table(
 
             {konex_exclusion}
 
-<<<<<<< Updated upstream
-            -- 투자위험 종목 제외 (투자주의는 허용)
-            AND code NOT IN (
-                SELECT code FROM stock_invest_warning
-                UNION
-                SELECT code FROM stock_invest_danger
-            )
-=======
             {warning_exclusion}
->>>>>>> Stashed changes
 
             -- 매수 조건
             AND volume > vol5 * 1.5  -- 거래량 급증
             AND clo5 > clo20  -- 상승 추세
             AND close < clo20 * 1.05  -- 과매수 아님
             AND d1_diff_rate BETWEEN -3 AND 3  -- 변동성 적정
-            AND close BETWEEN 5000 AND 500000  -- 가격 범위
+            AND close BETWEEN 1000 AND 500000  -- 가격 범위 (1000원 ~ 50만원)
 
         HAVING composite_score >= {min_score}
         ORDER BY composite_score DESC

@@ -419,18 +419,11 @@ class HybridStrategy:
 
         for code in stock_codes:
             try:
-<<<<<<< Updated upstream
-                # 데이터 로드
-=======
                 # 1. stock_item_all에서 종목코드로 종목명 조회
->>>>>>> Stashed changes
                 con = pymysql.connect(
                     user=db_id,
                     passwd=db_passwd,
                     host=db_ip,
-<<<<<<< Updated upstream
-                    db=db_name,
-=======
                     db='daily_buy_list',
                     charset='utf8',
                     port=int(db_port)
@@ -453,7 +446,6 @@ class HybridStrategy:
                     passwd=db_passwd,
                     host=db_ip,
                     db='daily_craw',
->>>>>>> Stashed changes
                     charset='utf8',
                     port=int(db_port)
                 )

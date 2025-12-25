@@ -16,6 +16,7 @@ from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timedelta
 import pymysql
 from library.cf import *
+from library.technical_indicators import calculate_atr
 
 
 class ExitStrategy:
@@ -56,25 +57,6 @@ class ExitStrategy:
         self.max_holding_days = max_holding_days
         self.time_stop_loss_pct = time_stop_loss_pct
         self.factor_score_threshold = factor_score_threshold
-
-
-    def calculate_atr(
-        self,
-        high: pd.Series,
-        low: pd.Series,
-        close: pd.Series,
-        period: int = 14
-    ) -> float:
-        """ATR 계산"""
-        high_low = high - low
-        high_close = np.abs(high - close.shift())
-        low_close = np.abs(low - close.shift())
-
-        ranges = pd.concat([high_low, high_close, low_close], axis=1)
-        true_range = ranges.max(axis=1)
-        atr = true_range.rolling(window=period).mean().iloc[-1]
-
-        return atr if not np.isnan(atr) else 0
 
 
     def check_atr_stop_loss(
@@ -387,7 +369,7 @@ class ExitStrategy:
         current_date = datetime.now()
 
         # ATR 계산
-        atr = self.calculate_atr(
+        atr = calculate_atr(
             current_data['high'],
             current_data['low'],
             current_data['close']
@@ -525,18 +507,11 @@ def get_exit_signals(
         try:
             code = position['code']
 
-<<<<<<< Updated upstream
-            # 데이터 로드
-=======
             # 1. stock_item_all에서 종목코드로 종목명 조회
->>>>>>> Stashed changes
             con = pymysql.connect(
                 user=db_id,
                 passwd=db_passwd,
                 host=db_ip,
-<<<<<<< Updated upstream
-                db=db_name,
-=======
                 db='daily_buy_list',
                 charset='utf8',
                 port=int(db_port)
@@ -560,7 +535,6 @@ def get_exit_signals(
                 passwd=db_passwd,
                 host=db_ip,
                 db='daily_craw',
->>>>>>> Stashed changes
                 charset='utf8',
                 port=int(db_port)
             )

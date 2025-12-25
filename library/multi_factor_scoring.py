@@ -15,6 +15,7 @@ import pandas as pd
 from typing import Dict, List, Tuple, Optional
 import pymysql
 from library.cf import *
+from library.technical_indicators import calculate_rsi, calculate_bollinger_bands, calculate_atr
 
 
 class MultiFactorScoring:
@@ -54,31 +55,6 @@ class MultiFactorScoring:
         self.weights = {k: v/total for k, v in self.weights.items()}
 
 
-    def calculate_rsi(self, prices: pd.Series, period: int = 14) -> float:
-        """
-        RSI (Relative Strength Index) 계산
-
-        Parameters:
-        -----------
-        prices : pd.Series
-            가격 시계열
-        period : int
-            RSI 계산 기간
-
-        Returns:
-        --------
-        float : RSI 값 (0-100)
-        """
-        delta = prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-
-        return rsi.iloc[-1] if not np.isnan(rsi.iloc[-1]) else 50
-
-
     def calculate_macd(
         self,
         prices: pd.Series,
@@ -104,37 +80,6 @@ class MultiFactorScoring:
             macd_line.iloc[-1] if not np.isnan(macd_line.iloc[-1]) else 0,
             signal_line.iloc[-1] if not np.isnan(signal_line.iloc[-1]) else 0,
             histogram.iloc[-1] if not np.isnan(histogram.iloc[-1]) else 0
-        )
-
-
-    def calculate_bollinger_bands(
-        self,
-        prices: pd.Series,
-        period: int = 20,
-        std_dev: float = 2.0
-    ) -> Tuple[float, float, float, float]:
-        """
-        볼린저 밴드 계산
-
-        Returns:
-        --------
-        Tuple[float, float, float, float] : (중간선, 상단, 하단, %B)
-        """
-        middle = prices.rolling(window=period).mean()
-        std = prices.rolling(window=period).std()
-
-        upper = middle + (std * std_dev)
-        lower = middle - (std * std_dev)
-
-        # %B: 현재 가격이 밴드 내 어디에 위치하는지 (0~1)
-        current_price = prices.iloc[-1]
-        percent_b = (current_price - lower.iloc[-1]) / (upper.iloc[-1] - lower.iloc[-1])
-
-        return (
-            middle.iloc[-1] if not np.isnan(middle.iloc[-1]) else 0,
-            upper.iloc[-1] if not np.isnan(upper.iloc[-1]) else 0,
-            lower.iloc[-1] if not np.isnan(lower.iloc[-1]) else 0,
-            percent_b if not np.isnan(percent_b) else 0.5
         )
 
 
@@ -211,7 +156,7 @@ class MultiFactorScoring:
 
         # RSI 스코어 (30-70 범위를 50점 기준으로 스코어링)
         # 과매도(30 이하) 또는 과매수(70 이상)에서 높은 점수
-        rsi = self.calculate_rsi(df['close'])
+        rsi = calculate_rsi(df['close'])
         if rsi <= 30:
             rsi_score = 100  # 과매도 - 매수 기회
         elif rsi <= 40:
@@ -244,7 +189,13 @@ class MultiFactorScoring:
         scores['macd_score'] = macd_score
 
         # 볼린저 밴드 스코어
-        bb_middle, bb_upper, bb_lower, percent_b = self.calculate_bollinger_bands(df['close'])
+        bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(df['close'])
+        # %B: 현재 가격이 밴드 내 어디에 위치하는지 (0~1)
+        current_price = df['close'].iloc[-1]
+        if bb_upper > bb_lower:
+            percent_b = (current_price - bb_lower) / (bb_upper - bb_lower)
+        else:
+            percent_b = 0.5
         # %B가 0-0.2 (하단 근처) 또는 0.8-1.0 (상단 근처)일 때 기회
         if percent_b <= 0.2:
             bb_score = 90  # 하단 근처 - 반등 기회
@@ -453,13 +404,7 @@ class MultiFactorScoring:
         low = df['low']
 
         # ATR 계산
-        high_low = high - low
-        high_close = np.abs(high - close.shift())
-        low_close = np.abs(low - close.shift())
-
-        ranges = pd.concat([high_low, high_close, low_close], axis=1)
-        true_range = ranges.max(axis=1)
-        atr = true_range.rolling(window=14).mean().iloc[-1]
+        atr = calculate_atr(high, low, close, period=14)
 
         # ATR의 가격 대비 비율
         atr_pct = (atr / close.iloc[-1] * 100) if close.iloc[-1] > 0 else 0
@@ -632,9 +577,6 @@ def get_stock_score(code: str, db_name: str = 'daily_buy_list', lookback: int = 
             user=db_id,
             passwd=db_passwd,
             host=db_ip,
-<<<<<<< Updated upstream
-            db=db_name,
-=======
             db='daily_buy_list',
             charset='utf8',
             port=int(db_port)
@@ -657,7 +599,6 @@ def get_stock_score(code: str, db_name: str = 'daily_buy_list', lookback: int = 
             passwd=db_passwd,
             host=db_ip,
             db='daily_craw',
->>>>>>> Stashed changes
             charset='utf8',
             port=int(db_port)
         )

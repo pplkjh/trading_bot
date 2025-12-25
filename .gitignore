@@ -43,6 +43,12 @@ env/
 # Logs
 *.log
 
+# Reports
+reports/
+
+# Test Logs
+test_logs/
+
 # OS
 .DS_Store
 Thumbs.db

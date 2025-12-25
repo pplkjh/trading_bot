@@ -32,8 +32,21 @@ class simulator_v2():
             exit(1)
 
     def input_value(self):
+        # 시뮬레이터 시작 헤더
+        print("\n" + "=" * 60)
+        print("🚀 백테스트 시뮬레이터")
+        print("=" * 60)
+        print(f"📊 알고리즘: {self.simul_num}번")
+        print(f"🔄 모드: {'초기화 후 실행' if self.simul_reset == 'reset' else '이어서 실행'}")
+        print("=" * 60 + "\n")
+
         # simulator_func_mysql 라이브러리 클래스 호출
         simulator_func_mysql(self.simul_num, self.simul_reset, 0)
+
+        # 시뮬레이터 완료 메시지
+        print("\n" + "=" * 60)
+        print("✅ 백테스트 완료!")
+        print("=" * 60)
 
 
 if __name__ == "__main__":

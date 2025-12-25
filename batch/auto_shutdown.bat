@@ -1,104 +1,63 @@
 @echo off
+setlocal enabledelayedexpansion
 REM ===================================================
-REM ìžë™ ì¢…ë£Œ ë°°ì¹˜ íŒŒì¼
-REM ìž¥ ë§ˆê° í›„ ë°ì´í„° ìˆ˜ì§‘ ì™„ë£Œ í›„ ì»´í“¨í„°ë¥¼ ìžë™ìœ¼ë¡œ ì¢…ë£Œí•©ë‹ˆë‹¤
+REM ÀÚµ¿ Á¾·á ¹èÄ¡ ÆÄÀÏ
+REM Àú³á 7½Ã ÀÌÈÄ ½ÇÇà - 10ºÐ Ä«¿îÆ®´Ù¿î ÈÄ ÄÄÇ»ÅÍ Á¾·á
 REM ===================================================
 
 echo ========================================
-echo ìžë™ ì¢…ë£Œ í”„ë¡œì„¸ìŠ¤ ì‹œìž‘
+echo ÀÚµ¿ Á¾·á ÇÁ·Î¼¼½º ½ÃÀÛ
 echo ========================================
 echo.
-echo í˜„ìž¬ ì‹œê°„: %date% %time%
+echo ÇöÀç ½Ã°£: %date% %time%
 echo.
 
 set SCRIPT_DIR=%~dp0
 
-REM ìž‘ì—… ë””ë ‰í† ë¦¬ë¡œ ì´ë™
+REM ÀÛ¾÷ µð·ºÅä¸®·Î ÀÌµ¿
 cd /d %SCRIPT_DIR%..
 
-echo [1/4] ì‹¤í–‰ ì¤‘ì¸ trader.py ì¢…ë£Œ ì¤‘...
+echo.
+echo [WARNING] 10ºÐ ÈÄ ÄÄÇ»ÅÍ¸¦ Á¾·áÇÕ´Ï´Ù!
+echo.
+echo [INFO] ÀÛ¾÷À» °è¼ÓÇÏ·Á¸é Ctrl+C¸¦ ´­·¯ Ãë¼ÒÇÏ¼¼¿ä.
 echo.
 
-REM trader.py í”„ë¡œì„¸ìŠ¤ ì¢…ë£Œ
-tasklist /FI "WINDOWTITLE eq trader.py*" 2>NUL | find /I /N "python.exe">NUL
-if "%ERRORLEVEL%"=="0" (
-    echo trader.py ì¢…ë£Œ ì¤‘...
-    taskkill /F /FI "WINDOWTITLE eq trader.py*" >NUL 2>&1
-    timeout /t 5 >NUL
-    echo âœ… trader.py ì¢…ë£Œ ì™„ë£Œ
-) else (
-    echo â„¹ï¸  ì‹¤í–‰ ì¤‘ì¸ trader.pyê°€ ì—†ìŠµë‹ˆë‹¤
+REM ·Î±× ±â·Ï
+echo %date% %time% - ÀÚµ¿ Á¾·á ½ÃÀÛ (10ºÐ Ä«¿îÆ®´Ù¿î) >> automation_log.txt
+
+echo Á¾·á±îÁö ³²Àº ½Ã°£:
+echo.
+
+REM 10ºÐ = 600ÃÊ Ä«¿îÆ®´Ù¿î
+for /L %%i in (600,-1,1) do (
+    set /a minutes=%%i/60
+    set /a seconds=%%i%%60
+
+    REM ¸Å 30ÃÊ¸¶´Ù ¸Þ½ÃÁö Ç¥½Ã
+    set /a remainder=%%i%%30
+    if !remainder!==0 (
+        echo   !minutes!ºÐ !seconds!ÃÊ ³²À½...
+    )
+
+    timeout /t 1 /nobreak >NUL
 )
 
 echo.
-echo [2/4] ë°ì´í„° ìˆ˜ì§‘ ì¤‘...
+echo [SHUTDOWN] ÄÄÇ»ÅÍ¸¦ Á¾·áÇÕ´Ï´Ù...
 echo.
 
-REM ë°ì´í„° ìˆ˜ì§‘ ë°°ì¹˜ íŒŒì¼ ì‹¤í–‰
-call "%SCRIPT_DIR%collect_data.bat"
-
-if %errorlevel% neq 0 (
-    echo.
-    echo âŒ ë°ì´í„° ìˆ˜ì§‘ ì‹¤íŒ¨!
-    echo ì»´í“¨í„°ë¥¼ ì¢…ë£Œí•˜ì§€ ì•ŠìŠµë‹ˆë‹¤.
-    pause
-    exit /b %errorlevel%
-)
-
-echo.
-echo [3/4] ì •ë¦¬ ìž‘ì—… ì¤‘...
-echo.
-
-REM ìž„ì‹œ íŒŒì¼ ì •ë¦¬ (ì„ íƒì‚¬í•­)
-if exist "*.tmp" del /q "*.tmp" >NUL 2>&1
-if exist "__pycache__" rmdir /s /q "__pycache__" >NUL 2>&1
-
-echo âœ… ì •ë¦¬ ì™„ë£Œ
-echo.
-
-echo [4/4] ì»´í“¨í„° ì¢…ë£Œ ì¤€ë¹„...
-echo.
-
-REM ë¡œê·¸ ê¸°ë¡
-echo %date% %time% - ìžë™ ì¢…ë£Œ ì‹œìž‘ >> automation_log.txt
-
-REM ì¢…ë£Œ ì˜µì…˜ ì„ íƒ
-echo ì¢…ë£Œ ì˜µì…˜ì„ ì„ íƒí•˜ì„¸ìš”:
-echo   1 = ì¢…ë£Œ (Shutdown)
-echo   2 = ì ˆì „ ëª¨ë“œ (Sleep)
-echo   3 = ìµœëŒ€ ì ˆì „ ëª¨ë“œ (Hibernate)
-echo   4 = ì·¨ì†Œ
-echo.
-set /p SHUTDOWN_MODE=ì„ íƒ (ê¸°ë³¸ê°’: 1):
-
-if "%SHUTDOWN_MODE%"=="" set SHUTDOWN_MODE=1
-
-if "%SHUTDOWN_MODE%"=="1" (
-    echo.
-    echo ðŸ’¤ 30ì´ˆ í›„ ì»´í“¨í„°ë¥¼ ì¢…ë£Œí•©ë‹ˆë‹¤...
-    echo ì·¨ì†Œí•˜ë ¤ë©´ Ctrl+Cë¥¼ ëˆ„ë¥´ì„¸ìš”.
-    echo.
-    shutdown /s /t 30 /c "ìžë™ ë§¤ë§¤ ë°ì´í„° ìˆ˜ì§‘ ì™„ë£Œ. ì»´í“¨í„°ë¥¼ ì¢…ë£Œí•©ë‹ˆë‹¤."
-) else if "%SHUTDOWN_MODE%"=="2" (
-    echo.
-    echo ðŸ’¤ 10ì´ˆ í›„ ì ˆì „ ëª¨ë“œë¡œ ì „í™˜í•©ë‹ˆë‹¤...
-    timeout /t 10
-    rundll32.exe powrprof.dll,SetSuspendState 0,1,0
-) else if "%SHUTDOWN_MODE%"=="3" (
-    echo.
-    echo ðŸ’¤ 10ì´ˆ í›„ ìµœëŒ€ ì ˆì „ ëª¨ë“œë¡œ ì „í™˜í•©ë‹ˆë‹¤...
-    timeout /t 10
-    shutdown /h
-) else (
-    echo.
-    echo â„¹ï¸  ì¢…ë£Œê°€ ì·¨ì†Œë˜ì—ˆìŠµë‹ˆë‹¤.
-)
+REM Á¾·á ½ÇÇà
+shutdown /s /t 5 /c "ÀÚµ¿ Á¾·á: Àå ¸¶°¨ ÈÄ ÀÏÁ¤ ½Ã°£ °æ°ú"
 
 echo.
 echo ========================================
-echo ìž‘ì—… ì™„ë£Œ
-echo ì¢…ë£Œ ì‹œê°„: %date% %time%
+echo ÀÚµ¿ Á¾·á ½ÇÇà
+echo Á¾·á ½Ã°£: %date% %time%
 echo ========================================
 echo.
+
+REM ÃÖÁ¾ ·Î±×
+echo %date% %time% - ÀÚµ¿ Á¾·á ½ÇÇàµÊ >> automation_log.txt
 
 exit /b 0

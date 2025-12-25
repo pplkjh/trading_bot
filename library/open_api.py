@@ -1030,14 +1030,14 @@ class open_api(QAxWidget):
     # 매수 함수
     def trade(self):
         logger.debug("trade 함수에 들어왔다!")
-        logger.debug("매수 대상 종목 코드! " + self.get_today_buy_list_code)
+        logger.debug(f"매수 대상 종목 코드! {self.get_today_buy_list_code}")
 
         # 실시간 현재가(close) 가져오는 함수
         # close는 종가 이지만, 현재 시점의 종가를 가져오기 때문에 현재가를 가져온다.
         current_price = self.get_one_day_option_data(self.get_today_buy_list_code, self.today, 'close')
 
         if current_price == False:
-            logger.debug(self.get_today_buy_list_code + " 의 현재가가 비어있다 !!!")
+            logger.debug(f"{self.get_today_buy_list_code} 의 현재가가 비어있다 !!!")
             return False
 
         # 매수 가격 최저 범위
@@ -1127,6 +1127,265 @@ class open_api(QAxWidget):
         # 모든 매수를 마쳤으면 더이상 매수 하지 않도록 설정하는 함수
         if self.sf.only_nine_buy:
             self.buy_check_stop()
+
+    def get_advanced_buy_list(self, use_advanced_strategy=True):
+        """
+        고급 전략으로 매수 리스트 생성
+
+        date_based_strategy (30%) + hybrid_strategy (70%) 조합
+        realtime_daily_buy_list 테이블이 이미 있으면 사용, 없으면 동적 생성
+        """
+        logger.debug("get_advanced_buy_list 함수 실행")
+
+        # realtime_daily_buy_list 테이블이 이미 존재하는지 확인
+        if self.sf.is_simul_table_exist(self.db_name, "realtime_daily_buy_list"):
+            # 테이블이 비어있는지 확인
+            sql = "SELECT COUNT(*) FROM realtime_daily_buy_list"
+            count = self.engine_JB.execute(sql).fetchone()[0]
+
+            if count > 0:
+                logger.info(f"✅ 기존 realtime_daily_buy_list 사용 ({count}개 종목)")
+                # 📌 중요: 테이블 데이터를 메모리에 로드 (trader가 사용할 수 있도록)
+                self.sf.get_realtime_daily_buy_list()
+                logger.debug(f"메모리 로드 완료: {self.sf.len_df_realtime_daily_buy_list}개 종목")
+                return
+
+        # 테이블이 없거나 비어있으면 동적 생성
+        logger.info("📊 고급 전략으로 매수 리스트 동적 생성 중...")
+
+        try:
+            from library.date_based_strategy import get_latest_date_table
+            from library.date_based_strategy import generate_buy_signals as date_based_signals
+            from library.hybrid_strategy import get_buy_candidates as hybrid_signals
+            from collections import defaultdict
+
+            # 최근 영업일 테이블 찾기
+            latest_date = get_latest_date_table('daily_buy_list')
+
+            if not latest_date:
+                logger.error("❌ daily_buy_list에 사용 가능한 테이블이 없습니다")
+                logger.error("💡 collector_v3.py를 먼저 실행하세요")
+                return
+
+            logger.info(f"📅 기준 날짜: {latest_date}")
+
+            # 포트폴리오 설정
+            portfolio_value = self.sf.start_invest_price if hasattr(self.sf, 'start_invest_price') else 10000000
+            top_n = 20
+            min_score = 70.0
+
+            # 1. 날짜 기반 전략 (30% 가중치)
+            logger.info("  📊 날짜 기반 전략 스캔...")
+            date_signals = date_based_signals(
+                portfolio_value=portfolio_value,
+                top_n=top_n * 2,
+                min_score=min_score,
+                risk_per_position=0.15
+            )
+
+            # 2. 하이브리드 전략 (70% 가중치)
+            logger.info("  🔄 하이브리드 전략 스캔...")
+            hybrid_candidates = hybrid_signals(
+                db_name='daily_buy_list',
+                min_score=min_score,
+                top_n=top_n * 2
+            )
+
+            # 3. 두 전략 결과 합치기
+            all_signals = []
+
+            if not date_signals.empty:
+                for _, row in date_signals.iterrows():
+                    all_signals.append({
+                        'code': row['code'],
+                        'score': row.get('composite_score', 0) * 0.3,
+                        'source': 'date_based',
+                        'data': row
+                    })
+
+            if not hybrid_candidates.empty:
+                for _, row in hybrid_candidates.iterrows():
+                    all_signals.append({
+                        'code': row['code'],
+                        'score': row.get('score', 0) * 0.7,
+                        'source': 'hybrid',
+                        'data': row
+                    })
+
+            # 4. 종목별 점수 합산
+            code_scores = defaultdict(lambda: {'total_score': 0, 'sources': [], 'data': None})
+
+            for signal in all_signals:
+                code = signal['code']
+                code_scores[code]['total_score'] += signal['score']
+                code_scores[code]['sources'].append(signal['source'])
+                if code_scores[code]['data'] is None:
+                    code_scores[code]['data'] = signal['data']
+
+            # 5. 점수 순 정렬
+            sorted_codes = sorted(
+                code_scores.items(),
+                key=lambda x: x[1]['total_score'],
+                reverse=True
+            )[:top_n]
+
+            logger.info(f"  📊 날짜 기반: {len(date_signals)}개, 하이브리드: {len(hybrid_candidates)}개")
+            logger.info(f"  🎯 최종 선정: {len(sorted_codes)}개 종목")
+
+            if len(sorted_codes) == 0:
+                logger.warning("⚠️  매수 조건을 만족하는 종목이 없습니다")
+                # 기존 테이블이 있으면 삭제
+                try:
+                    self.engine_JB.execute("DROP TABLE IF EXISTS realtime_daily_buy_list")
+                    logger.info("기존 realtime_daily_buy_list 테이블 삭제")
+                except:
+                    pass
+                return
+
+            # 6. 선정된 종목의 전체 데이터 가져오기
+            selected_codes = [code for code, _ in sorted_codes]
+            codes_str = "','".join(selected_codes)
+
+            con = pymysql.connect(
+                user=cf.db_id,
+                passwd=cf.db_passwd,
+                host=cf.db_ip,
+                db='daily_buy_list',
+                charset='utf8',
+                port=int(cf.db_port)
+            )
+
+            query = f"""
+            SELECT
+                code, code_name, date, check_item,
+                d1_diff_rate, close, open, high, low, volume,
+                clo5, clo10, clo20, clo40, clo60, clo80, clo100, clo120,
+                clo5_diff_rate, clo10_diff_rate, clo20_diff_rate, clo40_diff_rate,
+                clo60_diff_rate, clo80_diff_rate, clo100_diff_rate, clo120_diff_rate,
+                yes_clo5, yes_clo10, yes_clo20, yes_clo40, yes_clo60, yes_clo80, yes_clo100, yes_clo120,
+                vol5, vol10, vol20, vol40, vol60, vol80, vol100, vol120
+            FROM `{latest_date}`
+            WHERE code IN ('{codes_str}')
+            """
+
+            df_realtime_daily_buy_list = pd.read_sql(query, con)
+            con.close()
+
+            # check_item 초기화
+            df_realtime_daily_buy_list['check_item'] = 0
+
+            # 7. realtime_daily_buy_list 테이블 생성
+            df_realtime_daily_buy_list.to_sql(
+                'realtime_daily_buy_list',
+                self.engine_JB,
+                if_exists='replace',
+                index=False
+            )
+
+            logger.info(f"✅ realtime_daily_buy_list 테이블 생성 완료 ({len(df_realtime_daily_buy_list)}개 종목)")
+
+        except Exception as e:
+            logger.error(f"❌ 고급 매수 리스트 생성 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def get_advanced_sell_list(self):
+        """
+        고급 청산 전략으로 매도 리스트 생성
+
+        ATR 기반 동적 손절/익절, 트레일링 스톱 사용
+        """
+        logger.debug("get_advanced_sell_list 함수 실행")
+
+        try:
+            from library.exit_strategy import get_exit_signals
+
+            # 현재 보유 종목 가져오기
+            self.check_balance()
+
+            if not hasattr(self, 'opw00018_output') or 'multi' not in self.opw00018_output:
+                logger.warning("⚠️  보유 종목 정보가 없습니다")
+                return []
+
+            holdings = self.opw00018_output['multi']
+
+            if len(holdings) == 0:
+                logger.info("💼 현재 보유 종목이 없습니다")
+                return []
+
+            # holdings를 exit_strategy가 요구하는 형식으로 변환
+            positions = []
+            for holding in holdings:
+                code = holding[6]  # 종목코드
+
+                # all_item_db에서 매수 정보 가져오기
+                sql = """
+                SELECT code, buy_date, buy_price, holding_amount
+                FROM all_item_db
+                WHERE code = '%s' AND sell_date = 0
+                ORDER BY buy_date DESC
+                LIMIT 1
+                """
+                result = self.engine_JB.execute(sql % code).fetchone()
+
+                if not result:
+                    logger.warning(f"⚠️  {code} 매수 정보를 찾을 수 없습니다")
+                    continue
+
+                buy_date_str = result[1]
+                entry_price = result[2]
+                shares = result[3]
+
+                # 날짜 변환 (YYYYMMDD -> datetime)
+                try:
+                    entry_date = datetime.strptime(str(buy_date_str), '%Y%m%d')
+                except:
+                    entry_date = datetime.now()
+
+                # 현재가
+                current_price = float(holding[0])  # 현재가
+
+                # 최고가 (highest_price)는 별도 추적이 필요하지만, 일단 현재가로 설정
+                # 실제로는 all_item_db에 highest_price 컬럼을 추가해야 함
+                highest_price = max(current_price, entry_price)
+
+                positions.append({
+                    'code': code,
+                    'entry_price': entry_price,
+                    'entry_date': entry_date,
+                    'shares': shares,
+                    'highest_price': highest_price,
+                    'current_price': current_price
+                })
+
+            if len(positions) == 0:
+                logger.warning("⚠️  변환된 포지션 정보가 없습니다")
+                return []
+
+            logger.info(f"📊 {len(positions)}개 보유 종목에 대해 고급 청산 전략 분석 중...")
+
+            # exit_strategy 호출
+            sell_signals = get_exit_signals(positions, db_name='daily_buy_list')
+
+            # 매도 시그널 필터링 (should_exit == True만)
+            exit_list = [s for s in sell_signals if s.get('decision', {}).get('should_exit', False)]
+
+            logger.info(f"🎯 고급 청산 시그널: {len(exit_list)}개 종목")
+
+            for signal in exit_list:
+                code = signal['code']
+                reason = signal['decision']['primary_reason']
+                priority = signal['decision']['priority']
+                logger.info(f"  - {code}: {reason} (우선순위: {priority})")
+
+            return sell_signals
+
+        except Exception as e:
+            logger.error(f"❌ 고급 매도 리스트 생성 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
     # openapi 조회 카운트를 체크 하고 cf.max_api_call 횟수 만큼 카운트 되면 봇이 꺼지게 하는 함수
     def exit_check(self):

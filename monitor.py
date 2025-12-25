@@ -163,13 +163,36 @@ def get_portfolio_status(db_name: str):
 
                     # 있는 컬럼만 표시
                     if 'close' in cols and pd.notna(row.get('close')):
-                        print(f"  현재가:  {int(row['close']):>12,}원")
+                        print(f"  현재가:       {int(row['close']):>12,}원")
+
+                    # 고급 전략 정보 표시
+                    if 'strategy_type' in cols and pd.notna(row.get('strategy_type')):
+                        strategy_names = {
+                            'momentum_breakout': '모멘텀 돌파',
+                            'mean_reversion': '평균회귀',
+                            'strong_uptrend': '강한 상승',
+                            'neutral': '중립',
+                            'basic': '기본전략'
+                        }
+                        strategy = row['strategy_type']
+                        strategy_kr = strategy_names.get(strategy, strategy)
+                        print(f"  전략:         {strategy_kr}")
+
+                    if 'composite_score' in cols and pd.notna(row.get('composite_score')):
+                        score = row['composite_score']
+                        print(f"  종합 스코어:  {score:>12.1f}/100")
+
+                    if 'volume_ratio' in cols and pd.notna(row.get('volume_ratio')):
+                        vol_ratio = row['volume_ratio']
+                        print(f"  거래량 비율:  {vol_ratio:>12.2f}x")
+
+                    # 기존 지표들
                     if 'd1' in cols and pd.notna(row.get('d1')):
-                        print(f"  D1:      {row['d1']:>12.2f}")
+                        print(f"  D1:           {row['d1']:>12.2f}")
                     if 'd2' in cols and pd.notna(row.get('d2')):
-                        print(f"  D2:      {row['d2']:>12.2f}")
-                    if 'check_item' in cols and pd.notna(row.get('check_item')):
-                        print(f"  전략:    {row['check_item']}")
+                        print(f"  D2:           {row['d2']:>12.2f}")
+                    if 'check_item' in cols and pd.notna(row.get('check_item')) and 'strategy_type' not in cols:
+                        print(f"  전략 ID:      {row['check_item']}")
             else:
                 print("  매수 후보가 없습니다.")
                 print("\n  💡 collector_v3.py를 실행하여 매수 후보를 생성하세요.")

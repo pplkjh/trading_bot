@@ -507,7 +507,7 @@ class simulator_func_mysql:
         # print("invest_send_order!!!")
         # 시작가가 투자하려는 금액 보다 작아야 매수가 가능하기 때문에 아래 조건
         if price < self.invest_unit:
-            print(code_name, " 매수!!!!!!!!!!!!!!!")
+            print(f"  ✅ 매수: {code_name} ({code})")
 
             # 매수를 하게 되면 all_item_db 테이블에 반영을 한다.
             self.db_to_all_item(date, self.df_realtime_daily_buy_list, j,
@@ -534,7 +534,7 @@ class simulator_func_mysql:
 
     # 실제 매수하는 함수
     def auto_trade_stock_realtime(self, min_date, date_rows_today, date_rows_yesterday):
-        print("auto_trade_stock_realtime 함수에 들어왔다!!")
+        logger.debug("auto_trade_stock_realtime 함수에 들어왔다!!")
         # self.df_realtime_daily_buy_list 에 있는 모든 종목들을 매수한다
         for j in range(self.len_df_realtime_daily_buy_list):
             if self.jango_check():
@@ -624,7 +624,7 @@ class simulator_func_mysql:
 
     # realtime_daily_buy_list 테이블의 매수 리스트를 가져오는 함수
     def get_realtime_daily_buy_list(self):
-        print("get_realtime_daily_buy_list 함수에 들어왔습니다!")
+        logger.debug("get_realtime_daily_buy_list 함수에 들어왔습니다!")
 
         # 이 부분은 촬영 후 코드를 간소화 했습니다. 조건문 모두 없앴습니다.
         # check_item = 매수 했을 시 날짜가 찍혀 있다. 매수 하지 않았을 때는 0
@@ -873,31 +873,64 @@ class simulator_func_mysql:
 
         # 🚀 고급 통합 전략: Multi-Factor Scoring + Hybrid Strategy
         elif self.db_to_realtime_daily_buy_list_num == 100:
+            # 🚀 고급 전략: Date-based (30%) + Hybrid (70%) - SQL 구현
+            # 속도 최적화를 위해 SQL로 직접 구현 (함수 호출 없음)
             sql = '''
-                SELECT * FROM `''' + date_rows_yesterday + '''` a
+                SELECT a.*
+                FROM `''' + date_rows_yesterday + '''` a
                 WHERE
-                    -- 코넥스 제외
-                    NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code=b.code)
+                    -- 기본 필터: 코넥스 제외
+                    NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code = b.code)
 
-                    -- 거래량 조건: 5일 평균 대비 1.5배 이상
-                    AND volume > vol5 * 1.5
+                    -- 거래량 조건: 최소 거래량 확보
+                    AND a.volume > a.vol5 * 1.2
 
-                    -- 모멘텀 조건: 5일선 > 20일선 (상승 추세)
-                    AND clo5 > clo20
+                    -- 모멘텀 조건: 상승 추세
+                    AND a.clo5 > a.clo20
 
-                    -- 평균회귀 방어: 20일선 대비 너무 높지 않음 (5% 이내)
-                    AND close < clo20 * 1.05
+                    -- 변동성 필터: 급등락 제외
+                    AND a.d1_diff_rate BETWEEN -5 AND 5
 
-                    -- 변동성 필터: 급등주 제외 (전일 대비 3% 이내 상승)
-                    AND d1_diff_rate < 3
-                    AND d1_diff_rate > -3
+                    -- 가격 필터: 저가주/고가주 제외 (1000원 ~ 50만원)
+                    AND a.close BETWEEN 1000 AND 500000
 
-                    -- 가격 제한: 저가주 및 고가주 제외
-                    AND close BETWEEN 5000 AND 500000
+                    -- NULL 방어
+                    AND a.vol5 > 0 AND a.vol20 > 0
+                    AND a.clo5 > 0 AND a.clo20 > 0
 
                 ORDER BY
-                    -- 종합 스코어: 거래량 + 모멘텀
-                    (volume / vol20) * (clo5 / clo20) DESC
+                    -- 🎯 복합 스코어 계산 (정렬용)
+                    (
+                        -- Date-based Strategy (30% 가중치)
+                        -- 거래량 급증 + 상승 추세 스코어
+                        (
+                            (a.volume / NULLIF(a.vol5, 0)) *        -- 거래량 증가율
+                            (a.clo5 / NULLIF(a.clo20, 0)) *         -- 단기/중기 모멘텀
+                            CASE
+                                WHEN a.volume > a.vol20 * 1.5 THEN 1.2   -- 거래량 급증 보너스
+                                ELSE 1.0
+                            END
+                        ) * 0.3
+
+                        -- Hybrid Strategy - Momentum (42% = 70% * 60%)
+                        + (
+                            ((a.clo5 - a.clo20) / NULLIF(a.clo20, 0)) *     -- 모멘텀 강도
+                            (a.volume / NULLIF(a.vol20, 0))                  -- 거래량 확인
+                        ) * 0.42
+
+                        -- Hybrid Strategy - Mean Reversion (28% = 70% * 40%)
+                        + (
+                            -- 20일선 회귀 점수 (20일선에 가까울수록 높음)
+                            (1 - ABS((a.close - a.clo20) / NULLIF(a.clo20, 0))) *
+                            -- 과매도 구간 보너스
+                            CASE
+                                WHEN a.close < a.clo20 * 0.98 THEN 1.3  -- 2% 이상 하락 시 반등 기대
+                                WHEN a.close < a.clo20 THEN 1.1         -- 20일선 하회 시 약간 가산
+                                ELSE 1.0
+                            END
+                        ) * 0.28
+
+                    ) DESC
 
                 LIMIT ''' + str(self.max_positions) + '''
             '''
@@ -1173,7 +1206,7 @@ class simulator_func_mysql:
         # 총 수익 금액 (종목별 평가 금액 합산)
         sql = "SELECT sum(valuation_profit) from all_item_db"
         self.sum_valuation_profit = self.engine_simulator.execute(sql).fetchall()[0][0]
-        print("sum_valuation_profit: " + str(self.sum_valuation_profit))
+        logger.debug("sum_valuation_profit: " + str(self.sum_valuation_profit))
 
         # 전재산이라고 보면 된다. 현재 총손익 까지 고려했을 때
         self.total_invest_price = self.start_invest_price + self.sum_valuation_profit
@@ -1202,7 +1235,7 @@ class simulator_func_mysql:
 
     # daily_buy_list에 일자 테이블이 존재하는지 확인하는 함수
     def is_date_exist(self, date):
-        print("is_date_exist 함수에 들어왔습니다!", date)
+        logger.debug("is_date_exist 함수에 들어왔습니다! " + date)
         sql = "select 1 from information_schema.tables where table_schema ='daily_buy_list' and table_name = '%s'"
         rows = self.engine_daily_buy_list.execute(sql % (date)).fetchall()
         if len(rows) == 1:
@@ -1215,16 +1248,15 @@ class simulator_func_mysql:
         if int(self.d2_deposit) >= (int(self.limit_money) + int(self.invest_unit)):
             return True
         else:
-            print("돈부족해서 invest 불가!!!!!!!!")
+            logger.debug("돈부족해서 invest 불가!!!!!!!!")
             return False
 
     # 출력 함수
     def print_info(self, min_date):
-        print("*&*&*&* self.simul_num :" + str(self.simul_num))
+        logger.debug("*&*&*&* self.simul_num :" + str(self.simul_num))
         # all_itme_db 테이블이 생성 되어 있으면 보유한 종목 수를 출력
         if self.is_simul_table_exist(self.db_name, "all_item_db"):
-            print("simulating 시간: " + str(min_date))
-            print("보유종목 수 !!: " + str(self.get_count_possessed_item()))
+            print(f"\n📅 {min_date} | 💼 보유종목: {self.get_count_possessed_item()}개")
 
     # 특정 종목의 시작가를 가져오는 함수(일별)
     def get_now_open_price_by_date(self, code, date):
@@ -1331,11 +1363,11 @@ class simulator_func_mysql:
     # 보유 중인 종목들의 주가를 일별로 업데이트 하는 함수
     # all_item_db에서 업데이트를 한다.  option = 'ALL' 의미는 인자값을 date 하나만 줬을 때 option에는 기본값으로 ALL을 준다는 의미
     def update_all_db_by_date(self, date, option='ALL'):
-        print("update_all_db_by_date 함수에 들어왔다!")
+        logger.debug("update_all_db_by_date 함수에 들어왔다!")
         # 현재 보유 중인 종목 들의 code_name 리스트
         possessed_code_name_list = self.get_data_from_possessed_item()
         if len(possessed_code_name_list) == 0:
-            print("현재 보유 중인 종목이 없다 !!!!!")
+            logger.debug("현재 보유 중인 종목이 없다 !!!!!")
         for j in range(len(possessed_code_name_list)):
             # 현재 주가를 가져오는 함수
             code_name = possessed_code_name_list[j][0]
@@ -1377,7 +1409,7 @@ class simulator_func_mysql:
     # 언제 종목을 팔지(익절, 손절) 결정 하는 알고리즘.
     # !@##############################################################################################################################
     def get_sell_list(self, i):
-        print("get_sell_list!!!")
+        logger.debug("get_sell_list!!!")
         # 단순히 현재 보유 종목의 수익률이
         # 익절 기준 수익률(self.sell_point) 이 넘거나,
         # 손절 기준 수익률(self.losscut_point) 보다 떨어지면 파는 알고리즘
@@ -1446,41 +1478,69 @@ class simulator_func_mysql:
                 "OR ALLDB.rate <= '%s')"
            sell_list = self.engine_simulator.execute(sql % (self.diff_point * (-1), self.losscut_point)).fetchall()
 
-        # 🚀 고급 통합 전략: Dynamic Trailing Stop + Adaptive Profit Target
+        # 🚀 고급 통합 전략: exit_strategy.py 사용 (ATR 기반 동적 손절/익절)
         elif self.sell_list_num == 100:
+            from library.exit_strategy import get_exit_signals
+            from datetime import datetime
+
             sell_list = []
-            # 보유 중인 종목 조회
-            sql = "SELECT code, rate, present_price, valuation_profit, purchase_price FROM all_item_db WHERE sell_date = 0 GROUP BY code"
+
+            # 보유 중인 종목 조회 (buy_date 추가)
+            sql = """
+                SELECT code, rate, present_price, valuation_profit, purchase_price, buy_date
+                FROM all_item_db
+                WHERE sell_date = 0
+                GROUP BY code
+            """
             holdings = self.engine_simulator.execute(sql).fetchall()
 
+            # exit_strategy 형식으로 변환
+            positions = []
             for holding in holdings:
                 code = holding[0]
-                rate = holding[1]  # 현재 수익률
+                rate = holding[1]
                 present_price = holding[2]
                 valuation_profit = holding[3]
                 purchase_price = holding[4]
+                buy_date = holding[5]
 
-                # 동적 손절: 수익 구간별 차등 적용
-                if rate > 10:
-                    # 10% 이상 수익 시: 5% 역행 시 매도 (트레일링)
-                    stop_loss = -5
-                elif rate > 5:
-                    # 5-10% 수익 시: 3% 역행 시 매도
-                    stop_loss = -3
-                elif rate > 0:
-                    # 0-5% 수익 시: -2% 도달 시 매도
-                    stop_loss = -2
-                else:
-                    # 손실 구간: -3% 손절
-                    stop_loss = -3
+                # highest_price 계산 (현재가와 매수가 중 높은 값)
+                highest_price = max(present_price, purchase_price)
 
-                # 동적 익절: 변동성 구간별 차등 적용
-                if rate >= 15:
-                    # 15% 수익 달성 시 익절
-                    sell_list.append(holding[:4])  # code, rate, present_price, valuation_profit
-                elif rate <= stop_loss:
-                    # 손절선 도달
+                # position 딕셔너리 생성
+                # buy_date 파싱 (YYYYMMDD 또는 YYYYMMDDHHMM 형식 대응)
+                try:
+                    buy_date_str = str(buy_date)[:8]  # 앞 8자리만 사용 (YYYYMMDD)
+                    entry_date = datetime.strptime(buy_date_str, '%Y%m%d')
+                except:
+                    entry_date = datetime.now()
+
+                positions.append({
+                    'code': code,
+                    'entry_price': purchase_price,
+                    'entry_date': entry_date,
+                    'shares': 1,  # 시뮬레이터는 비율로 관리
+                    'highest_price': highest_price,
+                    'current_price': present_price,
+                    'rate': rate
+                })
+
+            # exit_strategy로 청산 시그널 생성
+            exit_signals = get_exit_signals(positions, db_name='daily_buy_list')
+
+            # sell_list 형식으로 변환
+            for signal in exit_signals:
+                code = signal['code']
+
+                # 해당 종목의 holding 정보 찾기
+                matching_holding = [h for h in holdings if h[0] == code]
+                if matching_holding:
+                    holding = matching_holding[0]
+                    # sell_list: (code, rate, present_price, valuation_profit)
                     sell_list.append(holding[:4])
+
+                    # 청산 사유 로깅
+                    logger.debug(f"[고급 청산] {code}: {signal['decision']['reason']} (우선순위: {signal['decision']['priority']})")
 
         ##################################################################################################################################################################################################################
         else:
@@ -1513,12 +1573,9 @@ class simulator_func_mysql:
             valuation_profit = sell_list[i][3]
 
             if get_sell_rate < 0:
-                print("손절 매도!!!!$$$$$$$$$$$ 수익: " + str(valuation_profit) + " / 수익률 : " + str(
-                    get_sell_rate) + " / 종목코드: " + str(get_sell_code) + " $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
-
+                print(f"  💔 손절: {get_sell_code} | 수익률: {get_sell_rate:.1f}% | 손실: {valuation_profit:,}원")
             else:
-                print("익절 매도!!!!$$$$$$$$$$$ 수익: " + str(valuation_profit) + " / 수익률 : " + str(
-                    get_sell_rate) + " / 종목코드: " + str(get_sell_code) + " $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
+                print(f"  💰 익절: {get_sell_code} | 수익률: {get_sell_rate:.1f}% | 수익: {valuation_profit:,}원")
 
             # 실제로 매도를 하는 함수 (매도 한 결과를 all_item_db에 반영)
             self.sell_send_order(date, get_present_price, get_sell_rate, get_sell_code)
@@ -1737,9 +1794,13 @@ class simulator_func_mysql:
             sql = "select date from jango_data"
             rows = self.engine_simulator.execute(sql).fetchall()
 
-            print('jango_data 최종 정산 중...')
+            print(f'\n📊 jango_data 최종 정산 중... (총 {len_date}일)')
             # 위에 전체
             for i in range(len_date):
+                # 진행 상황 표시 (10%마다)
+                if (i + 1) % max(1, len_date // 10) == 0 or i == len_date - 1:
+                    progress = (i + 1) / len_date * 100
+                    print(f"  진행 중: {progress:.0f}% ({i+1}/{len_date}일)", end='\r')
                 # today_buy_count
                 sql = "UPDATE jango_data SET today_buy_count=(select count(*) from (select code from all_item_db where buy_date like '%s') b) WHERE date='%s'"
                 # date 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
@@ -1756,27 +1817,212 @@ class simulator_func_mysql:
                 sql = "UPDATE jango_data SET today_buy_today_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date like '%s' and (sell_rate >= '%s' ) group by code ) b) WHERE date='%s'"
                 self.engine_simulator.execute(sql % ("%%" + rows[i][0] + "%%", "%%" + rows[i][0] + "%%", 0, rows[i][0]))
 
-                sql = "UPDATE jango_data SET today_buy_today_profitcut_rate= round(today_buy_today_profitcut_count /today_buy_count *100,2) WHERE date = '%s'"
+                sql = "UPDATE jango_data SET today_buy_today_profitcut_rate= CASE WHEN today_buy_count = 0 THEN 0 ELSE round(today_buy_today_profitcut_count /today_buy_count *100,2) END WHERE date = '%s'"
                 self.engine_simulator.execute(sql % (rows[i][0]))
 
                 sql = "UPDATE jango_data SET today_buy_today_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date like '%s' and sell_rate < '%s'  group by code ) b) WHERE date='%s'"
                 self.engine_simulator.execute(sql % ("%%" + rows[i][0] + "%%", "%%" + rows[i][0] + "%%", 0, rows[i][0]))
 
-                sql = "UPDATE jango_data SET today_buy_today_losscut_rate=round(today_buy_today_losscut_count /today_buy_count *100,2) WHERE date = '%s'"
+                sql = "UPDATE jango_data SET today_buy_today_losscut_rate= CASE WHEN today_buy_count = 0 THEN 0 ELSE round(today_buy_today_losscut_count /today_buy_count *100,2) END WHERE date = '%s'"
                 self.engine_simulator.execute(sql % (rows[i][0]))
 
                 sql = "UPDATE jango_data SET today_buy_total_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_rate >= '%s'  group by code ) b) WHERE date='%s'"
                 self.engine_simulator.execute(sql % ("%%" + rows[i][0] + "%%", 0, rows[i][0]))
 
-                sql = "UPDATE jango_data SET today_buy_total_profitcut_rate=round(today_buy_total_profitcut_count /today_buy_count *100,2) WHERE date = '%s'"
+                sql = "UPDATE jango_data SET today_buy_total_profitcut_rate= CASE WHEN today_buy_count = 0 THEN 0 ELSE round(today_buy_total_profitcut_count /today_buy_count *100,2) END WHERE date = '%s'"
                 self.engine_simulator.execute(sql % (rows[i][0]))
 
                 sql = "UPDATE jango_data SET today_buy_total_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_rate < '%s'  group by code ) b) WHERE date='%s'"
                 self.engine_simulator.execute(sql % ("%%" + rows[i][0] + "%%", 0, rows[i][0]))
 
-                sql = "UPDATE jango_data SET today_buy_total_losscut_rate=round(today_buy_total_losscut_count/today_buy_count*100,2) WHERE date = '%s'"
+                sql = "UPDATE jango_data SET today_buy_total_losscut_rate= CASE WHEN today_buy_count = 0 THEN 0 ELSE round(today_buy_total_losscut_count/today_buy_count*100,2) END WHERE date = '%s'"
                 self.engine_simulator.execute(sql % (rows[i][0]))
-        print('jango_data 최종 정산 완료')
+
+        print('\n\n✅ jango_data 최종 정산 완료')
+
+    def print_simulation_summary(self):
+        """
+        백테스트 최종 결과 요약 출력
+        """
+        try:
+            # jango_data에서 최종 결과 가져오기
+            sql = "SELECT * FROM jango_data ORDER BY date DESC LIMIT 1"
+            result = self.engine_simulator.execute(sql)
+            final_data = result.fetchone()
+
+            if not final_data:
+                print("❌ 시뮬레이션 결과 데이터가 없습니다.")
+                return
+
+            # 컬럼명과 값을 딕셔너리로 변환 (안전한 접근)
+            column_names = list(result.keys())
+            final_dict = dict(zip(column_names, final_data))
+
+            # 안전하게 값 추출하는 함수 (숫자 변환 포함)
+            def safe_get(key, default=0):
+                value = final_dict.get(key, default)
+                if value is None:
+                    return default
+                # 숫자로 변환 시도
+                try:
+                    return float(value) if isinstance(value, (str, int, float)) else default
+                except (ValueError, TypeError):
+                    return default
+
+            # all_item_db에서 거래 통계 가져오기
+            sql_trades = """
+            SELECT
+                COUNT(*) as total_trades,
+                COUNT(CASE WHEN sell_rate >= 0 THEN 1 END) as win_count,
+                COUNT(CASE WHEN sell_rate < 0 THEN 1 END) as loss_count,
+                AVG(CASE WHEN sell_rate >= 0 THEN sell_rate END) as avg_profit_rate,
+                AVG(CASE WHEN sell_rate < 0 THEN sell_rate END) as avg_loss_rate,
+                AVG(DATEDIFF(
+                    STR_TO_DATE(sell_date, '%Y%m%d'),
+                    STR_TO_DATE(buy_date, '%Y%m%d')
+                )) as avg_holding_days,
+                MAX(sell_rate) as max_profit_rate,
+                MIN(sell_rate) as max_loss_rate
+            FROM all_item_db
+            WHERE sell_date != 0 AND sell_date != ''
+            """
+            trade_stats = self.engine_simulator.execute(sql_trades).fetchone()
+
+            # jango_data에서 필요한 값 추출 (컬럼명으로 안전하게)
+            d2_deposit = safe_get('d2_deposit', 0)
+            total_profit = safe_get('total_profit', 0)
+            total_invest_price = safe_get('total_invest_price', 0)
+            total_valuation = safe_get('total_valuation', 0)
+
+            # 초기 자본
+            initial_capital = self.start_invest_price if self.start_invest_price else 10000000
+
+            # 최종 자산 = 예수금 + 총 평가액
+            final_capital = d2_deposit + total_valuation
+
+            # 수익률 계산 (0으로 나누기 방지)
+            if initial_capital > 0 and final_capital > 0:
+                total_return = (final_capital / initial_capital - 1) * 100
+            else:
+                total_return = 0
+
+            # 거래 통계
+            total_trades = trade_stats[0] if trade_stats and trade_stats[0] else 0
+            win_count = trade_stats[1] if trade_stats and trade_stats[1] else 0
+            loss_count = trade_stats[2] if trade_stats and trade_stats[2] else 0
+            avg_profit_rate = trade_stats[3] if trade_stats and trade_stats[3] else 0
+            avg_loss_rate = trade_stats[4] if trade_stats and trade_stats[4] else 0
+            avg_holding_days = trade_stats[5] if trade_stats and trade_stats[5] else 0
+            max_profit_rate = trade_stats[6] if trade_stats and trade_stats[6] else 0
+            max_loss_rate = trade_stats[7] if trade_stats and trade_stats[7] else 0
+
+            win_rate = (win_count / total_trades * 100) if total_trades > 0 else 0
+
+            # 결과 출력
+            print("\n" + "=" * 70)
+            print("📊 백테스트 최종 결과 요약")
+            print("=" * 70)
+
+            print(f"\n💰 수익 현황:")
+            print(f"  초기 자본:        {initial_capital:>15,}원")
+            print(f"  최종 자본:        {final_capital:>15,}원")
+            print(f"  총 손익:          {total_profit:>15,}원")
+            print(f"  총 수익률:        {total_return:>14.2f}%")
+
+            print(f"\n📈 거래 통계:")
+            print(f"  총 거래 횟수:     {total_trades:>15}회")
+            print(f"  익절 횟수:        {win_count:>15}회")
+            print(f"  손절 횟수:        {loss_count:>15}회")
+            print(f"  승률:             {win_rate:>14.1f}%")
+
+            print(f"\n📊 수익률 분석:")
+            print(f"  평균 익절률:      {avg_profit_rate:>14.2f}%")
+            print(f"  평균 손절률:      {avg_loss_rate:>14.2f}%")
+            print(f"  최대 익절률:      {max_profit_rate:>14.2f}%")
+            print(f"  최대 손절률:      {max_loss_rate:>14.2f}%")
+
+            print(f"\n⏱️  보유 기간:")
+            print(f"  평균 보유일:      {avg_holding_days:>14.1f}일")
+
+            # 손익비 계산
+            profit_loss_ratio = abs(avg_profit_rate / avg_loss_rate) if avg_loss_rate != 0 else 0
+            print(f"\n📐 손익비:")
+            print(f"  손익비 (R):       {profit_loss_ratio:>14.2f}")
+
+            # 현재 설정값 표시
+            print(f"\n⚙️  현재 전략 설정:")
+            print(f"  알고리즘 번호:    {self.simul_num:>15}")
+            print(f"  익절 기준:        {self.sell_point:>14.1f}%")
+            print(f"  손절 기준:        {self.losscut_point:>14.1f}%")
+
+            # 전략 평가 및 제안
+            print(f"\n💡 전략 평가 및 제안:")
+            print("=" * 70)
+
+            # 1. 수익률 평가
+            if total_return > 50:
+                print("  ✅ 우수: 높은 수익률을 기록했습니다!")
+            elif total_return > 20:
+                print("  ✔️  양호: 안정적인 수익을 내고 있습니다.")
+            elif total_return > 0:
+                print("  ⚠️  보통: 수익은 있으나 개선 여지가 있습니다.")
+            else:
+                print("  ❌ 주의: 손실이 발생했습니다. 전략 재검토가 필요합니다.")
+
+            # 2. 승률 평가 및 제안
+            if win_rate >= 70:
+                print(f"  ✅ 승률 우수 ({win_rate:.1f}%)")
+            elif win_rate >= 50:
+                print(f"  ✔️  승률 양호 ({win_rate:.1f}%)")
+                if abs(avg_loss_rate) > avg_profit_rate * 2:
+                    print("     💡 제안: 손절폭이 큽니다. 손절 기준을 더 타이트하게 조정하세요.")
+                    print(f"        현재 손절: {self.losscut_point:.1f}% → 추천: {self.losscut_point * 0.7:.1f}%")
+            else:
+                print(f"  ⚠️  승률 낮음 ({win_rate:.1f}%)")
+                print("     💡 제안: 진입 조건을 더 엄격하게 설정하세요.")
+                if self.losscut_point < -5:
+                    print(f"        손절 기준이 너무 낮습니다: {self.losscut_point:.1f}% → 추천: -3.0%")
+
+            # 3. 손익비 평가
+            if profit_loss_ratio >= 2.0:
+                print(f"  ✅ 손익비 우수 (R={profit_loss_ratio:.2f})")
+            elif profit_loss_ratio >= 1.5:
+                print(f"  ✔️  손익비 양호 (R={profit_loss_ratio:.2f})")
+            else:
+                print(f"  ⚠️  손익비 낮음 (R={profit_loss_ratio:.2f})")
+                print(f"     💡 제안: 익절 목표를 높이거나 손절을 빠르게 하세요.")
+                if avg_profit_rate < self.sell_point * 0.7:
+                    print(f"        평균 익절률이 목표보다 낮습니다.")
+                    print(f"        익절 기준: {self.sell_point:.1f}% → 추천: {self.sell_point * 1.3:.1f}%")
+
+            # 4. 보유 기간 평가
+            if avg_holding_days < 3:
+                print(f"  ⚠️  평균 보유일 짧음 ({avg_holding_days:.1f}일)")
+                print("     💡 제안: 단타 전략입니다. 수수료 영향이 클 수 있습니다.")
+            elif avg_holding_days > 10:
+                print(f"  ⚠️  평균 보유일 김 ({avg_holding_days:.1f}일)")
+                print("     💡 제안: 장기 보유 경향. 시간 기반 청산 조건 추가를 고려하세요.")
+            else:
+                print(f"  ✔️  평균 보유일 적정 ({avg_holding_days:.1f}일)")
+
+            # 5. 종합 제안
+            print(f"\n🎯 종합 제안:")
+            if total_return > 20 and win_rate >= 55 and profit_loss_ratio >= 1.5:
+                print("  ✅ 현재 전략이 잘 작동하고 있습니다!")
+                print("  📌 이 설정을 실전에 적용할 수 있습니다.")
+            elif total_return > 0:
+                print("  ✔️  전략이 수익을 내고 있으나 개선 가능합니다.")
+                print("  📌 위의 제안사항을 참고하여 설정을 조정해보세요.")
+            else:
+                print("  ❌ 전략 전면 재검토가 필요합니다.")
+                print("  📌 진입/청산 조건, 손익 비율을 근본적으로 재설정하세요.")
+
+            print("=" * 70)
+
+        except Exception as e:
+            print(f"❌ 결과 요약 생성 오류: {e}")
+            import traceback
+            traceback.print_exc()
 
     # 분 데이터를 가져오는 함수
     def get_date_min_for_simul(self, simul_start_date):
@@ -1871,7 +2117,7 @@ class simulator_func_mysql:
 
     # 분별 시뮬레이팅
     def simul_by_min(self, date_rows_today, date_rows_yesterday, i):
-        print("**************************   date: " + date_rows_today)
+        logger.debug("**************************   date: " + date_rows_today)
         # 일별 시뮬레이팅 하며 변수 초기화(분별시뮬레이터의 경우도 하루 단위로 초기화)
         self.daily_variable_setting()
         # daily_buy_list에 시뮬레이팅 할 날짜에 해당하는 테이블과 전 날 테이블이 존재하는지 확인
@@ -1892,7 +2138,7 @@ class simulator_func_mysql:
 
     # 일별 시뮬레이팅
     def simul_by_date(self, date_rows_today, date_rows_yesterday, i):
-        print("**************************   date: " + date_rows_today)
+        logger.debug("**************************   date: " + date_rows_today)
         # 일별 시뮬레이팅 하며 변수 초기화
         self.daily_variable_setting()
         # daily_buy_list에 시뮬레이팅 할 날짜에 해당하는 테이블과 전 날 테이블이 존재하는지 확인
@@ -1939,6 +2185,9 @@ class simulator_func_mysql:
 
         # 마지막 jango_data 정리
         self.arrange_jango_data()
+
+        # 최종 결과 요약 출력
+        self.print_simulation_summary()
 
 
 # 수업 후 아래 함수 추가 되었습니다

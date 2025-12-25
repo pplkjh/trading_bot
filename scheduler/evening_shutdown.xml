@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Date>2024-11-18T00:00:00</Date>
+    <Date>2025-01-01T00:00:00</Date>
     <Author>TradingBot</Author>
-    <Description>데이터 수집 완료 후 컴퓨터를 자동으로 종료합니다 (평일 20:00)</Description>
+    <Description>저녁 7시에 10분 카운트다운 후 컴퓨터를 자동으로 종료합니다 (평일 19:00)</Description>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
-      <StartBoundary>2024-01-01T20:00:00</StartBoundary>
+      <StartBoundary>2025-01-01T19:00:00</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByWeek>
         <DaysOfWeek>
@@ -39,7 +39,7 @@
       <RestartOnIdle>false</RestartOnIdle>
     </IdleSettings>
     <AllowStartOnDemand>true</AllowStartOnDemand>
-    <Enabled>false</Enabled>
+    <Enabled>true</Enabled>
     <Hidden>false</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
     <WakeToRun>true</WakeToRun>
@@ -48,8 +48,8 @@
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>C:\path\to\trading_bot\batch\auto_shutdown.bat</Command>
-      <WorkingDirectory>C:\path\to\trading_bot</WorkingDirectory>
+      <Command>C:\Users\USER\Desktop\Personal project\trading_bot\batch\auto_shutdown.bat</Command>
+      <WorkingDirectory>C:\Users\USER\Desktop\Personal project\trading_bot</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>

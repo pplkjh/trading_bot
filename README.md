@@ -12,8 +12,7 @@
 |------|------|------|
 | **[⚡ QUICK_START.md](QUICK_START.md)** | 처음 시작하는 분 | 10분 안에 시작하는 빠른 가이드 |
 | **[📚 USER_MANUAL.md](USER_MANUAL.md)** | 모든 사용자 | 완전한 사용 설명서 (초기 설정 ~ 실전 투자) |
-| **[📊 STRATEGY_GUIDE.md](STRATEGY_GUIDE.md)** | 전략 선택 | 전략 #1-36 상세 설명 및 비교 |
-| **[⚡ STRATEGY_QUICK_REFERENCE.md](STRATEGY_QUICK_REFERENCE.md)** | 빠른 참조 | 전략 비교표 및 치트시트 |
+| **[📊 STRATEGY_GUIDE.md](STRATEGY_GUIDE.md)** | 전략 선택 | 전략 상세 설명 및 비교 |
 | **[🚀 ADVANCED_STRATEGY_GUIDE.md](ADVANCED_STRATEGY_GUIDE.md)** | 고급 사용자 | 멀티팩터 전략, 리스크 관리 고급 기능 |
 | **[🤖 AUTOMATION_GUIDE.md](AUTOMATION_GUIDE.md)** | 자동화 원하는 분 | 완전 무인 자동화 (컴퓨터 자동 켜기/끄기) |
 
@@ -68,23 +67,26 @@
 
 | 모듈 | 파일 | 설명 |
 |------|------|------|
-| **트레이더** | `trader.py` | 실시간 자동매매 GUI |
-| **데이터 수집** | `collector_v3.py` | 일봉/분봉 데이터 수집 |
-| **백테스팅** | `simulator.py` | 전략 백테스트 실행 |
+| **트레이더** | `trader_advanced.py` | 실시간 자동매매 GUI |
+| **데이터 수집** | `collector_v3.py` | 일봉/분봉 데이터 수집 + 고급 전략 스캔 |
+| **백테스팅** | `simulator.py`, `simul_run.py` | 전략 백테스트 실행 |
+| **모니터링** | `monitor.py` | 포트폴리오 실시간 모니터링 |
+| **성과 분석** | `performance_report.py` | 거래 성과 리포트 생성 |
 | **API 래퍼** | `library/open_api.py` | 키움 OpenAPI 인터페이스 |
 | **설정** | `library/cf.py` | 전역 설정 (DB, 계좌 등) |
 
-### 고급 전략 모듈 (NEW!)
+### 고급 전략 모듈 (collector_api.py에 통합!)
 
 | 모듈 | 파일 | 설명 |
 |------|------|------|
+| **날짜기반 전략** | `library/date_based_strategy.py` | 멀티팩터 스코어링 + 하이브리드 전략 통합 |
 | **리스크 관리** | `library/risk_manager.py` | ATR 기반 포지션 사이징 |
-| **멀티팩터** | `library/multi_factor_scoring.py` | 5가지 팩터 스코어링 |
+| **멀티팩터** | `library/multi_factor_scoring.py` | 5가지 팩터 스코어링 시스템 |
 | **하이브리드 전략** | `library/hybrid_strategy.py` | 모멘텀 + 평균회귀 전략 |
 | **청산 전략** | `library/exit_strategy.py` | 트레일링 스톱, 다중 청산 |
 | **성과 분석** | `library/performance_analytics.py` | 전문 성과 지표 |
 | **통합 시스템** | `library/advanced_strategy_system.py` | 모든 모듈 통합 |
-| **CLI 도구** | `run_advanced_strategy.py` | 편리한 명령줄 인터페이스 |
+| **자동 스캔** | `library/collector_api.py` | 고급 전략 자동 실행 (collector_v3.py 실행 시) |
 
 ### AI/ML 모듈
 
@@ -127,11 +129,10 @@ python collector_v3.py
 ### 4️⃣ 모의투자 시작 (1분)
 
 ```bash
-python trader.py
-# 입력: 1 (모의투자)
+python trader_advanced.py
 ```
 
-**✅ 완료!** 이제 자동으로 매매가 시작됩니다.
+**✅ 완료!** 고급 전략이 적용된 자동 매매가 시작됩니다.
 
 **더 자세한 설명:** [QUICK_START.md](QUICK_START.md) 참조
 
@@ -139,59 +140,69 @@ python trader.py
 
 ## 💡 사용 예시
 
-### 매수 종목 추천 받기
+### 매수 종목 확인하기
 
 ```bash
-# 고급 전략으로 Top 20 종목 스캔
-python run_advanced_strategy.py --mode scan --top 20
+# 고급 전략으로 선정된 매수 후보 확인
+python check_buy_list.py
 ```
 
 **출력 예시:**
 ```
-[1] 005930 (삼성전자)
-  현재가:         72,000원
-  종합 스코어:    85.3/100
-  전략 타입:      hybrid_strong
-  추천 수량:      20주
-  투자 금액:      1,440,000원
-  손절가:         68,400원 (-5.0%)
-  목표가:         78,300원 (+8.8%)
-  손익비:         1.75:1
+[1] 005930     삼성전자
+      현재가:         72,000원
+      전략:           모멘텀 돌파
+      종합 스코어:    85.3/100
+      거래량 비율:    2.5x
+```
+
+### 실시간 모니터링
+
+```bash
+# 포트폴리오 및 매수 후보 실시간 확인
+python monitor.py
+```
+
+**출력 예시:**
+```
+📊 포트폴리오 현황 (JackBot1_imi1)
+========================
+📈 보유 종목 (3개)
+총 평가금액:     10,250,000원
+총 평가손익:       +250,000원
+총 수익률:         +2.50%
 ```
 
 ### 성과 분석
 
 ```bash
-python run_advanced_strategy.py --mode analyze
+# 거래 성과 리포트 생성
+python performance_report.py
 ```
 
 **출력 예시:**
 ```
 📊 PERFORMANCE REPORT
 ====================================
-총 수익률:        25.50%
-연평균 수익률:    18.30%
-Sharpe Ratio:     1.35
-최대 낙폭:        -12.05%
+총 거래:          45건
 승률:             58.5%
+평균 수익률:      +2.3%
+최대 수익:        +15.2%
+최대 손실:        -4.8%
 ```
 
-### Python 코드에서 사용
+### 데이터 수집 (고급 전략 자동 실행)
 
-```python
-from library.advanced_strategy_system import create_optimized_buy_list
-
-# 매수 리스트 생성
-buy_list = create_optimized_buy_list(
-    portfolio_value=10000000,
-    risk_profile='aggressive',
-    top_n=20
-)
-
-# 결과 출력
-for idx, row in buy_list.iterrows():
-    print(f"{row['code']}: {row['composite_score']:.1f}점")
+```bash
+# collector 실행 시 자동으로 고급 전략 스캔
+python collector_v3.py
 ```
+
+**collector 실행 시 자동으로:**
+1. 일봉/분봉 데이터 수집
+2. 멀티팩터 스코어링 실행
+3. 하이브리드 전략 적용
+4. 매수 후보 realtime_daily_buy_list에 자동 저장
 
 ---
 
@@ -241,25 +252,32 @@ for idx, row in buy_list.iterrows():
 
 ## 📅 일일 루틴
 
-### 거래일 루틴
+### 거래일 루틴 (완전 자동화)
 
-**장 시작 전 (08:30)**
-```bash
-# 매수 후보 확인
-python run_advanced_strategy.py --mode scan
-```
+**아침 08:30 (자동 실행)**
+- 작업 스케줄러가 `trader_advanced.py` 자동 시작
+- 고급 전략 매수 후보 자동 로드
 
 **장 중 (09:00-15:30)**
-- `trader.py` 자동 실행 (백그라운드)
-- 실시간 매수/매도 자동 처리
+- 자동 매수/매도 처리
+- 실시간 모니터링: `python monitor.py`
 
-**장 마감 후 (15:30)**
+**장 마감 후 15:40 (자동 실행)**
 ```bash
-# 데이터 수집
+# 자동 실행됨:
+# 1. 데이터 수집
+# 2. 고급 전략 스캔
+# 3. 내일 매수 후보 생성
 python collector_v3.py
+```
 
-# 성과 확인
-python run_advanced_strategy.py --mode analyze
+**저녁 (수동 확인)**
+```bash
+# 오늘 성과 확인
+python performance_report.py
+
+# 내일 매수 후보 확인
+python check_buy_list.py
 ```
 
 ### 주말 루틴
@@ -279,10 +297,12 @@ trading_bot/
 │   └── ADVANCED_STRATEGY_GUIDE.md     # 고급 전략 가이드
 │
 ├── 🎯 실행 파일
-│   ├── trader.py                      # 메인 트레이더 GUI
-│   ├── collector_v3.py                # 데이터 수집기
-│   ├── simulator.py                   # 백테스터
-│   └── run_advanced_strategy.py       # 고급 전략 CLI
+│   ├── trader_advanced.py             # 고급 전략 트레이더 GUI
+│   ├── collector_v3.py                # 데이터 수집 + 고급 전략 스캔
+│   ├── simulator.py, simul_run.py     # 백테스터
+│   ├── monitor.py                     # 실시간 모니터링
+│   ├── check_buy_list.py              # 매수 후보 확인
+│   └── performance_report.py          # 성과 리포트
 │
 ├── 📦 library/ (핵심 모듈)
 │   ├── cf.py                          # 전역 설정
@@ -316,9 +336,10 @@ trading_bot/
 - ✅ 첫 백테스트 실행
 
 ### 2-4주차: 모의투자
-- ✅ `trader.py`로 모의투자 시작
-- ✅ 일일 루틴 익히기
-- ✅ SQL로 성과 확인
+- ✅ `trader_advanced.py`로 모의투자 시작
+- ✅ 고급 전략 자동 적용
+- ✅ `monitor.py`로 실시간 확인
+- ✅ `performance_report.py`로 성과 분석
 
 ### 1-2개월: 고급
 - ✅ `ADVANCED_STRATEGY_GUIDE.md` 학습
@@ -417,4 +438,4 @@ Sharpe Ratio:  1.35
 
 **Happy Trading! 📈🚀**
 
-_마지막 업데이트: 2025-11-19_
+_마지막 업데이트: 2025-12-13 (고급 전략 통합 완료)_

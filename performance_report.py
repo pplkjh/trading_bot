@@ -243,39 +243,7 @@ def generate_performance_report(db_name: str, period_days: int = None, output_pa
                            f"{row['avg_return']:<15.2f}% {row['monthly_return']:<15.2f}%\n")
                 f.write("\n")
 
-            # ========== 3. 전략별 성과 ==========
-            f.write("🎯 전략별 성과 분석\n")
-            f.write("-" * 100 + "\n")
-
-            query_strategy = f"""
-            SELECT
-                COALESCE(check_item, '미분류') as strategy,
-                COUNT(*) as trades,
-                SUM(CASE WHEN sell_rate > 0 THEN 1 ELSE 0 END) as wins,
-                AVG(sell_rate) as avg_return,
-                MAX(sell_rate) as max_return,
-                MIN(sell_rate) as min_return
-            FROM all_item_db
-            WHERE sell_date IS NOT NULL
-              AND sell_date != ''
-              {period_condition}
-            GROUP BY check_item
-            ORDER BY COUNT(*) DESC
-            """
-            df_strategy = pd.read_sql(query_strategy, con)
-
-            if not df_strategy.empty:
-                f.write(f"  {'전략':<30} {'거래수':<10} {'승률':<10} {'평균':<12} {'최대':<12} {'최소':<12}\n")
-                f.write("  " + "-" * 95 + "\n")
-
-                for _, row in df_strategy.iterrows():
-                    win_rate = (row['wins'] / row['trades'] * 100) if row['trades'] > 0 else 0
-                    strategy_name = str(row['strategy'])[:28]
-                    f.write(f"  {strategy_name:<30} {int(row['trades']):<10} {win_rate:<10.1f}% "
-                           f"{row['avg_return']:<12.2f}% {row['max_return']:<12.2f}% {row['min_return']:<12.2f}%\n")
-                f.write("\n")
-
-            # ========== 4. 종목별 성과 ==========
+            # ========== 3. 종목별 성과 ==========
             f.write("📊 종목별 성과 분석\n")
             f.write("-" * 100 + "\n")
 
@@ -400,8 +368,7 @@ def generate_performance_report(db_name: str, period_days: int = None, output_pa
                 sell_date,
                 purchase_price,
                 sell_price,
-                sell_rate,
-                check_item
+                sell_rate
             FROM all_item_db
             WHERE sell_date IS NOT NULL
               AND sell_date != ''
@@ -419,7 +386,7 @@ def generate_performance_report(db_name: str, period_days: int = None, output_pa
                     f.write(f"  [{idx+1}] {row['code']} - {row['code_name']}\n")
                     f.write(f"      매수일: {row['buy_date']} / 매도일: {row['sell_date']}\n")
                     f.write(f"      매수가: {row['purchase_price']:,}원 -> 매도가: {row['sell_price']:,}원\n")
-                    f.write(f"      수익률: {row['sell_rate']:.2f}% | 전략: {row['check_item'] or '미분류'}\n\n")
+                    f.write(f"      수익률: {row['sell_rate']:.2f}%\n\n")
 
             # Worst 거래
             query_worst = f"""
@@ -430,8 +397,7 @@ def generate_performance_report(db_name: str, period_days: int = None, output_pa
                 sell_date,
                 purchase_price,
                 sell_price,
-                sell_rate,
-                check_item
+                sell_rate
             FROM all_item_db
             WHERE sell_date IS NOT NULL
               AND sell_date != ''
@@ -449,7 +415,7 @@ def generate_performance_report(db_name: str, period_days: int = None, output_pa
                     f.write(f"  [{idx+1}] {row['code']} - {row['code_name']}\n")
                     f.write(f"      매수일: {row['buy_date']} / 매도일: {row['sell_date']}\n")
                     f.write(f"      매수가: {row['purchase_price']:,}원 -> 매도가: {row['sell_price']:,}원\n")
-                    f.write(f"      수익률: {row['sell_rate']:.2f}% | 전략: {row['check_item'] or '미분류'}\n\n")
+                    f.write(f"      수익률: {row['sell_rate']:.2f}%\n\n")
 
             # ========== 푸터 ==========
             f.write("=" * 100 + "\n")

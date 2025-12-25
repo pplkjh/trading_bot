@@ -10,11 +10,11 @@ Advanced Risk Management Module
 5. 섹터 노출 제한
 """
 
-import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Optional
 import pymysql
 from library.cf import *
+from library.technical_indicators import calculate_atr
 
 
 class RiskManager:
@@ -40,7 +40,7 @@ class RiskManager:
         portfolio_value: float,
         risk_profile: str = 'aggressive',
         max_position_pct: float = 0.15,
-        max_daily_loss_pct: float = -0.08,
+        max_daily_loss_pct: float = -0.05,  # -8% → -5%로 변경
         max_sector_exposure: float = 0.40,
         max_correlation: float = 0.7
     ):
@@ -74,36 +74,6 @@ class RiskManager:
         }
 
         self.config = self.risk_profiles.get(risk_profile, self.risk_profiles['aggressive'])
-
-
-    def calculate_atr(self, high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> float:
-        """
-        Average True Range 계산
-
-        Parameters:
-        -----------
-        high : pd.Series
-            고가 시계열
-        low : pd.Series
-            저가 시계열
-        close : pd.Series
-            종가 시계열
-        period : int
-            ATR 계산 기간 (default: 14)
-
-        Returns:
-        --------
-        float : ATR 값
-        """
-        high_low = high - low
-        high_close = np.abs(high - close.shift())
-        low_close = np.abs(low - close.shift())
-
-        ranges = pd.concat([high_low, high_close, low_close], axis=1)
-        true_range = ranges.max(axis=1)
-
-        atr = true_range.rolling(window=period).mean().iloc[-1]
-        return atr if not np.isnan(atr) else 0
 
 
     def calculate_position_size_atr(
@@ -616,8 +586,7 @@ def get_stock_atr(code: str, db_name: str = 'daily_buy_list', period: int = 14) 
         if len(df) < period:
             return 0
 
-        rm = RiskManager(portfolio_value=10000000)  # 임시 값
-        atr = rm.calculate_atr(df['high'], df['low'], df['close'], period)
+        atr = calculate_atr(df['high'], df['low'], df['close'], period)
 
         return atr
 
@@ -636,7 +605,7 @@ if __name__ == "__main__":
         portfolio_value=portfolio_value,
         risk_profile='aggressive',
         max_position_pct=0.15,
-        max_daily_loss_pct=-0.08
+        max_daily_loss_pct=-0.05  # -8% → -5%로 변경
     )
 
     print(f"포트폴리오 가치: {portfolio_value:,}원")
