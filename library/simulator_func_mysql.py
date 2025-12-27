@@ -116,7 +116,8 @@ class simulator_func_mysql:
         # ==================== 새로운 고급 전략 (1-19번) ====================
 
         if self.simul_num == 1:
-            # 🚀 고급 통합 전략: Multi-Factor + Hybrid Strategy + Risk Management
+            # 🚀 고급 하이브리드 전략: Momentum 60% + Mean Reversion 40%
+            # RSI14, Bollinger Bands, ATR14를 활용한 고급 전략
             self.simul_start_date = "20230102"
 
             # 분별 시뮬레이션 옵션
@@ -124,7 +125,7 @@ class simulator_func_mysql:
             self.only_nine_buy = False
 
             # 알고리즘 선택
-            self.db_to_realtime_daily_buy_list_num = 100  # 고급 전략 매수
+            self.db_to_realtime_daily_buy_list_num = 1  # 하이브리드 전략 매수
             self.sell_list_num = 100  # 고급 전략 매도
 
             # 자본 설정
@@ -604,7 +605,7 @@ class simulator_func_mysql:
         daily_buy_list = self.engine_daily_buy_list.execute(sql % (code)).fetchall()
 
         df_daily_buy_list = DataFrame(daily_buy_list,
-                                      columns=['index', 'index2', 'date', 'check_item',
+                                      columns=['date', 'check_item',
                                                'code', 'code_name', 'd1_diff_rate', 'close', 'open',
                                                'high', 'low',
                                                'volume',
@@ -619,7 +620,8 @@ class simulator_func_mysql:
                                                'yes_clo80',
                                                'yes_clo100', 'yes_clo120',
                                                'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
-                                               'vol100', 'vol120'])
+                                               'vol100', 'vol120',
+                                               'rsi14', 'bb_upper', 'bb_middle', 'bb_lower', 'atr14'])
         return df_daily_buy_list
 
     # realtime_daily_buy_list 테이블의 매수 리스트를 가져오는 함수
@@ -628,27 +630,57 @@ class simulator_func_mysql:
 
         # 이 부분은 촬영 후 코드를 간소화 했습니다. 조건문 모두 없앴습니다.
         # check_item = 매수 했을 시 날짜가 찍혀 있다. 매수 하지 않았을 때는 0
-        sql = "select * from realtime_daily_buy_list where check_item = '%s' group by code"
+        # composite_score 내림차순 정렬: 점수가 높은 종목부터 매수 (실제 트레이더만)
+        if self.op == 'real':
+            # 실제 트레이더: composite_score로 정렬
+            sql = "select * from realtime_daily_buy_list where check_item = '%s' order by composite_score desc, code"
+        else:
+            # 시뮬레이터: composite_score 컬럼이 없으므로 code로만 정렬
+            sql = "select * from realtime_daily_buy_list where check_item = '%s' order by code"
+
+        logger.debug("SQL query: %s", sql % (0))
+        logger.debug("Using database engine: %s", self.engine_simulator.url)
 
         realtime_daily_buy_list = self.engine_simulator.execute(sql % (0)).fetchall()
+        logger.debug("Query returned %d rows", len(realtime_daily_buy_list))
 
-        self.df_realtime_daily_buy_list = DataFrame(realtime_daily_buy_list,
-                                                    columns=['index', 'index2', 'index3', 'date', 'check_item',
-                                                             'code', 'code_name', 'd1_diff_rate', 'close', 'open',
-                                                             'high', 'low',
-                                                             'volume',
-                                                             'clo5', 'clo10', 'clo20', 'clo40', 'clo60', 'clo80',
-                                                             'clo100', 'clo120',
-                                                             "clo5_diff_rate", "clo10_diff_rate", "clo20_diff_rate",
-                                                             "clo40_diff_rate", "clo60_diff_rate",
-                                                             "clo80_diff_rate", "clo100_diff_rate",
-                                                             "clo120_diff_rate",
-                                                             'yes_clo5', 'yes_clo10', 'yes_clo20', 'yes_clo40',
-                                                             'yes_clo60',
-                                                             'yes_clo80',
-                                                             'yes_clo100', 'yes_clo120',
-                                                             'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
-                                                             'vol100', 'vol120'])
+        # 시뮬레이터와 실제 트레이더는 다른 테이블 구조를 가짐
+        if self.op == 'real':
+            # 실제 트레이더: strategy_type, composite_score, volume_ratio 포함 (45개)
+            self.df_realtime_daily_buy_list = DataFrame(realtime_daily_buy_list,
+                                                        columns=['code', 'code_name', 'date', 'check_item',
+                                                                 'd1_diff_rate', 'close', 'open',
+                                                                 'high', 'low',
+                                                                 'volume',
+                                                                 'clo5', 'clo10', 'clo20', 'clo40', 'clo60', 'clo80',
+                                                                 'clo100', 'clo120',
+                                                                 "clo5_diff_rate", "clo10_diff_rate", "clo20_diff_rate",
+                                                                 "clo40_diff_rate", "clo60_diff_rate",
+                                                                 "clo80_diff_rate", "clo100_diff_rate",
+                                                                 "clo120_diff_rate",
+                                                                 'yes_clo5', 'yes_clo10', 'yes_clo20', 'yes_clo40',
+                                                                 'yes_clo60',
+                                                                 'yes_clo80',
+                                                                 'yes_clo100', 'yes_clo120',
+                                                                 'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
+                                                                 'vol100', 'vol120',
+                                                                 'strategy_type', 'composite_score', 'volume_ratio'])
+        else:
+            # 시뮬레이터: rsi14, bb_upper, bb_middle, bb_lower, atr14 포함 (47개)
+            self.df_realtime_daily_buy_list = DataFrame(realtime_daily_buy_list,
+                                                        columns=['date', 'check_item', 'code', 'code_name',
+                                                                 'd1_diff_rate', 'close', 'open', 'high',
+                                                                 'low', 'volume',
+                                                                 'clo5', 'clo10', 'clo20', 'clo40', 'clo60', 'clo80',
+                                                                 'clo100', 'clo120',
+                                                                 "clo5_diff_rate", "clo10_diff_rate", "clo20_diff_rate",
+                                                                 "clo40_diff_rate", "clo60_diff_rate", "clo80_diff_rate",
+                                                                 "clo100_diff_rate", "clo120_diff_rate",
+                                                                 'yes_clo5', 'yes_clo10', 'yes_clo20', 'yes_clo40',
+                                                                 'yes_clo60', 'yes_clo80', 'yes_clo100', 'yes_clo120',
+                                                                 'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
+                                                                 'vol100', 'vol120',
+                                                                 'rsi14', 'bb_upper', 'bb_middle', 'bb_lower', 'atr14'])
 
         self.len_df_realtime_daily_buy_list = len(self.df_realtime_daily_buy_list)
 
@@ -717,16 +749,97 @@ class simulator_func_mysql:
     ##!@####################################################################################################################################################################################
     # 매수 할 종목의 리스트를 선정 알고리즘
     def db_to_realtime_daily_buy_list(self, date_rows_today, date_rows_yesterday, i):
-        # 5 / 20 골든크로스 buy
+        # 🚀 전략 1: 하이브리드 전략 (Momentum 60% + Mean Reversion 40%)
+        # ✅ collector_api.py의 _hybrid_strategy_sql과 동일한 로직
+        # ✅ RSI14, Bollinger Bands, ATR14 활용
         if self.db_to_realtime_daily_buy_list_num == 1:
-            # orderby는 거래량 많은 순서
+            sql = '''
+                SELECT a.*,
+                    -- 하이브리드 스코어 계산 (모멘텀 60% + 평균회귀 40%)
+                    (
+                        -- 모멘텀 브레이크아웃 스코어 (60점 만점)
+                        (
+                            -- 거래량 조건 (20점)
+                            CASE
+                                WHEN a.volume > a.vol20 * 2.0 THEN 20
+                                WHEN a.volume > a.vol20 * 1.5 THEN 15
+                                WHEN a.volume > a.vol20 * 1.2 THEN 10
+                                ELSE 5
+                            END +
 
-            sql = "select * from `" + date_rows_yesterday + "` a where yes_clo20 > yes_clo5 and clo5 > clo20 " \
-                                                            "and NOT exists (select null from stock_konex b where a.code=b.code) " \
-                                                            "and close < '%s' group by code limit 10"  # 위에서 10개종목만 하겠다.
-                                                            # "and close < '%s' group by code"
+                            -- 모멘텀 조건 (20점)
+                            CASE
+                                WHEN a.clo5 > a.clo20 AND a.clo20 > a.clo60 THEN 20  -- 강한 상승
+                                WHEN a.clo5 > a.clo20 THEN 15  -- 상승
+                                ELSE 5
+                            END +
 
-            realtime_daily_buy_list = self.engine_daily_buy_list.execute(sql % (self.invest_unit)).fetchall()
+                            -- ATR 기반 변동성 돌파 (20점)
+                            CASE
+                                WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 * 1.5 THEN 20
+                                WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 THEN 15
+                                ELSE 10
+                            END
+                        ) * 0.6
+
+                        +
+
+                        -- 평균회귀 스코어 (40점 만점)
+                        (
+                            -- RSI 과매도 (15점)
+                            CASE
+                                WHEN a.rsi14 <= 30 THEN 15
+                                WHEN a.rsi14 <= 40 THEN 10
+                                WHEN a.rsi14 <= 50 THEN 5
+                                ELSE 0
+                            END +
+
+                            -- 볼린저 밴드 하단 근처 (15점)
+                            CASE
+                                WHEN a.bb_lower > 0 AND a.close <= a.bb_lower THEN 15
+                                WHEN a.bb_lower > 0 AND a.close <= a.bb_lower * 1.02 THEN 10
+                                WHEN a.bb_middle > 0 AND a.close < a.bb_middle THEN 5
+                                ELSE 0
+                            END +
+
+                            -- 지지선 반등 (10점)
+                            CASE
+                                WHEN a.close > a.clo20 * 0.95 AND a.close < a.clo20 * 1.0 THEN 10
+                                WHEN a.close > a.clo60 * 0.95 AND a.close < a.clo60 * 1.0 THEN 8
+                                ELSE 3
+                            END
+                        ) * 0.4
+
+                    ) * (100.0 / 52.0) AS calculated_score  -- 100점 스케일로 정규화
+                FROM `''' + date_rows_yesterday + '''` a
+                WHERE
+                    -- 기본 필터
+                    NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code = b.code)
+                    AND a.close > 0
+                    AND a.volume > 0
+                    AND a.rsi14 > 0  -- RSI 계산 성공한 종목만
+                    AND a.bb_lower > 0  -- 볼린저 밴드 계산 성공한 종목만
+
+                    -- 하이브리드 조건 (모멘텀 OR 평균회귀)
+                    AND (
+                        -- 모멘텀 조건
+                        (a.clo5 > a.clo20 AND a.volume > a.vol20 * 1.2)
+                        OR
+                        -- 평균회귀 조건
+                        (a.rsi14 <= 40 AND a.bb_lower > 0 AND a.close <= a.bb_lower * 1.05)
+                    )
+
+                    -- 가격 범위
+                    AND a.close BETWEEN 1000 AND 500000
+
+                HAVING calculated_score >= 90
+                ORDER BY calculated_score DESC
+                LIMIT ''' + str(self.max_positions) + '''
+            '''
+            realtime_daily_buy_list_raw = self.engine_daily_buy_list.execute(sql).fetchall()
+
+            # calculated_score 컬럼 제거 (마지막 컬럼)
+            realtime_daily_buy_list = [row[:-1] for row in realtime_daily_buy_list_raw]
 
 
         # 5 / 40 골든크로스 buy
@@ -871,10 +984,18 @@ class simulator_func_mysql:
             '''
             realtime_daily_buy_list = self.engine_daily_buy_list.execute(sql).fetchall()
 
-        # 🚀 고급 통합 전략: Multi-Factor Scoring + Hybrid Strategy
+        # 📈 전략 20: 5/20 골든크로스 (기본 전략)
+        # 5일선이 20일선을 상향 돌파한 종목 매수
+        elif self.db_to_realtime_daily_buy_list_num == 20:
+            sql = "select * from `" + date_rows_yesterday + "` a where yes_clo20 > yes_clo5 and clo5 > clo20 " \
+                                                            "and NOT exists (select null from stock_konex b where a.code=b.code) " \
+                                                            "and close < '%s' group by code limit 10"
+
+            realtime_daily_buy_list = self.engine_daily_buy_list.execute(sql % (self.invest_unit)).fetchall()
+
+        # 🔧 전략 100: 심플 프로토타입 전략 (이동평균 기반)
+        # 기본 이동평균 + 거래량 조합
         elif self.db_to_realtime_daily_buy_list_num == 100:
-            # 🚀 고급 전략: Date-based (30%) + Hybrid (70%) - SQL 구현
-            # 속도 최적화를 위해 SQL로 직접 구현 (함수 호출 없음)
             sql = '''
                 SELECT a.*
                 FROM `''' + date_rows_yesterday + '''` a
@@ -946,8 +1067,8 @@ class simulator_func_mysql:
             # 차이점은 리스트는 컬럼에 대한 개념이 없는데, 데이터프레임은 컬럼이 있다.
 
             df_realtime_daily_buy_list = DataFrame(realtime_daily_buy_list,
-                                                   columns=['index', 'index2', 'date', 'check_item', 'code',
-                                                            'code_name', 'd1_diff_rate', 'close', 'open', 'high',
+                                                   columns=['date', 'check_item', 'code', 'code_name',
+                                                            'd1_diff_rate', 'close', 'open', 'high',
                                                             'low', 'volume',
                                                             'clo5', 'clo10', 'clo20', 'clo40', 'clo60', 'clo80',
                                                             'clo100', 'clo120',
@@ -955,11 +1076,10 @@ class simulator_func_mysql:
                                                             "clo40_diff_rate", "clo60_diff_rate", "clo80_diff_rate",
                                                             "clo100_diff_rate", "clo120_diff_rate",
                                                             'yes_clo5', 'yes_clo10', 'yes_clo20', 'yes_clo40',
-                                                            'yes_clo60',
-                                                            'yes_clo80',
-                                                            'yes_clo100', 'yes_clo120',
+                                                            'yes_clo60', 'yes_clo80', 'yes_clo100', 'yes_clo120',
                                                             'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
-                                                            'vol100', 'vol120'])
+                                                            'vol100', 'vol120',
+                                                            'rsi14', 'bb_upper', 'bb_middle', 'bb_lower', 'atr14'])
 
             # 종목코드를 6자리 문자열로 변환 (우선주 코드 'xxxRx' 형태도 처리)
             df_realtime_daily_buy_list['code'] = df_realtime_daily_buy_list['code'].astype(str).str.zfill(6)
@@ -977,7 +1097,7 @@ class simulator_func_mysql:
                 # 'fail'은 데이터베이스에 테이블이 있다면 아무 동작도 수행하지 않는다.
                 # 'replace'는 테이블이 존재하면 기존 테이블을 삭제하고 새로 테이블을 생성한 후 데이터를 삽입한다.
                 # 'append'는 테이블이 존재하면 데이터만을 추가한다.
-                df_realtime_daily_buy_list.to_sql('realtime_daily_buy_list', self.engine_simulator, if_exists='replace')
+                df_realtime_daily_buy_list.to_sql('realtime_daily_buy_list', self.engine_simulator, if_exists='replace', index=False)
 
                 # 현재 보유 중인 종목은 매수 리스트(realtime_daily_buy_list) 에서 제거 하는 로직
                 if self.is_simul_table_exist(self.db_name, "all_item_db"):
@@ -997,7 +1117,7 @@ class simulator_func_mysql:
             else:
                 # check_item 컬럼에 0 으로 setting
                 df_realtime_daily_buy_list['check_item'] = int(0)
-                df_realtime_daily_buy_list.to_sql('realtime_daily_buy_list', self.engine_simulator, if_exists='replace')
+                df_realtime_daily_buy_list.to_sql('realtime_daily_buy_list', self.engine_simulator, if_exists='replace', index=False)
 
                 # 현재 보유 중인 종목들은 삭제
                 sql = "delete from realtime_daily_buy_list where code in (select code from possessed_item)"
@@ -1025,13 +1145,13 @@ class simulator_func_mysql:
 
         # option이 ALL이면 모든 데이터 업데이트
         if option == "ALL":
-            sql = f"update all_item_db set d1_diff_rate = {d1_diff_rate}, close = {close}, open = {open}, high = {high}, " \
-                  f"low = {low}, volume = {volume}, present_price = {present_price}, clo5 = {clo5}, clo10 = {clo10}, clo20 = {clo20}, " \
-                  f"clo40 = {clo40}, clo60 = {clo60}, clo80 = {clo80}, clo100 = {clo100}, clo120 = {clo120} " \
+            # 시뮬레이터는 간소화된 스키마: close/open/high/low 없음, clo* → ma*로 매핑
+            sql = f"update all_item_db set d1_diff_rate = {d1_diff_rate}, volume = {volume}, present_price = {present_price}, " \
+                  f"ma5 = {clo5}, ma10 = {clo10}, ma20 = {clo20}, ma60 = {clo60}, ma120 = {clo120} " \
                   f"where code_name = '{code_name}' and sell_date = {0}"
-        # option이 OPEN이면 open, present_price 만 업데이트
+        # option이 OPEN이면 present_price 만 업데이트
         else:
-            sql = f"update all_item_db set open = {open}, present_price = {present_price} where code_name = '{code_name}' and sell_date = {0}"
+            sql = f"update all_item_db set present_price = {present_price} where code_name = '{code_name}' and sell_date = {0}"
 
         self.engine_simulator.execute(sql)
 
@@ -1081,24 +1201,15 @@ class simulator_func_mysql:
 
     # all_item_db 라는 테이블을 만들기 위한 self.df_all_item 데이터프레임
     def init_df_all_item(self):
-        df_all_item_temp = {'id': []}
+        df_all_item_temp = {}
 
         self.df_all_item = DataFrame(df_all_item_temp,
-                                     columns=['id', 'order_num', 'code', 'code_name', 'rate', 'purchase_rate',
-                                              'purchase_price',
-                                              'present_price', 'valuation_price',
-                                              'valuation_profit', 'holding_amount', 'buy_date', 'item_total_purchase',
-                                              'chegyul_check', 'reinvest_count', 'reinvest_date', 'invest_unit',
-                                              'reinvest_unit',
-                                              'sell_date', 'sell_price', 'sell_rate', 'rate_std', 'rate_std_mod_val',
-                                              'rate_std_htr', 'rate_htr',
-                                              'rate_std_mod_val_htr', 'yes_close', 'close', 'd1_diff_rate', 'd1_diff',
-                                              'open', 'high',
-                                              'low',
-                                              'volume', 'clo5', 'clo10', 'clo20', 'clo40', 'clo60', 'clo80',
-                                              'clo100', 'clo120', "clo5_diff_rate", "clo10_diff_rate",
-                                              "clo20_diff_rate", "clo40_diff_rate", "clo60_diff_rate",
-                                              "clo80_diff_rate", "clo100_diff_rate", "clo120_diff_rate"])
+                                     columns=['code', 'code_name', 'chegyul_check', 'buy_date', 'buy_time',
+                                              'purchase_price', 'holding_amount', 'present_price', 'rate',
+                                              'valuation_profit', 'sell_date', 'sell_time', 'sell_price',
+                                              'sell_rate', 'realized_profit', 'd1_diff_rate', 'yes_close',
+                                              'volume', 'today_percent', 'ma5', 'ma10', 'ma20', 'ma60', 'ma120',
+                                              'item_total_purchase', 'valuation_price'])
 
     # 가장 초기에 매수 했을 때 all_item_db 에 추가하는 함수
     def db_to_all_item(self, min_date, df, index, code, code_name, purchase_price, yesterday_close):
@@ -1107,67 +1218,41 @@ class simulator_func_mysql:
         # 초기는 반드시 rate가 -0.33 이여야한다. -> 수수료, 세금을 반영함
         self.df_all_item.loc[0, 'rate'] = float(-0.33)
 
-        if yesterday_close:
-            self.df_all_item.loc[0, 'purchase_rate'] = round(
-                (float(purchase_price) - float(yesterday_close)) / float(yesterday_close) * 100, 2)
-
         self.df_all_item.loc[0, 'purchase_price'] = purchase_price
         self.df_all_item.loc[0, 'present_price'] = purchase_price
 
         # #jackbot("code_name: "+ code_name + "purchase_price: "+ str(purchase_price))
         self.df_all_item.loc[0, 'holding_amount'] = int(self.invest_unit / purchase_price)
         self.df_all_item.loc[0, 'buy_date'] = min_date
-        self.df_all_item.loc[0, 'item_total_purchase'] = self.df_all_item.loc[0, 'purchase_price'] * \
-                                                         self.df_all_item.loc[
-                                                             0, 'holding_amount']
+        self.df_all_item.loc[0, 'buy_time'] = ''
 
         # 실시간으로 오늘 투자한 금액 합산
-        self.today_invest_price = self.today_invest_price + self.df_all_item.loc[0, 'item_total_purchase']
+        item_total_purchase = self.df_all_item.loc[0, 'purchase_price'] * self.df_all_item.loc[0, 'holding_amount']
+        self.df_all_item.loc[0, 'item_total_purchase'] = item_total_purchase
+        self.df_all_item.loc[0, 'valuation_price'] = 0
+        self.today_invest_price = self.today_invest_price + item_total_purchase
 
-        self.df_all_item.loc[0, 'chegyul_check'] = 0
-        self.df_all_item.loc[0, 'id'] = 0
-        # int로 넣어야 나중에 ++ 할수 있다.
-        # self.df_all_item.loc[0, 'reinvest_date'] = '#'
-        # self.df_all_item.loc[0, 'reinvest_count'] = int(0)
-        # 다음에 투자할 금액은 invest_unit과 같은 금액이다.
-        self.df_all_item.loc[0, 'invest_unit'] = self.invest_unit
-        # self.df_all_item.loc[0, 'reinvest_unit'] = self.invest_unit
+        self.df_all_item.loc[0, 'chegyul_check'] = '0'
+        self.df_all_item.loc[0, 'sell_date'] = '0'
+        self.df_all_item.loc[0, 'sell_time'] = ''
+        self.df_all_item.loc[0, 'sell_price'] = 0
         self.df_all_item.loc[0, 'sell_rate'] = float(0)
-        self.df_all_item.loc[0, 'yes_close'] = yesterday_close
-        self.df_all_item.loc[0, 'close'] = df.loc[index, 'close']
+        self.df_all_item.loc[0, 'realized_profit'] = 0
+        self.df_all_item.loc[0, 'yes_close'] = yesterday_close if yesterday_close else 0
+        self.df_all_item.loc[0, 'volume'] = df.loc[index, 'volume'] if 'volume' in df.columns else 0
+        self.df_all_item.loc[0, 'today_percent'] = 0
 
-        self.df_all_item.loc[0, 'open'] = df.loc[index, 'open']
-        self.df_all_item.loc[0, 'high'] = df.loc[index, 'high']
-        self.df_all_item.loc[0, 'low'] = df.loc[index, 'low']
-        self.df_all_item.loc[0, 'volume'] = df.loc[index, 'volume']
-        if df.loc[index, 'd1_diff_rate'] is not None:
+        if 'd1_diff_rate' in df.columns and df.loc[index, 'd1_diff_rate'] is not None:
             self.df_all_item.loc[0, 'd1_diff_rate'] = float(df.loc[index, 'd1_diff_rate'])
-        self.df_all_item.loc[0, 'clo5'] = df.loc[index, 'clo5']
-        self.df_all_item.loc[0, 'clo10'] = df.loc[index, 'clo10']
-        self.df_all_item.loc[0, 'clo20'] = df.loc[index, 'clo20']
-        self.df_all_item.loc[0, 'clo40'] = df.loc[index, 'clo40']
-        self.df_all_item.loc[0, 'clo60'] = df.loc[index, 'clo60']
-        self.df_all_item.loc[0, 'clo80'] = df.loc[index, 'clo80']
-        self.df_all_item.loc[0, 'clo100'] = df.loc[index, 'clo100']
-        self.df_all_item.loc[0, 'clo120'] = df.loc[index, 'clo120']
+        else:
+            self.df_all_item.loc[0, 'd1_diff_rate'] = 0
 
-        if df.loc[index, 'clo5_diff_rate'] is not None:
-            self.df_all_item.loc[0, 'clo5_diff_rate'] = float(df.loc[index, 'clo5_diff_rate'])
-        if df.loc[index, 'clo10_diff_rate'] is not None:
-            self.df_all_item.loc[0, 'clo10_diff_rate'] = float(df.loc[index, 'clo10_diff_rate'])
-        if df.loc[index, 'clo20_diff_rate'] is not None:
-            self.df_all_item.loc[0, 'clo20_diff_rate'] = float(df.loc[index, 'clo20_diff_rate'])
-        if df.loc[index, 'clo40_diff_rate'] is not None:
-            self.df_all_item.loc[0, 'clo40_diff_rate'] = float(df.loc[index, 'clo40_diff_rate'])
-
-        if df.loc[index, 'clo60_diff_rate'] is not None:
-            self.df_all_item.loc[0, 'clo60_diff_rate'] = float(df.loc[index, 'clo60_diff_rate'])
-        if df.loc[index, 'clo80_diff_rate'] is not None:
-            self.df_all_item.loc[0, 'clo80_diff_rate'] = float(df.loc[index, 'clo80_diff_rate'])
-        if df.loc[index, 'clo100_diff_rate'] is not None:
-            self.df_all_item.loc[0, 'clo100_diff_rate'] = float(df.loc[index, 'clo100_diff_rate'])
-        if df.loc[index, 'clo120_diff_rate'] is not None:
-            self.df_all_item.loc[0, 'clo120_diff_rate'] = float(df.loc[index, 'clo120_diff_rate'])
+        # Map clo* columns to ma* columns
+        self.df_all_item.loc[0, 'ma5'] = df.loc[index, 'clo5'] if 'clo5' in df.columns else 0
+        self.df_all_item.loc[0, 'ma10'] = df.loc[index, 'clo10'] if 'clo10' in df.columns else 0
+        self.df_all_item.loc[0, 'ma20'] = df.loc[index, 'clo20'] if 'clo20' in df.columns else 0
+        self.df_all_item.loc[0, 'ma60'] = df.loc[index, 'clo60'] if 'clo60' in df.columns else 0
+        self.df_all_item.loc[0, 'ma120'] = df.loc[index, 'clo120'] if 'clo120' in df.columns else 0
 
         self.df_all_item.loc[0, 'valuation_profit'] = int(0)
 
@@ -1175,7 +1260,7 @@ class simulator_func_mysql:
         # AttributeError: 'numpy.int64' object has no attribute 'translate' 에러 발생
         self.df_all_item = self.df_all_item.fillna(0)
 
-        self.df_all_item.to_sql('all_item_db', self.engine_simulator, if_exists='append')
+        self.df_all_item.to_sql('all_item_db', self.engine_simulator, if_exists='append', index=False)
 
     # 보유한 종목들을 가져오는 함수
     # sell_date가 0이면 현재 보유 중인 종목이다. 매도를 할 경우 sell_date에 매도 한 날짜가 찍힌다.
@@ -1485,6 +1570,15 @@ class simulator_func_mysql:
 
             sell_list = []
 
+            # 현재 시뮬레이션 날짜 가져오기 (i로부터 date_rows_today 계산)
+            try:
+                current_date_str = self.date_rows[i][0]  # YYYYMMDD 형식
+                current_date = datetime.strptime(current_date_str, '%Y%m%d')
+            except Exception as e:
+                # 날짜 정보 없으면 현재 날짜 사용 (실전 모드)
+                logger.warning(f"get_sell_list: 날짜 정보 가져오기 실패, 현재 날짜 사용. 에러: {e}")
+                current_date = datetime.now()
+
             # 보유 중인 종목 조회 (buy_date 추가)
             sql = """
                 SELECT code, rate, present_price, valuation_profit, purchase_price, buy_date
@@ -1513,7 +1607,7 @@ class simulator_func_mysql:
                     buy_date_str = str(buy_date)[:8]  # 앞 8자리만 사용 (YYYYMMDD)
                     entry_date = datetime.strptime(buy_date_str, '%Y%m%d')
                 except:
-                    entry_date = datetime.now()
+                    entry_date = current_date
 
                 positions.append({
                     'code': code,
@@ -1525,8 +1619,8 @@ class simulator_func_mysql:
                     'rate': rate
                 })
 
-            # exit_strategy로 청산 시그널 생성
-            exit_signals = get_exit_signals(positions, db_name='daily_buy_list')
+            # exit_strategy로 청산 시그널 생성 (current_date 전달)
+            exit_signals = get_exit_signals(positions, db_name='daily_buy_list', current_date=current_date)
 
             # sell_list 형식으로 변환
             for signal in exit_signals:

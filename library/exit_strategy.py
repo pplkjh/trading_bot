@@ -209,8 +209,8 @@ class ExitStrategy:
         if holding_days >= self.max_holding_days:
             return True, f"최대 보유기간 초과 ({holding_days}일)"
 
-        # 일정 기간(5일) 후 손실 상태면 청산
-        if holding_days >= 5 and current_return <= self.time_stop_loss_pct:
+        # 일정 기간(10일) 후 손실 상태면 청산 (5일 → 10일로 완화)
+        if holding_days >= 10 and current_return <= self.time_stop_loss_pct:
             return True, f"시간 경과 손절 ({holding_days}일, {current_return*100:.2f}%)"
 
         return False, ""
@@ -316,7 +316,8 @@ class ExitStrategy:
         self,
         position: Dict,
         current_data: pd.DataFrame,
-        current_score: Optional[float] = None
+        current_score: Optional[float] = None,
+        current_date: Optional[datetime] = None
     ) -> Dict[str, any]:
         """
         종합 청산 판단
@@ -337,6 +338,8 @@ class ExitStrategy:
             현재 OHLCV 데이터
         current_score : Optional[float]
             현재 팩터 스코어
+        current_date : Optional[datetime]
+            현재 날짜 (시뮬레이션 시 필수)
 
         Returns:
         --------
@@ -366,7 +369,9 @@ class ExitStrategy:
         highest_price = position.get('highest_price', entry_price)
 
         current_price = current_data['close'].iloc[-1]
-        current_date = datetime.now()
+        # 시뮬레이션 날짜가 전달되면 사용, 없으면 실제 오늘 날짜 사용
+        if current_date is None:
+            current_date = datetime.now()
 
         # ATR 계산
         atr = calculate_atr(
@@ -425,16 +430,16 @@ class ExitStrategy:
             result['priority'] = 60
             return result
 
-        # 5. 기술적 지표 청산
-        should_tech_exit, reason = self.check_technical_exit(
-            current_data, entry_price
-        )
-
-        if should_tech_exit:
-            result['should_exit'] = True
-            result['reason'] = reason
-            result['priority'] = 50
-            return result
+        # 5. 기술적 지표 청산 (비활성화 - 너무 빨리 청산됨)
+        # should_tech_exit, reason = self.check_technical_exit(
+        #     current_data, entry_price
+        # )
+        #
+        # if should_tech_exit:
+        #     result['should_exit'] = True
+        #     result['reason'] = reason
+        #     result['priority'] = 50
+        #     return result
 
         # 6. 팩터 스코어 청산
         if current_score is not None:
@@ -479,7 +484,8 @@ class ExitStrategy:
 
 def get_exit_signals(
     positions: List[Dict],
-    db_name: str = 'daily_buy_list'
+    db_name: str = 'daily_buy_list',
+    current_date: Optional[datetime] = None
 ) -> List[Dict]:
     """
     모든 포지션에 대해 청산 시그널 생성
@@ -490,13 +496,20 @@ def get_exit_signals(
         포지션 리스트
     db_name : str
         데이터베이스 이름
+    current_date : Optional[datetime]
+        현재 날짜 (시뮬레이션 시 필수)
 
     Returns:
     --------
     List[Dict] : 청산 시그널 리스트
     """
     exit_signals = []
-    exit_strategy = ExitStrategy()
+    # 보수적 설정: 최대 보유 15일, 10일 후 -5% 손절
+    exit_strategy = ExitStrategy(
+        atr_stop_multiplier=2.5,  # ATR 손절 완화 (2.0 → 2.5)
+        max_holding_days=15,  # 최대 보유 15일
+        time_stop_loss_pct=-0.05  # 시간 손절 완화 (-2% → -5%)
+    )
 
     # 에러 추적
     error_count = 0
@@ -559,8 +572,8 @@ def get_exit_signals(
             # date 컬럼을 ref_date로 이름 변경 (기존 코드 호환성 유지)
             df = df.rename(columns={'date': 'ref_date'})
 
-            # 청산 판단
-            exit_decision = exit_strategy.get_exit_decision(position, df)
+            # 청산 판단 (current_date 전달)
+            exit_decision = exit_strategy.get_exit_decision(position, df, current_date=current_date)
 
             if exit_decision['should_exit']:
                 exit_signals.append({

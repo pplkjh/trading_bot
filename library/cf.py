@@ -15,13 +15,13 @@ imi1_accout = "8115136011" # [모의투자 계좌번호를 넣어주세요. 주�
 
 # imi1_simul_num은 알고리즘의 번호이다. 새로운 알고리즘으로 새롭게 database를 구축해서 운영하고 싶을 경우 번호를 2, 3, 4 ... 순차적으로 올려 주면 된다.
 imi1_simul_num=1
-imi1_db_name = "JackBot"+str(imi1_simul_num)+"_imi1"
+imi1_db_name = "jackbot"+str(imi1_simul_num)+"_imi1"
 
 
 # 아래는 실전 투자 계좌번호를 넣는다.
 real_account=""
 real_simul_num=1
-real_db_name="JackBot"+str(real_simul_num)
+real_db_name="jackbot"+str(real_simul_num)
 
 
 real_daily_craw_db_name = "daily_craw"

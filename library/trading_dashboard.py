@@ -78,7 +78,7 @@ class TradingDashboard:
 
         # 헤더
         print("=" * 100)
-        print("🚀 고급 전략 트레이더 - 실시간 모니터링 대시보드".center(100))
+        print("[DASHBOARD] 고급 전략 트레이더 - 실시간 모니터링 대시보드".center(100))
         print("=" * 100)
         print(f"현재 시간: {self.dashboard_data['current_time']}")
         print(f"장 상태: {self.dashboard_data['market_status']}")
@@ -116,18 +116,18 @@ class TradingDashboard:
 
         # 시스템 상태
         if self.dashboard_data['system_status']:
-            print(f"\n💬 시스템 상태: {self.dashboard_data['system_status']}")
+            print(f"\n[STATUS] 시스템 상태: {self.dashboard_data['system_status']}")
 
         # 푸터
         print()
         print("=" * 100)
-        print("💡 종료: Ctrl+C | 자세한 로그: log/jackbot.log".center(100))
+        print("[INFO] 종료: Ctrl+C | 자세한 로그: log/jackbot.log".center(100))
         print("=" * 100)
 
     def _render_strategy_config(self):
         """전략 설정 표시"""
         config = self.dashboard_data['strategy_config']
-        print("📊 전략 설정")
+        print("[STRATEGY] 전략 설정")
         print("-" * 100)
         print(f"  고급 매수 전략: {'사용' if config.get('use_advanced_buy') else '미사용'}")
         print(f"  고급 매도 전략: {'사용' if config.get('use_advanced_sell') else '미사용'}")
@@ -139,7 +139,7 @@ class TradingDashboard:
     def _render_account_info(self):
         """계좌 정보 표시"""
         account = self.dashboard_data['account_info']
-        print("💰 계좌 정보")
+        print("[ACCOUNT] 계좌 정보")
         print("-" * 100)
         print(f"  예수금: {account.get('deposit', 0):,}원")
         print(f"  D+2 예수금: {account.get('d2_deposit', 0):,}원")
@@ -151,7 +151,7 @@ class TradingDashboard:
     def _render_portfolio_summary(self):
         """포트폴리오 요약 표시"""
         portfolio = self.dashboard_data['portfolio_summary']
-        print("📈 포트폴리오 요약")
+        print("[PORTFOLIO] 포트폴리오 요약")
         print("-" * 100)
         print(f"  보유 종목 수: {portfolio.get('position_count', 0)}개")
         print(f"  포트폴리오 가치: {portfolio.get('total_value', 0):,}원")
@@ -162,13 +162,13 @@ class TradingDashboard:
     def _render_positions(self):
         """보유 종목 표시"""
         positions = self.dashboard_data['positions']
-        print(f"💼 보유 종목 ({len(positions)}개)")
+        print(f"[POSITION] 보유 종목 ({len(positions)}개)")
         print("-" * 100)
         if positions:
             print(f"  {'종목코드':<10} {'종목명':<15} {'보유수량':>10} {'매입가':>12} {'현재가':>12} {'수익률':>10} {'평가손익':>12}")
             print("  " + "-" * 95)
             for pos in positions[:10]:  # 최대 10개만 표시
-                profit_color = "🟢" if pos.get('profit_rate', 0) > 0 else "🔴" if pos.get('profit_rate', 0) < 0 else "⚪"
+                profit_color = "[+]" if pos.get('profit_rate', 0) > 0 else "[-]" if pos.get('profit_rate', 0) < 0 else "[=]"
                 print(f"  {pos.get('code', ''):<10} {pos.get('name', ''):<15} "
                       f"{pos.get('quantity', 0):>10} {pos.get('buy_price', 0):>12,}원 "
                       f"{pos.get('current_price', 0):>12,}원 "
@@ -200,13 +200,13 @@ class TradingDashboard:
     def _render_sell_signals(self):
         """매도 시그널 표시"""
         signals = self.dashboard_data['sell_signals']
-        print(f"⚠️  매도 시그널 ({len(signals)}개)")
+        print(f"[SIGNAL] 매도 시그널 ({len(signals)}개)")
         print("-" * 100)
         if signals:
             print(f"  {'종목코드':<10} {'종목명':<15} {'현재가':>12} {'수익률':>10} {'시그널타입':<25} {'우선순위':>8}")
             print("  " + "-" * 95)
             for sig in signals:
-                signal_icon = "💔" if sig.get('profit_rate', 0) < 0 else "💰"
+                signal_icon = "[-]" if sig.get('profit_rate', 0) < 0 else "[+]"
                 print(f"  {signal_icon} {sig.get('code', ''):<8} {sig.get('name', ''):<15} "
                       f"{sig.get('price', 0):>12,}원 {sig.get('profit_rate', 0):>9.2f}% "
                       f"{sig.get('reason', ''):<25} {sig.get('priority', 0):>8}")
@@ -217,13 +217,13 @@ class TradingDashboard:
     def _render_recent_trades(self):
         """최근 거래 표시"""
         trades = self.dashboard_data['recent_trades']
-        print(f"📝 최근 거래 ({len(trades)}개)")
+        print(f"[TRADES] 최근 거래 ({len(trades)}개)")
         print("-" * 100)
         if trades:
             print(f"  {'시간':<10} {'타입':<6} {'종목코드':<10} {'종목명':<15} {'가격':>12} {'수량':>8} {'수익률':>10}")
             print("  " + "-" * 95)
             for trade in trades[:5]:  # 최대 5개만 표시
-                trade_icon = "🟢" if trade.get('type') == '매수' else "🔴"
+                trade_icon = "[B]" if trade.get('type') == '매수' else "[S]"
                 print(f"  {trade.get('time', ''):<10} {trade_icon} {trade.get('type', ''):<4} "
                       f"{trade.get('code', ''):<10} {trade.get('name', ''):<15} "
                       f"{trade.get('price', 0):>12,}원 {trade.get('quantity', 0):>8} "

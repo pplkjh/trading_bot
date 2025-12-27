@@ -489,9 +489,9 @@ class TraderAdvanced(QMainWindow):
 
             # 장 상태
             if self.market_time_check():
-                market_status = "🟢 장 운영 중"
+                market_status = "[OPEN] 장 운영 중"
             else:
-                market_status = "🔴 장 마감"
+                market_status = "[CLOSED] 장 마감"
 
             # 전략 설정
             strategy_config = {
@@ -605,11 +605,11 @@ class TraderAdvanced(QMainWindow):
 
         # 콘솔에 초기 메시지 표시
         print("\n" + "=" * 100)
-        print("🚀 고급 전략 트레이더 시작")
+        print("[START] 고급 전략 트레이더 시작")
         print(f"시작 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"장 시작: {self.market_start_time.toString()}, 장 마감: {self.market_end_time.toString()}")
-        print("📊 실시간 대시보드 로딩 중...")
-        print("📝 자세한 로그: log/jackbot.log")
+        print("[INFO] 실시간 대시보드 로딩 중...")
+        print("[LOG] 자세한 로그: log/jackbot.log")
         print("=" * 100)
         print("\n잠시만 기다려주세요...\n")
 
@@ -798,22 +798,22 @@ def main():
             os.system("taskkill /f /im cmd.exe")
 
     except Exception as e:
-        logger.error(f"❌ 치명적 오류: {e}")
+        logger.error(f"[ERROR] 치명적 오류: {e}")
         logger.debug("오류 상세:", exc_info=True)
 
         # 오류 발생 시에도 리포트 생성 시도
         if 'trader' in locals():
-            print("\n📊 트레이딩 결과 리포트 생성 중...")
+            print("\n[REPORT] 트레이딩 결과 리포트 생성 중...")
             try:
                 report_path = generate_trader_report(trader, trader.trade_history)
                 if report_path:
-                    print(f"✅ 리포트 생성 완료: {report_path}")
+                    print(f"[OK] 리포트 생성 완료: {report_path}")
             except:
                 pass
 
         # 오류 발생 시에도 60초 대기
-        print("\n⏰ 60초 후 자동으로 종료됩니다... (로그 확인 가능)")
-        print("📊 로그: log/jackbot.log\n")
+        print("\n[WAIT] 60초 후 자동으로 종료됩니다... (로그 확인 가능)")
+        print("[LOG] 로그: log/jackbot.log\n")
 
         user_interrupted = False
         try:

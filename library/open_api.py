@@ -362,7 +362,7 @@ class open_api(QAxWidget):
         else:
             self.remained_data = False
         # print("self.py_gubun!!", self.py_gubun)
-        if rqname == "opt10081_req" and self.py_gubun == "trader":
+        if rqname == "opt10081_req" and self.py_gubun in ["trader", "trader_advanced"]:
             # logger.debug("opt10081_req trader!!!")
             # logger.debug("Get an item info !!!!")
             self._opt10081(rqname, trcode)
@@ -464,20 +464,22 @@ class open_api(QAxWidget):
         logger.debug("db_to_all_item 함수에 들어왔다!!!")
         self.date_setting()
         self.sf.init_df_all_item()
-        self.sf.df_all_item.loc[0, 'order_num'] = order_num
         self.sf.df_all_item.loc[0, 'code'] = str(code)
         self.sf.df_all_item.loc[0, 'rate'] = float(rate)
 
         self.sf.df_all_item.loc[0, 'buy_date'] = self.today_detail
+        self.sf.df_all_item.loc[0, 'buy_time'] = ''
         # 사는 순간 chegyul_check 1 로 만드는거다.
-        self.sf.df_all_item.loc[0, 'chegyul_check'] = chegyul_check
-        # int로 넣어야 나중에 ++ 할수 있다.
-        self.sf.df_all_item.loc[0, 'reinvest_date'] = '#'
-        # df_all_item.loc[0, 'reinvest_count'] = int(0)
-        # 다음에 투자할 금액은 invest_unit과 같은 금액이다.
-        self.sf.df_all_item.loc[0, 'invest_unit'] = self.invest_unit
-        # df_all_item.loc[0, 'reinvest_unit'] = self.invest_unit
+        self.sf.df_all_item.loc[0, 'chegyul_check'] = str(chegyul_check)
         self.sf.df_all_item.loc[0, 'purchase_price'] = purchase_price
+        self.sf.df_all_item.loc[0, 'holding_amount'] = 0
+        self.sf.df_all_item.loc[0, 'present_price'] = purchase_price
+        self.sf.df_all_item.loc[0, 'valuation_profit'] = 0
+        self.sf.df_all_item.loc[0, 'sell_date'] = '0'
+        self.sf.df_all_item.loc[0, 'sell_time'] = ''
+        self.sf.df_all_item.loc[0, 'sell_price'] = 0
+        self.sf.df_all_item.loc[0, 'sell_rate'] = float(0)
+        self.sf.df_all_item.loc[0, 'realized_profit'] = 0
 
         # 신규 매수의 경우
         if order_num != 0:
@@ -486,57 +488,31 @@ class open_api(QAxWidget):
                 df = self.sf.get_daily_buy_list_by_code(code, recent_daily_buy_list_date)
                 if not df.empty:
                     self.sf.df_all_item.loc[0, 'code_name'] = df.loc[0, 'code_name']
-                    self.sf.df_all_item.loc[0, 'close'] = df.loc[0, 'close']
-                    self.sf.df_all_item.loc[0, 'open'] = df.loc[0, 'open']
-                    self.sf.df_all_item.loc[0, 'high'] = df.loc[0, 'high']
-                    self.sf.df_all_item.loc[0, 'low'] = df.loc[0, 'low']
                     self.sf.df_all_item.loc[0, 'volume'] = df.loc[0, 'volume']
                     self.sf.df_all_item.loc[0, 'd1_diff_rate'] = float(df.loc[0, 'd1_diff_rate'])
-                    self.sf.df_all_item.loc[0, 'clo5'] = df.loc[0, 'clo5']
-                    self.sf.df_all_item.loc[0, 'clo10'] = df.loc[0, 'clo10']
-                    self.sf.df_all_item.loc[0, 'clo20'] = df.loc[0, 'clo20']
-                    self.sf.df_all_item.loc[0, 'clo40'] = df.loc[0, 'clo40']
-                    self.sf.df_all_item.loc[0, 'clo60'] = df.loc[0, 'clo60']
-                    self.sf.df_all_item.loc[0, 'clo80'] = df.loc[0, 'clo80']
-                    self.sf.df_all_item.loc[0, 'clo100'] = df.loc[0, 'clo100']
-                    self.sf.df_all_item.loc[0, 'clo120'] = df.loc[0, 'clo120']
+                    self.sf.df_all_item.loc[0, 'yes_close'] = 0
+                    self.sf.df_all_item.loc[0, 'today_percent'] = 0
 
-                    if df.loc[0, 'clo5_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo5_diff_rate'] = float(df.loc[0, 'clo5_diff_rate'])
-                    if df.loc[0, 'clo10_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo10_diff_rate'] = float(df.loc[0, 'clo10_diff_rate'])
-                    if df.loc[0, 'clo20_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo20_diff_rate'] = float(df.loc[0, 'clo20_diff_rate'])
-                    if df.loc[0, 'clo40_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo40_diff_rate'] = float(df.loc[0, 'clo40_diff_rate'])
-
-                    if df.loc[0, 'clo60_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo60_diff_rate'] = float(df.loc[0, 'clo60_diff_rate'])
-                    if df.loc[0, 'clo80_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo80_diff_rate'] = float(df.loc[0, 'clo80_diff_rate'])
-                    if df.loc[0, 'clo100_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo100_diff_rate'] = float(df.loc[0, 'clo100_diff_rate'])
-                    if df.loc[0, 'clo120_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo120_diff_rate'] = float(df.loc[0, 'clo120_diff_rate'])
+                    # Map clo* columns to ma* columns
+                    self.sf.df_all_item.loc[0, 'ma5'] = df.loc[0, 'clo5'] if 'clo5' in df.columns else 0
+                    self.sf.df_all_item.loc[0, 'ma10'] = df.loc[0, 'clo10'] if 'clo10' in df.columns else 0
+                    self.sf.df_all_item.loc[0, 'ma20'] = df.loc[0, 'clo20'] if 'clo20' in df.columns else 0
+                    self.sf.df_all_item.loc[0, 'ma60'] = df.loc[0, 'clo60'] if 'clo60' in df.columns else 0
+                    self.sf.df_all_item.loc[0, 'ma120'] = df.loc[0, 'clo120'] if 'clo120' in df.columns else 0
 
         # 컬럼 중에 nan 값이 있는 경우 0으로 변경 -> 이렇게 안하면 아래 데이터베이스에 넣을 때
         # AttributeError: 'numpy.int64' object has no attribute 'translate' 에러 발생
         self.sf.df_all_item = self.sf.df_all_item.fillna(0)
-        self.sf.df_all_item.to_sql('all_item_db', self.engine_JB, if_exists='append', dtype={
+        self.sf.df_all_item.to_sql('all_item_db', self.engine_JB, if_exists='append', index=False, dtype={
             'code_name': Text,
+            'chegyul_check': Text,
+            'buy_date': Text,
+            'buy_time': Text,
+            'sell_date': Text,
+            'sell_time': Text,
             'rate': Float,
             'sell_rate': Float,
-            'purchase_rate': Float,
-            'sell_date': Text,
-            'd1_diff_rate': Float,
-            'clo5_diff_rate': Float,
-            'clo10_diff_rate': Float,
-            'clo20_diff_rate': Float,
-            'clo40_diff_rate': Float,
-            'clo60_diff_rate': Float,
-            'clo80_diff_rate': Float,
-            'clo100_diff_rate': Float,
-            'clo120_diff_rate': Float
+            'd1_diff_rate': Float
         })
 
     def check_balance(self):
@@ -1321,9 +1297,9 @@ class open_api(QAxWidget):
 
                 # all_item_db에서 매수 정보 가져오기
                 sql = """
-                SELECT code, buy_date, buy_price, holding_amount
+                SELECT code, buy_date, purchase_price, holding_amount
                 FROM all_item_db
-                WHERE code = '%s' AND sell_date = 0
+                WHERE code = '%s' AND sell_date = '0'
                 ORDER BY buy_date DESC
                 LIMIT 1
                 """
@@ -1420,7 +1396,7 @@ class open_api(QAxWidget):
     # all_item_db의 rate를 업데이트 한다.
     def rate_check(self):
         logger.debug("rate_check!!!")
-        sql = "select code ,holding_amount, puchase_price, present_price, valuation_profit, rate,item_total_purchase from possessed_item group by code"
+        sql = "select code ,holding_amount, puchase_price, present_price, valuation_profit, rate from possessed_item group by code"
         rows = self.engine_JB.execute(sql).fetchall()
 
         logger.debug("rate 업데이트 !!!")
@@ -1436,10 +1412,9 @@ class open_api(QAxWidget):
             present_price =rows[k][3]
             valuation_profit=rows[k][4]
             rate = rows[k][5]
-            item_total_purchase = rows[k][6]
             # print("rate!!", rate)
-            sql = "update all_item_db set holding_amount ='%s', purchase_price ='%s', present_price='%s',valuation_profit='%s',rate='%s',item_total_purchase='%s' where code='%s' and sell_date = '%s'"
-            self.engine_JB.execute(sql % (holding_amount,purchase_price,present_price,valuation_profit,float(rate),item_total_purchase, code, 0))
+            sql = "update all_item_db set holding_amount ='%s', purchase_price ='%s', present_price='%s',valuation_profit='%s',rate='%s' where code='%s' and sell_date = '%s'"
+            self.engine_JB.execute(sql % (holding_amount,purchase_price,present_price,valuation_profit,float(rate), code, 0))
 
     def chegyul_sync(self):
         # 먼저 possessd_item 테이블에는 있는데 all_item_db에 없는 종목들 추가해준다
@@ -1535,13 +1510,13 @@ class open_api(QAxWidget):
 
         # sell_price가 없어서 에러가났음
         get_list = self.engine_JB.execute(f"""
-            SELECT valuation_profit, rate, item_total_purchase, present_price 
+            SELECT valuation_profit, rate, present_price
             FROM possessed_item WHERE code='{code}' LIMIT 1
         """).fetchall()
         if get_list:
             item = get_list[0]
             sql = f"""UPDATE all_item_db
-                SET item_total_purchase = {item.item_total_purchase}, chegyul_check = 0,
+                SET chegyul_check = '0',
                  sell_date = '{self.today_detail}', valuation_profit = {item.valuation_profit},
                  sell_rate = {item.rate}, sell_price = {item.present_price}
                 WHERE code = '{code}' and sell_date = '0' ORDER BY buy_date desc LIMIT 1"""
