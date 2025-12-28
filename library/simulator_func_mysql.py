@@ -147,6 +147,38 @@ class simulator_func_mysql:
             self.invest_limit_rate = 1.03
             self.invest_min_limit_rate = 0.97
 
+        elif self.simul_num == 2:
+            # 🔄 혼합 전략: 날짜 기반 30% + 하이브리드 70%
+            # collector와 동일한 전략 (두 전략 점수 합산)
+            self.simul_start_date = "20230102"
+
+            # 분별 시뮬레이션 옵션
+            self.use_min = False
+            self.only_nine_buy = False
+
+            # 알고리즘 선택
+            self.db_to_realtime_daily_buy_list_num = 2  # 혼합 전략 매수
+            self.sell_list_num = 100  # 고급 전략 매도
+
+            # 자본 설정
+            self.start_invest_price = 10000000
+            self.invest_unit = 1000000
+            self.limit_money = 2000000
+
+            # 고급 전략 특화 설정
+            self.risk_profile = 'aggressive'
+            self.max_positions = 10
+            self.atr_multiplier = 2.0
+            self.trailing_stop_atr = 1.5
+
+            # 익절/손절은 동적 계산 (고정값 사용 안함)
+            self.sell_point = 999
+            self.losscut_point = -999
+
+            # 매수 제한
+            self.invest_limit_rate = 1.03
+            self.invest_min_limit_rate = 0.97
+
         # ==================== 기존 전략 (20번대로 이동) ====================
 
         elif self.simul_num == 21:
@@ -842,13 +874,158 @@ class simulator_func_mysql:
             realtime_daily_buy_list = [row[:-1] for row in realtime_daily_buy_list_raw]
 
 
-        # 5 / 40 골든크로스 buy
+        # 🔄 전략 2: 혼합 전략 (날짜 기반 20% + 하이브리드 80%)
+        # 두 전략을 가중 합산한 점수가 90점 이상인 종목만 선택
         elif self.db_to_realtime_daily_buy_list_num == 2:
-            # orderby는 거래량 많은 순서
-            sql = "select * from `" + date_rows_yesterday + "` a where yes_clo40 > yes_clo5 and clo5 > clo40 " \
-                                                            "and NOT exists (select null from stock_konex b where a.code=b.code) " \
-                                                            "and close < '%s' group by code"
-            realtime_daily_buy_list = self.engine_daily_buy_list.execute(sql % (self.invest_unit)).fetchall()
+            sql = '''
+                SELECT a.*,
+                    -- 날짜 기반 스코어 (원본, 100점 스케일)
+                    (
+                        (a.volume / NULLIF(a.vol5, 0)) *
+                        (a.clo5 / NULLIF(a.clo20, 0)) *
+                        CASE
+                            WHEN a.volume > a.vol20 * 1.5 THEN 1.2
+                            ELSE 1.0
+                        END
+                    ) * 30.0 AS date_score,
+
+                    -- 하이브리드 스코어 (원본, 100점 스케일)
+                    (
+                        -- 모멘텀 브레이크아웃 (60점 만점)
+                        (
+                            CASE
+                                WHEN a.volume > a.vol20 * 2.0 THEN 20
+                                WHEN a.volume > a.vol20 * 1.5 THEN 15
+                                WHEN a.volume > a.vol20 * 1.2 THEN 10
+                                ELSE 5
+                            END +
+                            CASE
+                                WHEN a.clo5 > a.clo20 AND a.clo20 > a.clo60 THEN 20
+                                WHEN a.clo5 > a.clo20 THEN 15
+                                ELSE 5
+                            END +
+                            CASE
+                                WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 * 1.5 THEN 20
+                                WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 THEN 15
+                                ELSE 10
+                            END
+                        ) * 0.6
+                        +
+                        -- 평균회귀 (40점 만점)
+                        (
+                            CASE
+                                WHEN a.rsi14 <= 30 THEN 15
+                                WHEN a.rsi14 <= 40 THEN 10
+                                WHEN a.rsi14 <= 50 THEN 5
+                                ELSE 0
+                            END +
+                            CASE
+                                WHEN a.bb_lower > 0 AND a.close <= a.bb_lower THEN 15
+                                WHEN a.bb_lower > 0 AND a.close <= a.bb_lower * 1.02 THEN 10
+                                WHEN a.bb_middle > 0 AND a.close < a.bb_middle THEN 5
+                                ELSE 0
+                            END +
+                            CASE
+                                WHEN a.close > a.clo20 * 0.95 AND a.close < a.clo20 * 1.0 THEN 10
+                                WHEN a.close > a.clo60 * 0.95 AND a.close < a.clo60 * 1.0 THEN 8
+                                ELSE 3
+                            END
+                        ) * 0.4
+                    ) * (100.0 / 52.0) AS hybrid_score,
+
+                    -- 최종 혼합 스코어 (날짜 20% + 하이브리드 80% 가중 합산)
+                    (
+                        -- 날짜 기반 (20%)
+                        (
+                            (a.volume / NULLIF(a.vol5, 0)) *
+                            (a.clo5 / NULLIF(a.clo20, 0)) *
+                            CASE
+                                WHEN a.volume > a.vol20 * 1.5 THEN 1.2
+                                ELSE 1.0
+                            END
+                        ) * 30.0 * 0.2
+                        +
+                        -- 하이브리드 (80%)
+                        (
+                            (
+                                (
+                                    CASE
+                                        WHEN a.volume > a.vol20 * 2.0 THEN 20
+                                        WHEN a.volume > a.vol20 * 1.5 THEN 15
+                                        WHEN a.volume > a.vol20 * 1.2 THEN 10
+                                        ELSE 5
+                                    END +
+                                    CASE
+                                        WHEN a.clo5 > a.clo20 AND a.clo20 > a.clo60 THEN 20
+                                        WHEN a.clo5 > a.clo20 THEN 15
+                                        ELSE 5
+                                    END +
+                                    CASE
+                                        WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 * 1.5 THEN 20
+                                        WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 THEN 15
+                                        ELSE 10
+                                    END
+                                ) * 0.6
+                                +
+                                (
+                                    CASE
+                                        WHEN a.rsi14 <= 30 THEN 15
+                                        WHEN a.rsi14 <= 40 THEN 10
+                                        WHEN a.rsi14 <= 50 THEN 5
+                                        ELSE 0
+                                    END +
+                                    CASE
+                                        WHEN a.bb_lower > 0 AND a.close <= a.bb_lower THEN 15
+                                        WHEN a.bb_lower > 0 AND a.close <= a.bb_lower * 1.02 THEN 10
+                                        WHEN a.bb_middle > 0 AND a.close < a.bb_middle THEN 5
+                                        ELSE 0
+                                    END +
+                                    CASE
+                                        WHEN a.close > a.clo20 * 0.95 AND a.close < a.clo20 * 1.0 THEN 10
+                                        WHEN a.close > a.clo60 * 0.95 AND a.close < a.clo60 * 1.0 THEN 8
+                                        ELSE 3
+                                    END
+                                ) * 0.4
+                            ) * (100.0 / 52.0) * 0.8
+                        )
+                    ) AS calculated_score
+
+                FROM `''' + date_rows_yesterday + '''` a
+                WHERE
+                    -- 기본 필터
+                    NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code = b.code)
+                    AND a.close > 0
+                    AND a.volume > 0
+
+                    -- 날짜 기반 OR 하이브리드 조건
+                    AND (
+                        -- 날짜 기반 조건
+                        (a.volume > a.vol5 * 1.2 AND a.clo5 > a.clo20)
+                        OR
+                        -- 하이브리드 조건
+                        (
+                            a.rsi14 > 0 AND a.bb_lower > 0 AND
+                            (
+                                (a.clo5 > a.clo20 AND a.volume > a.vol20 * 1.2)
+                                OR
+                                (a.rsi14 <= 40 AND a.close <= a.bb_lower * 1.05)
+                            )
+                        )
+                    )
+
+                    -- 가격 범위
+                    AND a.close BETWEEN 1000 AND 500000
+
+                HAVING
+                    -- 가중 합산 점수가 90점 이상인 종목만 선택
+                    calculated_score >= 90
+                ORDER BY calculated_score DESC
+                LIMIT ''' + str(self.max_positions) + '''
+            '''
+            realtime_daily_buy_list_raw = self.engine_daily_buy_list.execute(sql).fetchall()
+
+            # calculated_score, date_score, hybrid_score 컬럼 제거 (마지막 3개 컬럼)
+            realtime_daily_buy_list = [row[:-3] for row in realtime_daily_buy_list_raw]
 
 
         elif self.db_to_realtime_daily_buy_list_num == 3:
@@ -1499,23 +1676,23 @@ class simulator_func_mysql:
         # 익절 기준 수익률(self.sell_point) 이 넘거나,
         # 손절 기준 수익률(self.losscut_point) 보다 떨어지면 파는 알고리즘
         if self.sell_list_num == 1:
-            # select 할 컬럼은 항상 코드명, 수익률, 매도할 종목의 현재가, 수익(손실)금액
+            # select 할 컬럼은 항상 코드, 종목명, 수익률, 매도할 종목의 현재가, 수익(손실)금액
             # sql 첫 번째 라인은 항상 고정
-            sql = "SELECT code, rate, present_price,valuation_profit FROM all_item_db WHERE (sell_date = '%s') " \
+            sql = "SELECT code, code_name, rate, present_price, valuation_profit FROM all_item_db WHERE (sell_date = '%s') " \
                   "and (rate>='%s' or rate <= '%s') group by code"
             sell_list = self.engine_simulator.execute(sql % (0, self.sell_point, self.losscut_point)).fetchall()
 
         # 5 / 20 이동 평균선 데드크로스 이거나, losscut_point(손절 기준 수익률) 이하로 떨어지면 손절하는 알고리즘
         elif self.sell_list_num == 2:
-            sql = "SELECT code, rate, present_price,valuation_profit FROM all_item_db WHERE (sell_date = '%s') " \
-                  "and ((clo5 < clo20) or rate <= '%s') group by code"
+            sql = "SELECT code, code_name, rate, present_price, valuation_profit FROM all_item_db WHERE (sell_date = '%s') " \
+                  "and ((ma5 < ma20) or rate <= '%s') group by code"
             sell_list = self.engine_simulator.execute(sql % (0, self.losscut_point)).fetchall()
 
 
         # 5 / 40 이동 평균선 데드크로스 이거나, losscut_point(손절 기준 수익률) 이하로 떨어지면 손절하는 알고리즘
         elif self.sell_list_num == 3:
-            sql = "SELECT code, rate, present_price,valuation_profit FROM all_item_db WHERE (sell_date = '%s') " \
-                  "and ((clo5 < clo40) or rate <= '%s') group by code"
+            sql = "SELECT code, code_name, rate, present_price, valuation_profit FROM all_item_db WHERE (sell_date = '%s') " \
+                  "and ((ma5 < ma60) or rate <= '%s') group by code"
 
             sell_list = self.engine_simulator.execute(sql % (0, self.losscut_point)).fetchall()
 
@@ -1523,13 +1700,16 @@ class simulator_func_mysql:
         # # 절대 모멘텀 전략 (특정일 전 보다 n% 이하로 떨어지면 매도) / code 버전
         elif self.sell_list_num == 4:
            sell_list = []
-           sql = "SELECT code, rate, present_price, valuation_profit FROM all_item_db WHERE sell_date = 0 " \
+           sql = "SELECT code, code_name, rate, present_price, valuation_profit FROM all_item_db WHERE sell_date = 0 " \
                  "group by code"
            # realtime_daily_buy_list_temp 로 일단 위 조건의 종목을을받는다.
            sell_list_temp = self.engine_simulator.execute(sql).fetchall()
            for row in sell_list_temp:
                code = row[0]
-               present_price = row[2]
+               # code_name = row[1]
+               # rate = row[2]
+               present_price = row[3]  # 인덱스 수정 (2 → 3)
+               # valuation_profit = row[4]
                # date_rows_yesterday 가 self.date_rows[i-1] 값이다.
                # date_rows_today 가 self.date_rows[i]
                # 오늘 기준 n일 전 날짜
@@ -1545,7 +1725,7 @@ class simulator_func_mysql:
         # 절대 모멘텀 전략 (특정일 전 보다 n% 이하로 떨어지면 매도) / query 버전
         elif self.sell_list_num == 5:
            date_before = self.date_rows[i - self.day_before][0]
-           sql = "SELECT ALLDB.code, ALLDB.rate, ALLDB.present_price, ALLDB.valuation_profit " \
+           sql = "SELECT ALLDB.code, ALLDB.code_name, ALLDB.rate, ALLDB.present_price, ALLDB.valuation_profit " \
                  "FROM all_item_db ALLDB, daily_buy_list.`" + date_before + "` BEFORE_DAY "\
                    "WHERE ALLDB.code = BEFORE_DAY.code " \
                    "AND ALLDB.sell_date = 0 "\
@@ -1555,7 +1735,7 @@ class simulator_func_mysql:
         # 절대 모멘텀 전략 + losscut_point 추가 (특정일 전 보다 n% 이하로 떨어지면 매도) / query 버전
         elif self.sell_list_num == 6:
            date_before = self.date_rows[i - self.day_before][0]
-           sql = "SELECT ALLDB.code, ALLDB.rate, ALLDB.present_price, ALLDB.valuation_profit " \
+           sql = "SELECT ALLDB.code, ALLDB.code_name, ALLDB.rate, ALLDB.present_price, ALLDB.valuation_profit " \
                  "FROM all_item_db ALLDB, daily_buy_list.`" + date_before + "` BEFORE_DAY " \
                 "WHERE ALLDB.code = BEFORE_DAY.code " \
                 "AND ALLDB.sell_date = 0 " \
@@ -1581,7 +1761,7 @@ class simulator_func_mysql:
 
             # 보유 중인 종목 조회 (buy_date 추가)
             sql = """
-                SELECT code, rate, present_price, valuation_profit, purchase_price, buy_date
+                SELECT code, code_name, rate, present_price, valuation_profit, purchase_price, buy_date
                 FROM all_item_db
                 WHERE sell_date = 0
                 GROUP BY code
@@ -1592,11 +1772,12 @@ class simulator_func_mysql:
             positions = []
             for holding in holdings:
                 code = holding[0]
-                rate = holding[1]
-                present_price = holding[2]
-                valuation_profit = holding[3]
-                purchase_price = holding[4]
-                buy_date = holding[5]
+                code_name = holding[1]
+                rate = holding[2]
+                present_price = holding[3]
+                valuation_profit = holding[4]
+                purchase_price = holding[5]
+                buy_date = holding[6]
 
                 # highest_price 계산 (현재가와 매수가 중 높은 값)
                 highest_price = max(present_price, purchase_price)
@@ -1630,8 +1811,8 @@ class simulator_func_mysql:
                 matching_holding = [h for h in holdings if h[0] == code]
                 if matching_holding:
                     holding = matching_holding[0]
-                    # sell_list: (code, rate, present_price, valuation_profit)
-                    sell_list.append(holding[:4])
+                    # sell_list: (code, code_name, rate, present_price, valuation_profit)
+                    sell_list.append(holding[:5])
 
                     # 청산 사유 로깅
                     logger.debug(f"[고급 청산] {code}: {signal['decision']['reason']} (우선순위: {signal['decision']['priority']})")
@@ -1657,19 +1838,21 @@ class simulator_func_mysql:
         # 매도 할 리스트를 가져오는 함수
         sell_list = self.get_sell_list(_i)
         for i in range(len(sell_list)):
-            # 코드명
+            # 코드
             get_sell_code = sell_list[i][0]
+            # 종목명
+            get_sell_code_name = sell_list[i][1]
             # 수익률
-            get_sell_rate = sell_list[i][1]
+            get_sell_rate = sell_list[i][2]
             # 종목의 현재 주가
-            get_present_price = sell_list[i][2]
+            get_present_price = sell_list[i][3]
             # 수익(손실) 금액 (종목의 순수익, 순손실 금액)
-            valuation_profit = sell_list[i][3]
+            valuation_profit = sell_list[i][4]
 
             if get_sell_rate < 0:
-                print(f"  💔 손절: {get_sell_code} | 수익률: {get_sell_rate:.1f}% | 손실: {valuation_profit:,}원")
+                print(f"  💔 손절: {get_sell_code_name}({get_sell_code}) | 수익률: {get_sell_rate:.1f}% | 손실: {valuation_profit:,}원")
             else:
-                print(f"  💰 익절: {get_sell_code} | 수익률: {get_sell_rate:.1f}% | 수익: {valuation_profit:,}원")
+                print(f"  💰 익절: {get_sell_code_name}({get_sell_code}) | 수익률: {get_sell_rate:.1f}% | 수익: {valuation_profit:,}원")
 
             # 실제로 매도를 하는 함수 (매도 한 결과를 all_item_db에 반영)
             self.sell_send_order(date, get_present_price, get_sell_rate, get_sell_code)
@@ -1986,7 +2169,7 @@ class simulator_func_mysql:
             d2_deposit = safe_get('d2_deposit', 0)
             total_profit = safe_get('total_profit', 0)
             total_invest_price = safe_get('total_invest_price', 0)
-            total_valuation = safe_get('total_valuation', 0)
+            total_valuation = safe_get('total_evaluation', 0)  # 컬럼명 수정: total_valuation → total_evaluation
 
             # 초기 자본
             initial_capital = self.start_invest_price if self.start_invest_price else 10000000
@@ -2017,11 +2200,19 @@ class simulator_func_mysql:
             print("📊 백테스트 최종 결과 요약")
             print("=" * 70)
 
+            # 실제 총 손익 계산
+            actual_total_profit = final_capital - initial_capital
+            unrealized_profit = actual_total_profit - total_profit
+
             print(f"\n💰 수익 현황:")
-            print(f"  초기 자본:        {initial_capital:>15,}원")
-            print(f"  최종 자본:        {final_capital:>15,}원")
-            print(f"  총 손익:          {total_profit:>15,}원")
-            print(f"  총 수익률:        {total_return:>14.2f}%")
+            print(f"  초기 자본:             {initial_capital:>15,}원")
+            print(f"  현금 (예수금):         {d2_deposit:>15,}원")
+            print(f"  보유 주식 평가액:      {total_valuation:>15,}원")
+            print(f"  최종 자본:             {final_capital:>15,}원")
+            print(f"  총 손익:               {actual_total_profit:>15,}원")
+            print(f"    - 실현 손익 (매도):  {total_profit:>15,}원")
+            print(f"    - 미실현 손익 (보유):{unrealized_profit:>15,}원")
+            print(f"  총 수익률:             {total_return:>14.2f}%")
 
             print(f"\n📈 거래 통계:")
             print(f"  총 거래 횟수:     {total_trades:>15}회")

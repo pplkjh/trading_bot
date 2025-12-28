@@ -359,87 +359,13 @@ class collector_api():
                 # 포트폴리오 가치 및 설정
                 portfolio_value = self.open_api.sf.start_invest_price if hasattr(self.open_api.sf, 'start_invest_price') else 10000000
                 top_n = 20  # 최대 20개 종목
-                min_score_date = 70.0  # 날짜 기반 전략 최소 스코어 70점
-                min_score_hybrid = 70.0  # 하이브리드 전략 최소 스코어 70점 (100점 스케일)
+                min_hybrid_score = 70.0  # 하이브리드 전략 최소 70점
 
-                # 1. 날짜 기반 전략 (30% 가중치)
-                print("  📊 날짜 기반 전략 스캔...")
-                date_signals = date_based_signals(
-                    portfolio_value=portfolio_value,
-                    top_n=top_n * 2,  # 2배수로 가져와서 나중에 필터링
-                    min_score=min_score_date,
-                    risk_per_position=0.15
-                )
+                # 🚀 하이브리드 전략: Momentum 60% + Mean Reversion 40%
+                print("  🚀 하이브리드 전략 스캔 (Momentum 60% + Mean Reversion 40%)...")
+                buy_signals = self._hybrid_strategy_sql(latest_date, min_hybrid_score, top_n)
 
-                # 2. 하이브리드 전략 (70% 가중치) - SQL 기반
-                print("  🔄 하이브리드 전략 스캔...")
-                hybrid_candidates = self._hybrid_strategy_sql(latest_date, min_score_hybrid, top_n * 2)
-
-                # 3. 두 전략 결과 합치기
-                all_signals = []
-
-                # 날짜 기반 전략 결과 추가 (가중치 0.3)
-                if not date_signals.empty:
-                    for _, row in date_signals.iterrows():
-                        all_signals.append({
-                            'code': row['code'],
-                            'score': row.get('composite_score', 0) * 0.3,
-                            'source': 'date_based',
-                            'data': row
-                        })
-
-                # 하이브리드 전략 결과 추가 (가중치 0.7)
-                if not hybrid_candidates.empty:
-                    for _, row in hybrid_candidates.iterrows():
-                        all_signals.append({
-                            'code': row['code'],
-                            'score': row.get('score', 0) * 0.7,
-                            'source': 'hybrid',
-                            'data': row
-                        })
-
-                # 4. 종목별로 그룹화하여 점수 합산 (중복 종목 처리)
-                from collections import defaultdict
-                code_scores = defaultdict(lambda: {'total_score': 0, 'sources': [], 'data': None})
-
-                for signal in all_signals:
-                    code = signal['code']
-                    code_scores[code]['total_score'] += signal['score']
-                    code_scores[code]['sources'].append(signal['source'])
-                    if code_scores[code]['data'] is None:
-                        code_scores[code]['data'] = signal['data']
-
-                # 5. 점수 순으로 정렬하여 상위 N개 선정
-                sorted_codes = sorted(
-                    code_scores.items(),
-                    key=lambda x: x[1]['total_score'],
-                    reverse=True
-                )[:top_n]
-
-                # 6. 최종 매수 시그널 생성
-                if len(sorted_codes) == 0:
-                    buy_signals = pd.DataFrame()
-                else:
-                    final_signals = []
-                    for code, info in sorted_codes:
-                        row_data = info['data']
-                        strategy_type = 'hybrid_combined' if len(info['sources']) > 1 else info['sources'][0]
-
-                        # 원본 스코어 가져오기 (가중치 적용 전)
-                        original_score = row_data.get('composite_score', row_data.get('score', 0))
-
-                        final_signals.append({
-                            'code': code,
-                            'composite_score': original_score,  # 원본 점수 사용
-                            'weighted_score': info['total_score'],  # 가중치 적용된 점수 (정렬용)
-                            'strategy_type': strategy_type,
-                            **{k: v for k, v in row_data.items() if k not in ['code', 'composite_score', 'strategy_type', 'score']}
-                        })
-
-                    buy_signals = pd.DataFrame(final_signals)
-
-                print(f"  ✅ 날짜 기반: {len(date_signals)}개, 하이브리드: {len(hybrid_candidates)}개")
-                print(f"  🎯 최종 선정: {len(buy_signals)}개 종목")
+                print(f"  🎯 최종 선정: {len(buy_signals)}개 종목 (하이브리드 점수 {min_hybrid_score}점 이상)")
 
                 if buy_signals.empty:
                     print("⚠️  매수 조건을 만족하는 종목이 없습니다.")
@@ -787,6 +713,239 @@ class collector_api():
 
         except Exception as e:
             print(f"하이브리드 전략 SQL 실행 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            return pd.DataFrame()
+
+    def _combined_strategy_sql(self, latest_date: str, min_combined_score: float, top_n: int) -> pd.DataFrame:
+        """
+        혼합 전략 SQL 구현 (날짜 기반 20% + 하이브리드 80%)
+
+        두 전략을 가중 합산한 점수가 min_combined_score 이상인 종목만 선택
+
+        Parameters:
+        -----------
+        latest_date : str
+            스캔할 날짜 테이블명
+        min_combined_score : float
+            최소 합산 스코어 (기본 90점)
+        top_n : int
+            선정할 종목 수
+
+        Returns:
+        --------
+        pd.DataFrame : 혼합 전략 매수 후보
+        """
+        try:
+            # 필터링 테이블 존재 여부 체크
+            con = pymysql.connect(
+                user=cf.db_id,
+                passwd=cf.db_passwd,
+                host=cf.db_ip,
+                db='daily_buy_list',
+                charset='utf8',
+                port=int(cf.db_port)
+            )
+            cursor = con.cursor()
+            cursor.execute("""
+                SELECT TABLE_NAME
+                FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = 'daily_buy_list'
+                AND TABLE_NAME IN ('stock_konex', 'stock_invest_warning', 'stock_invest_danger')
+            """)
+            existing_tables = {row[0] for row in cursor.fetchall()}
+
+            # 코넥스 제외 쿼리
+            konex_exclusion = ""
+            if 'stock_konex' in existing_tables:
+                konex_exclusion = "AND code NOT IN (SELECT code FROM stock_konex WHERE 1=1)"
+
+            # 혼합 전략 SQL 쿼리
+            query = f"""
+            SELECT
+                code,
+                code_name,
+                close,
+                d1_diff_rate,
+                volume,
+                vol5,
+                vol20,
+                clo5,
+                clo10,
+                clo20,
+                clo40,
+                clo60,
+                rsi14,
+                bb_upper,
+                bb_middle,
+                bb_lower,
+                atr14,
+                date_score,
+                hybrid_score,
+                combined_score as score,
+                'hybrid_combined' as strategy_type
+
+            FROM (
+                SELECT
+                    *,
+                    -- 날짜 기반 스코어 (100점 스케일)
+                    (
+                        (volume / NULLIF(vol5, 0)) *
+                        (clo5 / NULLIF(clo20, 0)) *
+                        CASE
+                            WHEN volume > vol20 * 1.5 THEN 1.2
+                            ELSE 1.0
+                        END
+                    ) * 30.0 AS date_score,
+
+                    -- 하이브리드 스코어 (100점 스케일)
+                    (
+                        -- 모멘텀 브레이크아웃 (60점 만점)
+                        (
+                            CASE
+                                WHEN volume > vol20 * 2.0 THEN 20
+                                WHEN volume > vol20 * 1.5 THEN 15
+                                WHEN volume > vol20 * 1.2 THEN 10
+                                ELSE 5
+                            END +
+                            CASE
+                                WHEN clo5 > clo20 AND clo20 > clo60 THEN 20
+                                WHEN clo5 > clo20 THEN 15
+                                ELSE 5
+                            END +
+                            CASE
+                                WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20
+                                WHEN atr14 > 0 AND (high - low) > atr14 THEN 15
+                                ELSE 10
+                            END
+                        ) * 0.6
+                        +
+                        -- 평균회귀 (40점 만점)
+                        (
+                            CASE
+                                WHEN rsi14 <= 30 THEN 15
+                                WHEN rsi14 <= 40 THEN 10
+                                WHEN rsi14 <= 50 THEN 5
+                                ELSE 0
+                            END +
+                            CASE
+                                WHEN bb_lower > 0 AND close <= bb_lower THEN 15
+                                WHEN bb_lower > 0 AND close <= bb_lower * 1.02 THEN 10
+                                WHEN bb_middle > 0 AND close < bb_middle THEN 5
+                                ELSE 0
+                            END +
+                            CASE
+                                WHEN close > clo20 * 0.95 AND close < clo20 * 1.0 THEN 10
+                                WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8
+                                ELSE 3
+                            END
+                        ) * 0.4
+                    ) * (100.0 / 52.0) AS hybrid_score,
+
+                    -- 최종 혼합 스코어 (날짜 20% + 하이브리드 80% 가중 합산)
+                    (
+                        -- 날짜 기반 (20%)
+                        (
+                            (volume / NULLIF(vol5, 0)) *
+                            (clo5 / NULLIF(clo20, 0)) *
+                            CASE
+                                WHEN volume > vol20 * 1.5 THEN 1.2
+                                ELSE 1.0
+                            END
+                        ) * 30.0 * 0.2
+                        +
+                        -- 하이브리드 (80%)
+                        (
+                            (
+                                (
+                                    CASE
+                                        WHEN volume > vol20 * 2.0 THEN 20
+                                        WHEN volume > vol20 * 1.5 THEN 15
+                                        WHEN volume > vol20 * 1.2 THEN 10
+                                        ELSE 5
+                                    END +
+                                    CASE
+                                        WHEN clo5 > clo20 AND clo20 > clo60 THEN 20
+                                        WHEN clo5 > clo20 THEN 15
+                                        ELSE 5
+                                    END +
+                                    CASE
+                                        WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20
+                                        WHEN atr14 > 0 AND (high - low) > atr14 THEN 15
+                                        ELSE 10
+                                    END
+                                ) * 0.6
+                                +
+                                (
+                                    CASE
+                                        WHEN rsi14 <= 30 THEN 15
+                                        WHEN rsi14 <= 40 THEN 10
+                                        WHEN rsi14 <= 50 THEN 5
+                                        ELSE 0
+                                    END +
+                                    CASE
+                                        WHEN bb_lower > 0 AND close <= bb_lower THEN 15
+                                        WHEN bb_lower > 0 AND close <= bb_lower * 1.02 THEN 10
+                                        WHEN bb_middle > 0 AND close < bb_middle THEN 5
+                                        ELSE 0
+                                    END +
+                                    CASE
+                                        WHEN close > clo20 * 0.95 AND close < clo20 * 1.0 THEN 10
+                                        WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8
+                                        ELSE 3
+                                    END
+                                ) * 0.4
+                            ) * (100.0 / 52.0) * 0.8
+                        )
+                    ) AS combined_score
+
+                FROM `{latest_date}`
+                WHERE 1=1
+                    -- 기본 필터
+                    AND close > 0
+                    AND volume > 0
+
+                    {konex_exclusion}
+
+                    -- 날짜 기반 OR 하이브리드 조건
+                    AND (
+                        -- 날짜 기반 조건
+                        (volume > vol5 * 1.2 AND clo5 > clo20)
+                        OR
+                        -- 하이브리드 조건
+                        (
+                            rsi14 > 0 AND bb_lower > 0 AND
+                            (
+                                (clo5 > clo20 AND volume > vol20 * 1.2)
+                                OR
+                                (rsi14 <= 40 AND close <= bb_lower * 1.05)
+                            )
+                        )
+                    )
+
+                    -- 가격 범위
+                    AND close BETWEEN 1000 AND 500000
+            ) AS scored_table
+            WHERE combined_score >= {min_combined_score}
+            ORDER BY combined_score DESC
+            LIMIT {top_n}
+            """
+
+            df = pd.read_sql(query, con)
+            con.close()
+
+            if df.empty:
+                return pd.DataFrame()
+
+            # 추가 계산 (volume_ratio 등)
+            df['volume_ratio'] = df['volume'] / df['vol20']
+            df['composite_score'] = df['score']  # 호환성을 위해
+            df['weighted_score'] = df['score']  # 가중 점수도 동일
+
+            return df
+
+        except Exception as e:
+            print(f"혼합 전략 SQL 실행 오류: {e}")
             import traceback
             traceback.print_exc()
             return pd.DataFrame()

@@ -33,7 +33,8 @@ class ExitStrategy:
         trailing_stop_distance: float = 0.03,
         max_holding_days: int = 10,
         time_stop_loss_pct: float = -0.02,
-        factor_score_threshold: float = 40.0
+        factor_score_threshold: float = 40.0,
+        fixed_stop_loss_pct: float = -0.05
     ):
         """
         Parameters:
@@ -50,6 +51,8 @@ class ExitStrategy:
             시간 경과 후 손절 기준 (default: -2%)
         factor_score_threshold : float
             팩터 스코어 청산 임계값 (default: 40)
+        fixed_stop_loss_pct : float
+            고정 손절률 (default: -5%)
         """
         self.atr_stop_multiplier = atr_stop_multiplier
         self.trailing_stop_activation = trailing_stop_activation
@@ -57,6 +60,7 @@ class ExitStrategy:
         self.max_holding_days = max_holding_days
         self.time_stop_loss_pct = time_stop_loss_pct
         self.factor_score_threshold = factor_score_threshold
+        self.fixed_stop_loss_pct = fixed_stop_loss_pct
 
 
     def check_atr_stop_loss(
@@ -368,7 +372,10 @@ class ExitStrategy:
         entry_date = position.get('entry_date', datetime.now())
         highest_price = position.get('highest_price', entry_price)
 
-        current_price = current_data['close'].iloc[-1]
+        # 시뮬레이터는 시가 기준으로 매도하므로, 시가로 체크해야 함
+        # position에서 전달된 current_price 사용 (all_item_db의 present_price = 시가)
+        current_price = position.get('current_price', current_data['close'].iloc[-1])
+
         # 시뮬레이션 날짜가 전달되면 사용, 없으면 실제 오늘 날짜 사용
         if current_date is None:
             current_date = datetime.now()
@@ -380,7 +387,17 @@ class ExitStrategy:
             current_data['close']
         )
 
-        # 1. ATR 손절 체크 (최우선)
+        # 0. 고정 손절률 체크 (최우선 - 무조건 -5%에서 손절)
+        current_return = (current_price / entry_price - 1)
+        if current_return <= self.fixed_stop_loss_pct:
+            loss_pct = current_return * 100
+            result['should_exit'] = True
+            result['reason'] = f"고정 손절 도달 ({loss_pct:.2f}%)"
+            result['priority'] = 110  # 최우선
+            result['stop_loss_price'] = entry_price * (1 + self.fixed_stop_loss_pct)
+            return result
+
+        # 1. ATR 손절 체크
         should_stop, stop_price, reason = self.check_atr_stop_loss(
             entry_price, current_price, atr
         )
@@ -504,11 +521,12 @@ def get_exit_signals(
     List[Dict] : 청산 시그널 리스트
     """
     exit_signals = []
-    # 보수적 설정: 최대 보유 15일, 10일 후 -5% 손절
+    # 균형잡힌 설정: 고정 손절 -5%, ATR 2.0배 손절, 최대 보유 15일
     exit_strategy = ExitStrategy(
-        atr_stop_multiplier=2.5,  # ATR 손절 완화 (2.0 → 2.5)
+        fixed_stop_loss_pct=-0.05,  # 고정 손절 -5% (최우선)
+        atr_stop_multiplier=2.0,  # ATR 손절 (약 5-8% 손실에서 손절)
         max_holding_days=15,  # 최대 보유 15일
-        time_stop_loss_pct=-0.05  # 시간 손절 완화 (-2% → -5%)
+        time_stop_loss_pct=-0.05  # 시간 손절 (10일 후 -5%)
     )
 
     # 에러 추적
@@ -552,10 +570,17 @@ def get_exit_signals(
                 port=int(db_port)
             )
 
+            # 시뮬레이션 날짜를 YYYYMMDD 형식으로 변환
+            if current_date:
+                current_date_str = current_date.strftime('%Y%m%d')
+                date_filter = f"AND date <= '{current_date_str}'"
+            else:
+                date_filter = ""
+
             query = f"""
             SELECT date, open, high, low, close, volume
             FROM `{code_name}`
-            WHERE code = '{code}'
+            WHERE code = '{code}' {date_filter}
             ORDER BY date DESC
             LIMIT 60
             """
