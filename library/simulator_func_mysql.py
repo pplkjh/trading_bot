@@ -17,6 +17,11 @@ from pandas import DataFrame
 import re
 import datetime
 from sqlalchemy import create_engine
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # GUI 없이 그래프 생성
+import os
 
 pymysql.install_as_MySQLdb()
 
@@ -945,9 +950,10 @@ class simulator_func_mysql:
                             END
                         ) * 30.0 * 0.2
                         +
-                        -- 하이브리드 (80%)
+                        -- 하이브리드 (80%) - 원본 가중치 + 정규화 방식
                         (
                             (
+                                -- 모멘텀 브레이크아웃 (60점 만점)
                                 (
                                     CASE
                                         WHEN a.volume > a.vol20 * 2.0 THEN 20
@@ -967,6 +973,7 @@ class simulator_func_mysql:
                                     END
                                 ) * 0.6
                                 +
+                                -- 평균회귀 (40점 만점)
                                 (
                                     CASE
                                         WHEN a.rsi14 <= 30 THEN 15
@@ -986,8 +993,8 @@ class simulator_func_mysql:
                                         ELSE 3
                                     END
                                 ) * 0.4
-                            ) * (100.0 / 52.0) * 0.8
-                        )
+                            ) * (100.0 / 52.0)
+                        ) * 0.8
                     ) AS calculated_score
 
                 FROM `''' + date_rows_yesterday + '''` a
@@ -1752,10 +1759,18 @@ class simulator_func_mysql:
 
             # 현재 시뮬레이션 날짜 가져오기 (i로부터 date_rows_today 계산)
             try:
-                current_date_str = self.date_rows[i][0]  # YYYYMMDD 형식
-                current_date = datetime.strptime(current_date_str, '%Y%m%d')
+                # 실전 모드 체크: date_rows가 없거나 i가 범위를 벗어나면 실전 모드
+                if not hasattr(self, 'date_rows') or not self.date_rows or i >= len(self.date_rows):
+                    # 실전 모드: 현재 날짜 사용
+                    current_date = datetime.now()
+                    logger.debug(f"get_sell_list: 실전 모드 - 현재 날짜 사용 ({current_date.strftime('%Y%m%d')})")
+                else:
+                    # 시뮬레이션 모드: date_rows에서 날짜 가져오기
+                    current_date_str = self.date_rows[i][0]  # YYYYMMDD 형식
+                    current_date = datetime.strptime(current_date_str, '%Y%m%d')
+                    logger.debug(f"get_sell_list: 시뮬레이션 모드 - 날짜: {current_date_str}")
             except Exception as e:
-                # 날짜 정보 없으면 현재 날짜 사용 (실전 모드)
+                # 예외 발생 시 현재 날짜 사용
                 logger.warning(f"get_sell_list: 날짜 정보 가져오기 실패, 현재 날짜 사용. 에러: {e}")
                 current_date = datetime.now()
 
@@ -2237,8 +2252,26 @@ class simulator_func_mysql:
             # 현재 설정값 표시
             print(f"\n⚙️  현재 전략 설정:")
             print(f"  알고리즘 번호:    {self.simul_num:>15}")
-            print(f"  익절 기준:        {self.sell_point:>14.1f}%")
-            print(f"  손절 기준:        {self.losscut_point:>14.1f}%")
+
+            # 익절 기준 (동적/고정 구분)
+            if abs(self.sell_point) > 100:
+                # 트레일링 스톱 정보 추가
+                if hasattr(self, 'trailing_stop_atr'):
+                    print(f"  익절 기준:        트레일링 스톱 (ATR × {self.trailing_stop_atr})")
+                else:
+                    print(f"  익절 기준:        {'ATR 기반 동적 익절':>20}")
+            else:
+                print(f"  익절 기준:        {self.sell_point:>14.1f}%")
+
+            # 손절 기준 (동적/고정 구분)
+            if abs(self.losscut_point) > 100:
+                # ATR 배수 정보 추가
+                if hasattr(self, 'atr_multiplier'):
+                    print(f"  손절 기준:        ATR 기반 동적 손절 (ATR × {self.atr_multiplier})")
+                else:
+                    print(f"  손절 기준:        {'ATR 기반 동적 손절':>20}")
+            else:
+                print(f"  손절 기준:        {self.losscut_point:>14.1f}%")
 
             # 전략 평가 및 제안
             print(f"\n💡 전략 평가 및 제안:")
@@ -2259,13 +2292,15 @@ class simulator_func_mysql:
                 print(f"  ✅ 승률 우수 ({win_rate:.1f}%)")
             elif win_rate >= 50:
                 print(f"  ✔️  승률 양호 ({win_rate:.1f}%)")
-                if abs(avg_loss_rate) > avg_profit_rate * 2:
+                # 고정 손절 사용 시만 제안 (동적 손절이 아닐 때)
+                if abs(self.losscut_point) < 100 and abs(avg_loss_rate) > avg_profit_rate * 2:
                     print("     💡 제안: 손절폭이 큽니다. 손절 기준을 더 타이트하게 조정하세요.")
                     print(f"        현재 손절: {self.losscut_point:.1f}% → 추천: {self.losscut_point * 0.7:.1f}%")
             else:
                 print(f"  ⚠️  승률 낮음 ({win_rate:.1f}%)")
                 print("     💡 제안: 진입 조건을 더 엄격하게 설정하세요.")
-                if self.losscut_point < -5:
+                # 고정 손절 사용 시만 제안 (동적 손절이 아닐 때)
+                if abs(self.losscut_point) < 100 and self.losscut_point < -5:
                     print(f"        손절 기준이 너무 낮습니다: {self.losscut_point:.1f}% → 추천: -3.0%")
 
             # 3. 손익비 평가
@@ -2276,7 +2311,8 @@ class simulator_func_mysql:
             else:
                 print(f"  ⚠️  손익비 낮음 (R={profit_loss_ratio:.2f})")
                 print(f"     💡 제안: 익절 목표를 높이거나 손절을 빠르게 하세요.")
-                if avg_profit_rate < self.sell_point * 0.7:
+                # 고정 익절 사용 시만 제안 (동적 익절이 아닐 때)
+                if abs(self.sell_point) < 100 and avg_profit_rate < self.sell_point * 0.7:
                     print(f"        평균 익절률이 목표보다 낮습니다.")
                     print(f"        익절 기준: {self.sell_point:.1f}% → 추천: {self.sell_point * 1.3:.1f}%")
 
@@ -2302,12 +2338,464 @@ class simulator_func_mysql:
                 print("  ❌ 전략 전면 재검토가 필요합니다.")
                 print("  📌 진입/청산 조건, 손익 비율을 근본적으로 재설정하세요.")
 
+            # MDD 및 Sharpe Ratio 계산
+            print(f"\n📉 리스크 지표:")
+            print("=" * 70)
+
+            # jango_data에서 일별 자산 데이터 가져오기
+            sql_daily = """
+            SELECT
+                date,
+                d2_deposit,
+                total_evaluation,
+                (d2_deposit + total_evaluation) as total_asset
+            FROM jango_data
+            ORDER BY date ASC
+            """
+            daily_data = self.engine_simulator.execute(sql_daily).fetchall()
+
+            if daily_data and len(daily_data) > 1:
+                # 날짜와 자산 데이터 분리
+                dates = [row[0] for row in daily_data]
+                total_assets = [float(row[3]) if row[3] else initial_capital for row in daily_data]
+
+                # MDD (Maximum Drawdown) 계산
+                peak = total_assets[0]
+                max_drawdown = 0
+                max_drawdown_pct = 0
+                drawdowns = []
+
+                for asset in total_assets:
+                    if asset > peak:
+                        peak = asset
+                    drawdown = (peak - asset) / peak * 100 if peak > 0 else 0
+                    drawdowns.append(drawdown)
+                    if drawdown > max_drawdown_pct:
+                        max_drawdown_pct = drawdown
+                        max_drawdown = peak - asset
+
+                # Sharpe Ratio 계산
+                daily_returns = []
+                for i in range(1, len(total_assets)):
+                    if total_assets[i-1] > 0:
+                        daily_return = (total_assets[i] / total_assets[i-1] - 1) * 100
+                        daily_returns.append(daily_return)
+
+                if len(daily_returns) > 0:
+                    avg_daily_return = np.mean(daily_returns)
+                    std_daily_return = np.std(daily_returns, ddof=1) if len(daily_returns) > 1 else 0
+
+                    # Sharpe Ratio (무위험 수익률 = 0 가정)
+                    sharpe_ratio = avg_daily_return / std_daily_return if std_daily_return > 0 else 0
+
+                    # 연환산 Sharpe Ratio (거래일 기준 252일)
+                    annual_sharpe = sharpe_ratio * np.sqrt(252)
+
+                    print(f"  MDD (최대 낙폭):      {max_drawdown_pct:>14.2f}%")
+                    print(f"  MDD 금액:             {max_drawdown:>15,}원")
+                    print(f"  Sharpe Ratio (일):    {sharpe_ratio:>14.2f}")
+                    print(f"  Sharpe Ratio (연):    {annual_sharpe:>14.2f}")
+                    print(f"  일평균 수익률:        {avg_daily_return:>14.4f}%")
+                    print(f"  일수익률 표준편차:    {std_daily_return:>14.4f}%")
+
+                    # Sharpe Ratio 평가
+                    print(f"\n  📊 Sharpe Ratio 평가:")
+                    if annual_sharpe > 2.0:
+                        print(f"     ✅ 우수 ({annual_sharpe:.2f}) - 위험 대비 수익이 매우 좋습니다!")
+                    elif annual_sharpe > 1.0:
+                        print(f"     ✔️  양호 ({annual_sharpe:.2f}) - 위험 대비 수익이 준수합니다.")
+                    elif annual_sharpe > 0.5:
+                        print(f"     ⚠️  보통 ({annual_sharpe:.2f}) - 개선 여지가 있습니다.")
+                    else:
+                        print(f"     ❌ 낮음 ({annual_sharpe:.2f}) - 리스크가 너무 높습니다.")
+
+                    # MDD 평가
+                    print(f"\n  📊 MDD 평가:")
+                    if max_drawdown_pct < 10:
+                        print(f"     ✅ 우수 ({max_drawdown_pct:.2f}%) - 낙폭이 매우 작습니다!")
+                    elif max_drawdown_pct < 20:
+                        print(f"     ✔️  양호 ({max_drawdown_pct:.2f}%) - 낙폭이 관리 가능한 수준입니다.")
+                    elif max_drawdown_pct < 30:
+                        print(f"     ⚠️  보통 ({max_drawdown_pct:.2f}%) - 손절 전략을 개선하세요.")
+                    else:
+                        print(f"     ❌ 높음 ({max_drawdown_pct:.2f}%) - 리스크 관리가 필요합니다!")
+
+                    # 누적 수익률 그래프 생성
+                    try:
+                        # log/report 폴더 생성
+                        report_dir = os.path.join(os.getcwd(), 'log', 'reports')
+                        os.makedirs(report_dir, exist_ok=True)
+
+                        # 수익률 계산
+                        cumulative_returns = [(asset / initial_capital - 1) * 100 for asset in total_assets]
+
+                        # 그래프 생성
+                        plt.figure(figsize=(14, 7))
+
+                        # 한글 폰트 설정 (Windows 기본 폰트 사용)
+                        plt.rcParams['font.family'] = 'Malgun Gothic'
+                        plt.rcParams['axes.unicode_minus'] = False
+
+                        # 누적 수익률 그래프
+                        plt.subplot(2, 1, 1)
+                        plt.plot(range(len(cumulative_returns)), cumulative_returns,
+                                linewidth=2, color='#2E86AB', label='누적 수익률')
+                        plt.axhline(y=0, color='gray', linestyle='--', linewidth=1, alpha=0.5)
+                        plt.title(f'백테스트 누적 수익률 (알고리즘 {self.simul_num})', fontsize=14, fontweight='bold')
+                        plt.xlabel('거래일', fontsize=11)
+                        plt.ylabel('수익률 (%)', fontsize=11)
+                        plt.grid(True, alpha=0.3, linestyle=':')
+                        plt.legend(loc='best')
+
+                        # 최종 수익률 텍스트 표시
+                        final_return = cumulative_returns[-1]
+                        color = 'red' if final_return < 0 else 'blue'
+                        plt.text(len(cumulative_returns) * 0.02, max(cumulative_returns) * 0.9,
+                                f'최종 수익률: {final_return:.2f}%\nMDD: {max_drawdown_pct:.2f}%\nSharpe: {annual_sharpe:.2f}',
+                                fontsize=10, bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
+                        # Drawdown 그래프
+                        plt.subplot(2, 1, 2)
+                        plt.fill_between(range(len(drawdowns)), drawdowns, 0,
+                                        color='#A23B72', alpha=0.6, label='Drawdown')
+                        plt.title('Drawdown', fontsize=14, fontweight='bold')
+                        plt.xlabel('거래일', fontsize=11)
+                        plt.ylabel('Drawdown (%)', fontsize=11)
+                        plt.grid(True, alpha=0.3, linestyle=':')
+                        plt.legend(loc='best')
+                        plt.gca().invert_yaxis()  # Drawdown은 음수이므로 반전
+
+                        # 레이아웃 조정
+                        plt.tight_layout()
+
+                        # 파일명 생성 (타임스탬프 포함)
+                        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                        filename = f'backtest_result_algo{self.simul_num}_{timestamp}.png'
+                        filepath = os.path.join(report_dir, filename)
+
+                        # 그래프 저장
+                        plt.savefig(filepath, dpi=150, bbox_inches='tight')
+                        plt.close()
+
+                        print(f"\n📊 그래프 저장 완료:")
+                        print(f"  파일 위치: {filepath}")
+
+                    except Exception as e:
+                        print(f"\n⚠️  그래프 생성 실패: {e}")
+                        import traceback
+                        traceback.print_exc()
+
+                else:
+                    print("  ⚠️  일별 데이터가 부족하여 지표를 계산할 수 없습니다.")
+            else:
+                print("  ⚠️  일별 데이터가 부족하여 지표를 계산할 수 없습니다.")
+
             print("=" * 70)
 
         except Exception as e:
             print(f"❌ 결과 요약 생성 오류: {e}")
             import traceback
             traceback.print_exc()
+
+    def generate_detailed_analysis_report(self):
+        """
+        백테스팅 상세 분석 레포트 생성
+
+        Returns:
+            tuple: (report_path, csv_path) 저장된 파일 경로
+        """
+        try:
+            print("\n" + "=" * 80)
+            print("📊 상세 분석 레포트 생성 중...")
+            print("=" * 80)
+
+            # log/report 폴더 생성
+            report_dir = os.path.join(os.getcwd(), 'log', 'report')
+            os.makedirs(report_dir, exist_ok=True)
+
+            # 타임스탬프
+            timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+
+            # 1. 전체 거래 내역 조회
+            sql_all_trades = """
+            SELECT
+                code,
+                code_name,
+                buy_date,
+                sell_date,
+                purchase_price,
+                sell_price,
+                sell_rate,
+                holding_amount,
+                DATEDIFF(
+                    STR_TO_DATE(sell_date, '%Y%m%d'),
+                    STR_TO_DATE(buy_date, '%Y%m%d')
+                ) as holding_days
+            FROM all_item_db
+            WHERE sell_date != 0 AND sell_date != ''
+            ORDER BY sell_rate DESC
+            """
+
+            trades = self.engine_simulator.execute(sql_all_trades).fetchall()
+
+            if not trades or len(trades) == 0:
+                print("⚠️  분석할 거래 데이터가 없습니다.")
+                return None, None
+
+            # 2. Best/Worst 거래 분석
+            best_trades, worst_trades = self.analyze_best_worst_trades(trades)
+
+            # 3. 손실 패턴 분석
+            loss_patterns = self.analyze_loss_patterns(trades)
+
+            # 4. 개선 제안 생성
+            suggestions = self.generate_improvement_suggestions(trades, loss_patterns)
+
+            # 5. 마크다운 레포트 생성
+            report_content = self.create_markdown_report(
+                trades, best_trades, worst_trades, loss_patterns, suggestions
+            )
+
+            # 6. 파일 저장
+            report_filename = f'backtest_analysis_algo{self.simul_num}_{timestamp}.md'
+            report_path = os.path.join(report_dir, report_filename)
+
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write(report_content)
+
+            # 7. CSV 저장 (전체 거래 내역)
+            csv_filename = f'backtest_trades_algo{self.simul_num}_{timestamp}.csv'
+            csv_path = os.path.join(report_dir, csv_filename)
+
+            import pandas as pd
+            df_trades = pd.DataFrame(trades, columns=[
+                'code', 'code_name', 'buy_date', 'sell_date',
+                'purchase_price', 'sell_price', 'sell_rate',
+                'holding_amount', 'holding_days'
+            ])
+            df_trades.to_csv(csv_path, index=False, encoding='utf-8-sig')
+
+            print(f"\n✅ 레포트 생성 완료!")
+            print(f"  📄 분석 레포트: {report_path}")
+            print(f"  📊 거래 내역 CSV: {csv_path}")
+            print("=" * 80)
+
+            return report_path, csv_path
+
+        except Exception as e:
+            print(f"❌ 레포트 생성 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            return None, None
+
+    def analyze_best_worst_trades(self, trades):
+        """Best 10 / Worst 10 거래 분석"""
+        # 수익률 기준 정렬 (이미 DESC로 정렬됨)
+        best_trades = trades[:10] if len(trades) >= 10 else trades
+        worst_trades = trades[-10:][::-1] if len(trades) >= 10 else []
+
+        return best_trades, worst_trades
+
+    def analyze_loss_patterns(self, trades):
+        """손실 패턴 분석"""
+        patterns = {
+            'total_trades': len(trades),
+            'loss_trades': 0,
+            'avg_loss_holding_days': 0,
+            'loss_by_holding_period': {},
+            'loss_count_by_period': {}
+        }
+
+        loss_trades = [t for t in trades if t[6] < 0]  # sell_rate < 0
+        patterns['loss_trades'] = len(loss_trades)
+
+        if len(loss_trades) > 0:
+            # 평균 손실 보유일
+            holding_days_list = [t[8] for t in loss_trades if t[8] is not None]
+            if holding_days_list:
+                patterns['avg_loss_holding_days'] = sum(holding_days_list) / len(holding_days_list)
+
+            # 보유 기간별 손실 분석
+            for trade in loss_trades:
+                holding_days = trade[8] if trade[8] is not None else 0
+
+                # 기간 구분
+                if holding_days <= 3:
+                    period = '1-3일'
+                elif holding_days <= 7:
+                    period = '4-7일'
+                elif holding_days <= 15:
+                    period = '8-15일'
+                else:
+                    period = '16일 이상'
+
+                if period not in patterns['loss_by_holding_period']:
+                    patterns['loss_by_holding_period'][period] = []
+                    patterns['loss_count_by_period'][period] = 0
+
+                patterns['loss_by_holding_period'][period].append(trade[6])
+                patterns['loss_count_by_period'][period] += 1
+
+        return patterns
+
+    def generate_improvement_suggestions(self, trades, loss_patterns):
+        """개선 제안 생성"""
+        suggestions = []
+
+        # 1. 손실 비율 체크
+        if loss_patterns['total_trades'] > 0:
+            loss_rate = (loss_patterns['loss_trades'] / loss_patterns['total_trades']) * 100
+
+            if loss_rate > 50:
+                suggestions.append({
+                    'category': '진입 조건',
+                    'issue': f'손실 거래 비율이 {loss_rate:.1f}%로 높음',
+                    'suggestion': '매수 최소 점수를 95점으로 상향하거나, 추가 필터 조건 적용 권장'
+                })
+
+        # 2. 보유 기간별 손실 분석
+        if loss_patterns['loss_by_holding_period']:
+            for period, losses in loss_patterns['loss_by_holding_period'].items():
+                avg_loss = sum(losses) / len(losses)
+                count = loss_patterns['loss_count_by_period'][period]
+
+                if avg_loss < -5 and count >= 5:
+                    suggestions.append({
+                        'category': '보유 기간',
+                        'issue': f'{period} 보유 종목의 평균 손실률 {avg_loss:.2f}% ({count}건)',
+                        'suggestion': f'시간 기반 손절을 더 타이트하게 조정 권장'
+                    })
+
+        # 3. 평균 손실 보유일 분석
+        if loss_patterns['avg_loss_holding_days'] > 10:
+            suggestions.append({
+                'category': '시간 손절',
+                'issue': f'손실 거래의 평균 보유일이 {loss_patterns["avg_loss_holding_days"]:.1f}일로 김',
+                'suggestion': f'최대 보유 기간을 10일로 단축하거나 시간 경과 시 손절 강화 권장'
+            })
+
+        return suggestions
+
+    def create_markdown_report(self, trades, best_trades, worst_trades, loss_patterns, suggestions):
+        """마크다운 레포트 생성"""
+
+        # 기본 통계
+        total_trades = len(trades)
+        win_trades = len([t for t in trades if t[6] >= 0])
+        loss_trades = len([t for t in trades if t[6] < 0])
+        win_rate = (win_trades / total_trades * 100) if total_trades > 0 else 0
+
+        avg_profit = sum([t[6] for t in trades if t[6] >= 0]) / win_trades if win_trades > 0 else 0
+        avg_loss = sum([t[6] for t in trades if t[6] < 0]) / loss_trades if loss_trades > 0 else 0
+
+        report = f"""# 백테스팅 상세 분석 레포트
+
+**알고리즘 번호**: {self.simul_num}
+**생성 일시**: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+---
+
+## 📊 기본 통계
+
+- **총 거래 횟수**: {total_trades}회
+- **수익 거래**: {win_trades}회 ({win_rate:.1f}%)
+- **손실 거래**: {loss_trades}회 ({100-win_rate:.1f}%)
+- **평균 수익률**: {avg_profit:.2f}%
+- **평균 손실률**: {avg_loss:.2f}%
+- **손익비 (R)**: {abs(avg_profit / avg_loss) if avg_loss != 0 else 0:.2f}
+
+---
+
+## 🎯 최고 수익 거래 Top 10
+
+| 순위 | 종목명 | 매수일 | 매도일 | 수익률 | 보유일 |
+|------|--------|--------|--------|--------|--------|
+"""
+
+        for idx, trade in enumerate(best_trades, 1):
+            code_name = trade[1] if trade[1] else trade[0]
+            buy_date = trade[2]
+            sell_date = trade[3]
+            sell_rate = trade[6]
+            holding_days = trade[8] if trade[8] is not None else 0
+
+            report += f"| {idx} | {code_name} | {buy_date} | {sell_date} | **+{sell_rate:.2f}%** | {holding_days}일 |\n"
+
+        report += f"""
+---
+
+## 📉 최대 손실 거래 Top 10
+
+| 순위 | 종목명 | 매수일 | 매도일 | 손실률 | 보유일 |
+|------|--------|--------|--------|--------|--------|
+"""
+
+        for idx, trade in enumerate(worst_trades, 1):
+            code_name = trade[1] if trade[1] else trade[0]
+            buy_date = trade[2]
+            sell_date = trade[3]
+            sell_rate = trade[6]
+            holding_days = trade[8] if trade[8] is not None else 0
+
+            report += f"| {idx} | {code_name} | {buy_date} | {sell_date} | **{sell_rate:.2f}%** | {holding_days}일 |\n"
+
+        report += f"""
+---
+
+## 🔍 손실 패턴 분석
+
+### 보유 기간별 손실 분포
+
+"""
+
+        if loss_patterns['loss_by_holding_period']:
+            for period, losses in loss_patterns['loss_by_holding_period'].items():
+                avg_loss = sum(losses) / len(losses)
+                count = loss_patterns['loss_count_by_period'][period]
+                report += f"- **{period}**: {count}건, 평균 손실률 {avg_loss:.2f}%\n"
+        else:
+            report += "- 손실 거래가 없습니다.\n"
+
+        report += f"""
+### 손실 거래 특징
+
+- 평균 손실 보유일: {loss_patterns['avg_loss_holding_days']:.1f}일
+- 총 손실 거래: {loss_patterns['loss_trades']}건
+
+---
+
+## 💡 개선 제안
+
+"""
+
+        if suggestions:
+            for suggestion in suggestions:
+                report += f"""
+### {suggestion['category']}
+
+**문제점**: {suggestion['issue']}
+
+**제안사항**: {suggestion['suggestion']}
+
+"""
+        else:
+            report += "현재 전략이 양호합니다. 큰 개선이 필요하지 않습니다.\n"
+
+        report += """
+---
+
+## 📌 다음 단계
+
+1. 위 분석 결과를 바탕으로 전략 파라미터 조정
+2. 수정된 전략으로 재 백테스팅
+3. 실전 적용 전 소액으로 테스트
+
+---
+
+*이 레포트는 자동 생성되었습니다.*
+"""
+
+        return report
 
     # 분 데이터를 가져오는 함수
     def get_date_min_for_simul(self, simul_start_date):

@@ -359,7 +359,7 @@ class collector_api():
                 # 포트폴리오 가치 및 설정
                 portfolio_value = self.open_api.sf.start_invest_price if hasattr(self.open_api.sf, 'start_invest_price') else 10000000
                 top_n = 20  # 최대 20개 종목
-                min_hybrid_score = 70.0  # 하이브리드 전략 최소 70점
+                min_hybrid_score = 90.0  # 하이브리드 전략 최소 90점
 
                 # 🚀 하이브리드 전략: Momentum 60% + Mean Reversion 40%
                 print("  🚀 하이브리드 전략 스캔 (Momentum 60% + Mean Reversion 40%)...")
@@ -606,7 +606,7 @@ class collector_api():
                 bb_lower,
                 atr14,
 
-                -- 하이브리드 스코어 계산 (모멘텀 60% + 평균회귀 40%)
+                -- 하이브리드 스코어 (모멘텀 60% + 평균회귀 40%)
                 (
                     -- 모멘텀 브레이크아웃 스코어 (60점 만점)
                     (
@@ -663,12 +663,8 @@ class collector_api():
 
                 ) * (100.0 / 52.0) as score,  -- 100점 스케일로 정규화 (이론상 최대 52점 → 100점)
 
-                -- 전략 타입 분류
-                CASE
-                    WHEN rsi14 <= 30 AND bb_lower > 0 AND close <= bb_lower * 1.02 THEN 'mean_reversion'
-                    WHEN volume > vol20 * 1.5 AND clo5 > clo20 THEN 'momentum_breakout'
-                    ELSE 'hybrid'
-                END as strategy_type
+                -- 전략 타입: 하이브리드 전략은 모멘텀+평균회귀 합산이므로 모두 'hybrid'
+                'hybrid' as strategy_type
 
             FROM `{latest_date}`
             WHERE 1=1

@@ -12,7 +12,8 @@
       "Bash(powershell -Command \"cd ''c:\\\\Users\\\\USER\\\\Desktop\\\\Personal project\\\\trading_bot''; C:\\\\Users\\\\USER\\\\anaconda3\\\\envs\\\\py37_32\\\\python.exe check_buy_list_simple.py\")",
       "Bash(powershell -Command:*)",
       "Bash(paste:*)",
-      "Bash(xargs -I {} mysql -u bot -pqwer1232 daily_buy_list -e \"SHOW COLUMNS FROM \\\\`{}\\\\` LIKE ''%score%''\")"
+      "Bash(xargs -I {} mysql -u bot -pqwer1232 daily_buy_list -e \"SHOW COLUMNS FROM \\\\`{}\\\\` LIKE ''%score%''\")",
+      "Bash(findstr:*)"
     ]
   }
 }

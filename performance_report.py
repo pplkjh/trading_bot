@@ -157,8 +157,8 @@ def generate_performance_report(db_name: str, period_days: int = None, output_pa
                 LEFT(sell_date, 8) as date,
                 COUNT(*) as trades,
                 SUM(CASE WHEN sell_rate > 0 THEN 1 ELSE 0 END) as wins,
-                AVG(sell_rate) as avg_return,
-                SUM(sell_rate) as daily_return
+                COALESCE(AVG(sell_rate), 0) as avg_return,
+                COALESCE(SUM(sell_rate), 0) as daily_return
             FROM all_item_db
             WHERE sell_date IS NOT NULL
               AND sell_date != ''
@@ -176,10 +176,17 @@ def generate_performance_report(db_name: str, period_days: int = None, output_pa
                 f.write("  " + "-" * 95 + "\n")
 
                 for _, row in df_daily.iterrows():
-                    win_rate = (row['wins'] / row['trades'] * 100) if row['trades'] > 0 else 0
-                    date_str = f"{row['date'][:4]}-{row['date'][4:6]}-{row['date'][6:8]}"
-                    f.write(f"  {date_str:<12} {int(row['trades']):<8} {win_rate:<10.1f}% "
-                           f"{row['avg_return']:<15.2f}% {row['daily_return']:<15.2f}%\n")
+                    # None 체크 및 기본값 처리
+                    date = row['date'] if row['date'] is not None else 'N/A'
+                    trades = int(row['trades']) if row['trades'] is not None else 0
+                    wins = row['wins'] if row['wins'] is not None else 0
+                    avg_return = row['avg_return'] if row['avg_return'] is not None else 0.0
+                    daily_return = row['daily_return'] if row['daily_return'] is not None else 0.0
+
+                    win_rate = (wins / trades * 100) if trades > 0 else 0
+                    date_str = f"{date[:4]}-{date[4:6]}-{date[6:8]}" if len(date) >= 8 else date
+                    f.write(f"  {date_str:<12} {trades:<8} {win_rate:<10.1f}% "
+                           f"{avg_return:<15.2f}% {daily_return:<15.2f}%\n")
                 f.write("\n")
 
             # 주별 성과
@@ -188,8 +195,8 @@ def generate_performance_report(db_name: str, period_days: int = None, output_pa
                 DATE_FORMAT(STR_TO_DATE(LEFT(sell_date, 8), '%Y%m%d'), '%Y-W%u') as week,
                 COUNT(*) as trades,
                 SUM(CASE WHEN sell_rate > 0 THEN 1 ELSE 0 END) as wins,
-                AVG(sell_rate) as avg_return,
-                SUM(sell_rate) as weekly_return
+                COALESCE(AVG(sell_rate), 0) as avg_return,
+                COALESCE(SUM(sell_rate), 0) as weekly_return
             FROM all_item_db
             WHERE sell_date IS NOT NULL
               AND sell_date != ''
@@ -207,9 +214,16 @@ def generate_performance_report(db_name: str, period_days: int = None, output_pa
                 f.write("  " + "-" * 95 + "\n")
 
                 for _, row in df_weekly.iterrows():
-                    win_rate = (row['wins'] / row['trades'] * 100) if row['trades'] > 0 else 0
-                    f.write(f"  {row['week']:<12} {int(row['trades']):<8} {win_rate:<10.1f}% "
-                           f"{row['avg_return']:<15.2f}% {row['weekly_return']:<15.2f}%\n")
+                    # None 체크 및 기본값 처리
+                    week = row['week'] if row['week'] is not None else 'N/A'
+                    trades = int(row['trades']) if row['trades'] is not None else 0
+                    wins = row['wins'] if row['wins'] is not None else 0
+                    avg_return = row['avg_return'] if row['avg_return'] is not None else 0.0
+                    weekly_return = row['weekly_return'] if row['weekly_return'] is not None else 0.0
+
+                    win_rate = (wins / trades * 100) if trades > 0 else 0
+                    f.write(f"  {week:<12} {trades:<8} {win_rate:<10.1f}% "
+                           f"{avg_return:<15.2f}% {weekly_return:<15.2f}%\n")
                 f.write("\n")
 
             # 월별 성과
@@ -218,8 +232,8 @@ def generate_performance_report(db_name: str, period_days: int = None, output_pa
                 LEFT(sell_date, 6) as month,
                 COUNT(*) as trades,
                 SUM(CASE WHEN sell_rate > 0 THEN 1 ELSE 0 END) as wins,
-                AVG(sell_rate) as avg_return,
-                SUM(sell_rate) as monthly_return
+                COALESCE(AVG(sell_rate), 0) as avg_return,
+                COALESCE(SUM(sell_rate), 0) as monthly_return
             FROM all_item_db
             WHERE sell_date IS NOT NULL
               AND sell_date != ''
@@ -237,10 +251,17 @@ def generate_performance_report(db_name: str, period_days: int = None, output_pa
                 f.write("  " + "-" * 95 + "\n")
 
                 for _, row in df_monthly.iterrows():
-                    win_rate = (row['wins'] / row['trades'] * 100) if row['trades'] > 0 else 0
-                    month_str = f"{row['month'][:4]}-{row['month'][4:6]}"
-                    f.write(f"  {month_str:<12} {int(row['trades']):<8} {win_rate:<10.1f}% "
-                           f"{row['avg_return']:<15.2f}% {row['monthly_return']:<15.2f}%\n")
+                    # None 체크 및 기본값 처리
+                    month = row['month'] if row['month'] is not None else 'N/A'
+                    trades = int(row['trades']) if row['trades'] is not None else 0
+                    wins = row['wins'] if row['wins'] is not None else 0
+                    avg_return = row['avg_return'] if row['avg_return'] is not None else 0.0
+                    monthly_return = row['monthly_return'] if row['monthly_return'] is not None else 0.0
+
+                    win_rate = (wins / trades * 100) if trades > 0 else 0
+                    month_str = f"{month[:4]}-{month[4:6]}" if len(month) >= 6 else month
+                    f.write(f"  {month_str:<12} {trades:<8} {win_rate:<10.1f}% "
+                           f"{avg_return:<15.2f}% {monthly_return:<15.2f}%\n")
                 f.write("\n")
 
             # ========== 3. 종목별 성과 ==========

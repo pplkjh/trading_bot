@@ -40,16 +40,23 @@ def get_portfolio_status(db_name: str):
         # 주의: puchase_price는 철자 오류지만 실제 DB 컬럼명
         query_positions = """
         SELECT
-            code,
-            date,
-            puchase_price,
-            holding_amount,
-            present_price,
-            valuation_profit,
-            rate
-        FROM possessed_item
-        WHERE holding_amount > 0
-        ORDER BY date DESC
+            p.code,
+            COALESCE(a.code_name, p.code) as code_name,
+            p.date,
+            p.puchase_price,
+            p.holding_amount,
+            p.present_price,
+            p.valuation_profit,
+            p.rate
+        FROM possessed_item p
+        LEFT JOIN (
+            SELECT code, code_name
+            FROM all_item_db
+            WHERE sell_date = '0'
+            GROUP BY code
+        ) a ON p.code = a.code
+        WHERE p.holding_amount > 0
+        ORDER BY p.date DESC
         """
 
         df_positions = pd.read_sql(query_positions, con)
@@ -66,7 +73,7 @@ def get_portfolio_status(db_name: str):
                 total_value += value
                 total_profit += row['valuation_profit']
 
-                print(f"\n[{idx+1}] {row['code']}")
+                print(f"\n[{idx+1}] {row['code']} - {row['code_name']}")
                 print(f"  매수일:     {row['date']}")
                 print(f"  매수가:     {row['puchase_price']:>10,}원")
                 print(f"  현재가:     {row['present_price']:>10,}원")
@@ -168,6 +175,7 @@ def get_portfolio_status(db_name: str):
                     # 고급 전략 정보 표시
                     if 'strategy_type' in cols and pd.notna(row.get('strategy_type')):
                         strategy_names = {
+                            'hybrid': '하이브리드 (모멘텀 60% + 평균회귀 40%)',
                             'momentum_breakout': '모멘텀 돌파',
                             'mean_reversion': '평균회귀',
                             'strong_uptrend': '강한 상승',

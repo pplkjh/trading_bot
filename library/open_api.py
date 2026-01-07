@@ -515,6 +515,27 @@ class open_api(QAxWidget):
             'd1_diff_rate': Float
         })
 
+        # ✅ realtime_position_monitor에도 추가 (highest_price 추적용)
+        try:
+            code_name = str(self.sf.df_all_item.loc[0, 'code_name'])
+            sql_insert_monitor = """
+            INSERT INTO realtime_position_monitor
+            (code, code_name, entry_price, entry_date, current_price, highest_price, last_update)
+            VALUES ('%s', '%s', %d, '%s', %d, %d, NOW())
+            ON DUPLICATE KEY UPDATE
+                current_price = %d,
+                highest_price = GREATEST(highest_price, %d),
+                last_update = NOW()
+            """
+            self.engine_JB.execute(sql_insert_monitor % (
+                code, code_name, purchase_price, self.today_detail,
+                purchase_price, purchase_price,
+                purchase_price, purchase_price
+            ))
+            logger.debug(f"✅ realtime_position_monitor 추가: {code_name}({code})")
+        except Exception as e:
+            logger.warning(f"⚠️  realtime_position_monitor 추가 실패: {e}")
+
     def check_balance(self):
 
         logger.debug("check_balance 함수에 들어왔습니다!")
@@ -966,6 +987,17 @@ class open_api(QAxWidget):
     # 잔액 체크 함수
     def jango_check(self):
         logger.debug("jango_check 함수에 들어왔습니다!")
+
+        # 1. 보유 종목 수 체크
+        current_positions = self.get_count_possesed_item()
+        max_positions = getattr(self.sf, 'max_positions', 10)  # 기본값 10개
+
+        if current_positions >= max_positions:
+            logger.debug(f"보유 종목 수 한도 도달! 현재: {current_positions}개, 최대: {max_positions}개")
+            self.jango_is_null = True
+            return False
+
+        # 2. 잔고(돈) 체크
         self.get_d2_deposit()
         # 아래에 1.5 곱해준 이유는 invest unit보다 d2가 조금 많으면 못사네 ; 그래서 넉넉히 잡은거임  매수증거금때문이다.
         # if (int(self.d2_deposit_before_format) > (int(self.sf.limit_money) + int(self.invest_unit)*1.5)) :
@@ -1106,10 +1138,10 @@ class open_api(QAxWidget):
 
     def get_advanced_buy_list(self, use_advanced_strategy=True):
         """
-        고급 전략으로 매수 리스트 생성
+        collector가 생성한 매수 리스트 로드
 
-        date_based_strategy (30%) + hybrid_strategy (70%) 조합
-        realtime_daily_buy_list 테이블이 이미 있으면 사용, 없으면 동적 생성
+        ⚠️ 중요: trader는 매수 후보를 자체 생성하지 않습니다.
+        collector_v3.py를 먼저 실행하여 realtime_daily_buy_list를 생성해야 합니다.
         """
         logger.debug("get_advanced_buy_list 함수 실행")
 
@@ -1120,151 +1152,21 @@ class open_api(QAxWidget):
             count = self.engine_JB.execute(sql).fetchone()[0]
 
             if count > 0:
-                logger.info(f"✅ 기존 realtime_daily_buy_list 사용 ({count}개 종목)")
-                # 📌 중요: 테이블 데이터를 메모리에 로드 (trader가 사용할 수 있도록)
+                logger.info(f"✅ collector가 생성한 매수 후보 로드 ({count}개 종목)")
+                # 테이블 데이터를 메모리에 로드 (trader가 사용할 수 있도록)
                 self.sf.get_realtime_daily_buy_list()
                 logger.debug(f"메모리 로드 완료: {self.sf.len_df_realtime_daily_buy_list}개 종목")
                 return
-
-        # 테이블이 없거나 비어있으면 동적 생성
-        logger.info("📊 고급 전략으로 매수 리스트 동적 생성 중...")
-
-        try:
-            from library.date_based_strategy import get_latest_date_table
-            from library.date_based_strategy import generate_buy_signals as date_based_signals
-            from library.hybrid_strategy import get_buy_candidates as hybrid_signals
-            from collections import defaultdict
-
-            # 최근 영업일 테이블 찾기
-            latest_date = get_latest_date_table('daily_buy_list')
-
-            if not latest_date:
-                logger.error("❌ daily_buy_list에 사용 가능한 테이블이 없습니다")
+            else:
+                logger.error("❌ realtime_daily_buy_list 테이블이 비어있습니다")
                 logger.error("💡 collector_v3.py를 먼저 실행하세요")
                 return
 
-            logger.info(f"📅 기준 날짜: {latest_date}")
-
-            # 포트폴리오 설정
-            portfolio_value = self.sf.start_invest_price if hasattr(self.sf, 'start_invest_price') else 10000000
-            top_n = 20
-            min_score = 70.0
-
-            # 1. 날짜 기반 전략 (30% 가중치)
-            logger.info("  📊 날짜 기반 전략 스캔...")
-            date_signals = date_based_signals(
-                portfolio_value=portfolio_value,
-                top_n=top_n * 2,
-                min_score=min_score,
-                risk_per_position=0.15
-            )
-
-            # 2. 하이브리드 전략 (70% 가중치)
-            logger.info("  🔄 하이브리드 전략 스캔...")
-            hybrid_candidates = hybrid_signals(
-                db_name='daily_buy_list',
-                min_score=min_score,
-                top_n=top_n * 2
-            )
-
-            # 3. 두 전략 결과 합치기
-            all_signals = []
-
-            if not date_signals.empty:
-                for _, row in date_signals.iterrows():
-                    all_signals.append({
-                        'code': row['code'],
-                        'score': row.get('composite_score', 0) * 0.3,
-                        'source': 'date_based',
-                        'data': row
-                    })
-
-            if not hybrid_candidates.empty:
-                for _, row in hybrid_candidates.iterrows():
-                    all_signals.append({
-                        'code': row['code'],
-                        'score': row.get('score', 0) * 0.7,
-                        'source': 'hybrid',
-                        'data': row
-                    })
-
-            # 4. 종목별 점수 합산
-            code_scores = defaultdict(lambda: {'total_score': 0, 'sources': [], 'data': None})
-
-            for signal in all_signals:
-                code = signal['code']
-                code_scores[code]['total_score'] += signal['score']
-                code_scores[code]['sources'].append(signal['source'])
-                if code_scores[code]['data'] is None:
-                    code_scores[code]['data'] = signal['data']
-
-            # 5. 점수 순 정렬
-            sorted_codes = sorted(
-                code_scores.items(),
-                key=lambda x: x[1]['total_score'],
-                reverse=True
-            )[:top_n]
-
-            logger.info(f"  📊 날짜 기반: {len(date_signals)}개, 하이브리드: {len(hybrid_candidates)}개")
-            logger.info(f"  🎯 최종 선정: {len(sorted_codes)}개 종목")
-
-            if len(sorted_codes) == 0:
-                logger.warning("⚠️  매수 조건을 만족하는 종목이 없습니다")
-                # 기존 테이블이 있으면 삭제
-                try:
-                    self.engine_JB.execute("DROP TABLE IF EXISTS realtime_daily_buy_list")
-                    logger.info("기존 realtime_daily_buy_list 테이블 삭제")
-                except:
-                    pass
-                return
-
-            # 6. 선정된 종목의 전체 데이터 가져오기
-            selected_codes = [code for code, _ in sorted_codes]
-            codes_str = "','".join(selected_codes)
-
-            con = pymysql.connect(
-                user=cf.db_id,
-                passwd=cf.db_passwd,
-                host=cf.db_ip,
-                db='daily_buy_list',
-                charset='utf8',
-                port=int(cf.db_port)
-            )
-
-            query = f"""
-            SELECT
-                code, code_name, date, check_item,
-                d1_diff_rate, close, open, high, low, volume,
-                clo5, clo10, clo20, clo40, clo60, clo80, clo100, clo120,
-                clo5_diff_rate, clo10_diff_rate, clo20_diff_rate, clo40_diff_rate,
-                clo60_diff_rate, clo80_diff_rate, clo100_diff_rate, clo120_diff_rate,
-                yes_clo5, yes_clo10, yes_clo20, yes_clo40, yes_clo60, yes_clo80, yes_clo100, yes_clo120,
-                vol5, vol10, vol20, vol40, vol60, vol80, vol100, vol120
-            FROM `{latest_date}`
-            WHERE code IN ('{codes_str}')
-            """
-
-            df_realtime_daily_buy_list = pd.read_sql(query, con)
-            con.close()
-
-            # check_item 초기화
-            df_realtime_daily_buy_list['check_item'] = 0
-
-            # 7. realtime_daily_buy_list 테이블 생성
-            df_realtime_daily_buy_list.to_sql(
-                'realtime_daily_buy_list',
-                self.engine_JB,
-                if_exists='replace',
-                index=False
-            )
-
-            logger.info(f"✅ realtime_daily_buy_list 테이블 생성 완료 ({len(df_realtime_daily_buy_list)}개 종목)")
-
-        except Exception as e:
-            logger.error(f"❌ 고급 매수 리스트 생성 실패: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
+        # 테이블이 없으면 에러
+        logger.error("❌ realtime_daily_buy_list 테이블이 없습니다")
+        logger.error("💡 collector_v3.py를 먼저 실행하세요")
+        logger.error("💡 trader는 매수 후보를 자체 생성하지 않습니다. collector의 분석 결과만 사용합니다.")
+        return
 
     def get_advanced_sell_list(self):
         """
@@ -1277,8 +1179,7 @@ class open_api(QAxWidget):
         try:
             from library.exit_strategy import get_exit_signals
 
-            # 현재 보유 종목 가져오기
-            self.check_balance()
+            # 현재 보유 종목은 메인 루프에서 이미 check_balance()로 업데이트됨
 
             if not hasattr(self, 'opw00018_output') or 'multi' not in self.opw00018_output:
                 logger.warning("⚠️  보유 종목 정보가 없습니다")
@@ -1292,8 +1193,11 @@ class open_api(QAxWidget):
 
             # holdings를 exit_strategy가 요구하는 형식으로 변환
             positions = []
+            skipped_codes = []
+
             for holding in holdings:
-                code = holding[6]  # 종목코드
+                code = holding[7]  # 종목코드 (index 7)
+                code_name = holding[0]  # 종목명 (index 0)
 
                 # all_item_db에서 매수 정보 가져오기
                 sql = """
@@ -1306,7 +1210,7 @@ class open_api(QAxWidget):
                 result = self.engine_JB.execute(sql % code).fetchone()
 
                 if not result:
-                    logger.warning(f"⚠️  {code} 매수 정보를 찾을 수 없습니다")
+                    skipped_codes.append(f"{code_name}({code})")
                     continue
 
                 buy_date_str = result[1]
@@ -1315,16 +1219,25 @@ class open_api(QAxWidget):
 
                 # 날짜 변환 (YYYYMMDD -> datetime)
                 try:
-                    entry_date = datetime.strptime(str(buy_date_str), '%Y%m%d')
+                    entry_date = datetime.datetime.strptime(str(buy_date_str), '%Y%m%d')
                 except:
-                    entry_date = datetime.now()
+                    entry_date = datetime.datetime.now()
 
                 # 현재가
-                current_price = float(holding[0])  # 현재가
+                current_price = float(holding[3])  # 현재가 (index 3)
 
-                # 최고가 (highest_price)는 별도 추적이 필요하지만, 일단 현재가로 설정
-                # 실제로는 all_item_db에 highest_price 컬럼을 추가해야 함
-                highest_price = max(current_price, entry_price)
+                # ✅ realtime_position_monitor에서 highest_price 조회
+                sql_highest = """
+                SELECT highest_price FROM realtime_position_monitor
+                WHERE code = '%s'
+                """
+                highest_result = self.engine_JB.execute(sql_highest % code).fetchone()
+                if highest_result:
+                    highest_price = highest_result[0]
+                else:
+                    # fallback: DB에 없으면 현재가와 매수가 중 높은 값
+                    highest_price = max(current_price, entry_price)
+                    logger.warning(f"⚠️  {code} realtime_position_monitor에 없음 - fallback 사용")
 
                 positions.append({
                     'code': code,
@@ -1335,8 +1248,15 @@ class open_api(QAxWidget):
                     'current_price': current_price
                 })
 
+            # all_item_db에 없는 종목 로그 출력
+            if skipped_codes:
+                logger.warning(f"⚠️  all_item_db에 매수 정보가 없는 {len(skipped_codes)}개 종목 건너뜀: {', '.join(skipped_codes)}")
+                logger.info("💡 수동 매수 종목이거나 DB 동기화 문제일 수 있습니다")
+
             if len(positions) == 0:
-                logger.warning("⚠️  변환된 포지션 정보가 없습니다")
+                logger.warning("⚠️  고급 청산 전략을 적용할 종목이 없습니다")
+                if skipped_codes:
+                    logger.info("💡 모든 보유 종목이 all_item_db에 없습니다. collector로 매수한 종목만 고급 청산이 적용됩니다")
                 return []
 
             logger.info(f"📊 {len(positions)}개 보유 종목에 대해 고급 청산 전략 분석 중...")
@@ -1351,7 +1271,7 @@ class open_api(QAxWidget):
 
             for signal in exit_list:
                 code = signal['code']
-                reason = signal['decision']['primary_reason']
+                reason = signal['decision']['reason']
                 priority = signal['decision']['priority']
                 logger.info(f"  - {code}: {reason} (우선순위: {priority})")
 
@@ -1359,6 +1279,74 @@ class open_api(QAxWidget):
 
         except Exception as e:
             logger.error(f"❌ 고급 매도 리스트 생성 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    def get_basic_sell_list(self):
+        """
+        실전 트레이딩 전용 기본 매도 로직
+
+        고급 청산 전략이 실패했을 때 사용하는 fallback 로직
+        - 단순 손익률 기준으로 매도 판단
+        - simulator 코드에 의존하지 않음
+        """
+        logger.debug("get_basic_sell_list 함수 실행")
+
+        try:
+            # all_item_db에서 보유 종목 조회
+            sql = """
+            SELECT code, code_name, rate, present_price, valuation_profit
+            FROM all_item_db
+            WHERE sell_date = '0'
+            GROUP BY code
+            """
+            holdings = self.engine_JB.execute(sql).fetchall()
+
+            if len(holdings) == 0:
+                logger.info("💼 보유 종목이 없습니다")
+                return []
+
+            logger.info(f"📊 {len(holdings)}개 보유 종목 기본 매도 로직 적용")
+
+            # ⚠️ 고정 손익률 사용 (고급 전략의 999/-999 값 무시)
+            # 모의투자: rate가 직접 % 값 (-10.53 형식)
+            # 실전: rate가 100 기준 값 (89.47 형식)
+            if self.mod_gubun == 1:  # 모의투자
+                sell_point = 7.0  # 익절 기준 7%
+                losscut_point = -4.0  # 손절 기준 -4%
+                logger.debug(f"모의투자 모드: 익절 {sell_point}%, 손절 {losscut_point}%")
+            else:  # 실전
+                sell_point = 107  # 익절 기준 7% (100 + 7)
+                losscut_point = 96  # 손절 기준 -4% (100 - 4)
+                logger.debug(f"실전 모드: 익절 {sell_point}, 손절 {losscut_point}")
+
+            sell_list = []
+
+            for holding in holdings:
+                code = holding[0]
+                code_name = holding[1]
+                rate = holding[2]  # 수익률 (100 기준)
+                present_price = holding[3]
+                valuation_profit = holding[4]
+
+                # 익절 또는 손절 조건 체크
+                if rate >= sell_point:
+                    # 로그 출력 시 형식 고려 (모의투자는 이미 % 값, 실전은 100 기준)
+                    display_rate = rate if self.mod_gubun == 1 else rate - 100
+                    logger.info(f"  📈 익절: {code_name}({code}) - 수익률 {display_rate:.2f}%")
+                    sell_list.append(holding)
+                elif rate <= losscut_point:
+                    display_rate = rate if self.mod_gubun == 1 else rate - 100
+                    logger.info(f"  📉 손절: {code_name}({code}) - 수익률 {display_rate:.2f}%")
+                    sell_list.append(holding)
+
+            logger.info(f"🎯 기본 매도 시그널: {len(sell_list)}개 종목")
+
+            return sell_list
+
+        except Exception as e:
+            logger.error(f"❌ 기본 매도 리스트 생성 실패: {e}")
             import traceback
             traceback.print_exc()
             return []
@@ -1524,6 +1512,13 @@ class open_api(QAxWidget):
 
             # 팔았으면 즉각 possess db에서 삭제한다. 왜냐하면 checgyul_check 들어가기 직전에 possess_db를 최신화 하긴 하지만 possess db 최신화와 chegyul_check 사이에 매도가 이뤄져서 receive로 가게 되면 sell_date를 찍어버리기 때문에 checgyul_check 입장에서는 possess에는 존재하고 all_db는 sell_date찍혀있다고 판단해서 새롭게 all_db추가해버린다.
             self.engine_JB.execute(f"DELETE FROM possessed_item WHERE code = '{code}'")
+
+            # ✅ realtime_position_monitor에서도 삭제 (매도 완료)
+            try:
+                self.engine_JB.execute(f"DELETE FROM realtime_position_monitor WHERE code = '{code}'")
+                logger.debug(f"✅ realtime_position_monitor 삭제: {code}")
+            except Exception as e:
+                logger.warning(f"⚠️  realtime_position_monitor 삭제 실패: {e}")
 
             logger.debug(f"delete {code}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         else:
@@ -1935,6 +1930,9 @@ class open_api(QAxWidget):
                  eval_profit_loss_price, earning_rate, item_total_purchase, code]
             )
 
+        # ✅ realtime_position_monitor 업데이트 (10초마다)
+        self.update_realtime_position_monitor()
+
     # 이번에는 opw00018 TR을 통해 얻어온 데이터를 인스턴스 변수에 저장해 보겠습니다.
     # 먼저 open_api 클래스에 다음 메서드를 추가합니다.
     # 싱글 데이터는 1차원 리스트로 데이터를 저장하며, 멀티 데이터는 2차원 리스트로 데이터를 저장합니다.
@@ -1943,6 +1941,52 @@ class open_api(QAxWidget):
             self.opw00018_output = {'single': [], 'multi': []}
         except Exception as e:
             logger.critical(e)
+
+    def update_realtime_position_monitor(self):
+        """
+        realtime_position_monitor 테이블 업데이트 (10초마다)
+
+        보유 종목의 highest_price를 추적하여 트레일링 스톱에 사용
+        """
+        try:
+            from datetime import datetime, timedelta
+
+            # 마지막 업데이트 시간 체크 (10초마다만 실행)
+            now = datetime.now()
+            if not hasattr(self, '_last_monitor_update'):
+                self._last_monitor_update = now - timedelta(seconds=11)  # 첫 실행은 즉시
+
+            time_diff = (now - self._last_monitor_update).total_seconds()
+            if time_diff < 10:
+                return  # 10초 안 지났으면 스킵
+
+            # 보유 종목이 없으면 스킵
+            if not hasattr(self, 'opw00018_output') or 'multi' not in self.opw00018_output:
+                return
+
+            holdings = self.opw00018_output['multi']
+            if len(holdings) == 0:
+                return
+
+            # 각 보유 종목의 highest_price 업데이트
+            for holding in holdings:
+                code = holding[7]  # 종목코드
+                current_price = holding[3]  # 현재가
+
+                sql_update = """
+                UPDATE realtime_position_monitor
+                SET current_price = %d,
+                    highest_price = GREATEST(highest_price, %d),
+                    last_update = NOW()
+                WHERE code = '%s'
+                """
+                self.engine_JB.execute(sql_update % (current_price, current_price, code))
+
+            self._last_monitor_update = now
+            logger.debug(f"✅ realtime_position_monitor 업데이트 완료 ({len(holdings)}개 종목)")
+
+        except Exception as e:
+            logger.warning(f"⚠️  realtime_position_monitor 업데이트 실패: {e}")
 
     #   일자별 종목별 실현손익
     def reset_opt10073_output(self):

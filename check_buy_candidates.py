@@ -94,10 +94,17 @@ FROM realtime_daily_buy_list
 """
 
 stats = engine.execute(sql_stats).fetchone()
-print(f"\n최저 점수: {stats[0]:.2f}")
-print(f"최고 점수: {stats[1]:.2f}")
-print(f"평균 점수: {stats[2]:.2f}")
-print(f"전체 종목: {stats[3]}개")
+
+# 데이터가 없을 때 처리
+if stats and stats[3] and stats[3] > 0:
+    print(f"\n최저 점수: {stats[0]:.2f}")
+    print(f"최고 점수: {stats[1]:.2f}")
+    print(f"평균 점수: {stats[2]:.2f}")
+    print(f"전체 종목: {stats[3]}개")
+else:
+    print("\n매수 후보가 없습니다.")
+    print("💡 collector_v3.py를 실행하여 매수 후보를 생성하거나,")
+    print("   오늘 시장에서 90점 이상의 종목이 없을 수 있습니다.")
 
 print("\n" + "=" * 100)
 

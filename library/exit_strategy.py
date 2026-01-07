@@ -31,7 +31,7 @@ class ExitStrategy:
         atr_stop_multiplier: float = 2.0,
         trailing_stop_activation: float = 0.05,
         trailing_stop_distance: float = 0.03,
-        max_holding_days: int = 10,
+        max_holding_days: int = 15,
         time_stop_loss_pct: float = -0.02,
         factor_score_threshold: float = 40.0,
         fixed_stop_loss_pct: float = -0.05
@@ -46,7 +46,7 @@ class ExitStrategy:
         trailing_stop_distance : float
             트레일링 스톱 거리 (default: 3%)
         max_holding_days : int
-            최대 보유 기간 (default: 10일)
+            최대 보유 기간 (default: 15일)
         time_stop_loss_pct : float
             시간 경과 후 손절 기준 (default: -2%)
         factor_score_threshold : float
@@ -695,7 +695,7 @@ if __name__ == "__main__":
     exit_strategy = ExitStrategy(
         atr_stop_multiplier=2.0,
         trailing_stop_activation=0.05,
-        max_holding_days=10
+        max_holding_days=15
     )
 
     decision = exit_strategy.get_exit_decision(test_position, df_test, current_score=65)

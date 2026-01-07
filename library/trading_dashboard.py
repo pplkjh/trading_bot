@@ -132,8 +132,13 @@ class TradingDashboard:
         print(f"  고급 매수 전략: {'사용' if config.get('use_advanced_buy') else '미사용'}")
         print(f"  고급 매도 전략: {'사용' if config.get('use_advanced_sell') else '미사용'}")
         print(f"  리스크 프로필: {config.get('risk_profile', 'N/A')}")
-        print(f"  최소 팩터 스코어: {config.get('min_factor_score', 'N/A')}")
-        print(f"  최대 보유 종목: {config.get('max_positions', 'N/A')}개")
+        print(f"  매수 최소 종합 스코어: {config.get('min_factor_score', 'N/A')}점")
+        print(f"  일일 최대 매수 종목: {config.get('max_positions', 'N/A')}개 (예수금으로 살 수 있는 만큼 보유)")
+
+        # realtime_position_monitor 상태 표시
+        if config.get('use_advanced_sell'):
+            print(f"  ⭐ highest_price 추적: 활성화 (10초마다 업데이트)")
+            print(f"  ⭐ 트레일링 스톱: 수익 5% 이상 시 자동 활성화")
         print()
 
     def _render_account_info(self):
@@ -157,6 +162,10 @@ class TradingDashboard:
         print(f"  포트폴리오 가치: {portfolio.get('total_value', 0):,}원")
         print(f"  현금 비율: {portfolio.get('cash_ratio', 0):.1f}%")
         print(f"  오늘 수익: {portfolio.get('daily_profit', 0):,}원 ({portfolio.get('daily_profit_rate', 0):.2f}%)")
+
+        # 트레일링 스톱 활성화 종목 수
+        if portfolio.get('trailing_active_count') is not None:
+            print(f"  🟢 트레일링 스톱 활성화: {portfolio.get('trailing_active_count', 0)}개 종목 (수익 5% 이상)")
         print()
 
     def _render_positions(self):
@@ -165,14 +174,37 @@ class TradingDashboard:
         print(f"[POSITION] 보유 종목 ({len(positions)}개)")
         print("-" * 100)
         if positions:
-            print(f"  {'종목코드':<10} {'종목명':<15} {'보유수량':>10} {'매입가':>12} {'현재가':>12} {'수익률':>10} {'평가손익':>12}")
-            print("  " + "-" * 95)
-            for pos in positions[:10]:  # 최대 10개만 표시
-                profit_color = "[+]" if pos.get('profit_rate', 0) > 0 else "[-]" if pos.get('profit_rate', 0) < 0 else "[=]"
-                print(f"  {pos.get('code', ''):<10} {pos.get('name', ''):<15} "
-                      f"{pos.get('quantity', 0):>10} {pos.get('buy_price', 0):>12,}원 "
-                      f"{pos.get('current_price', 0):>12,}원 "
-                      f"{profit_color} {pos.get('profit_rate', 0):>7.2f}% {pos.get('profit', 0):>12,}원")
+            # highest_price 정보가 있는지 확인
+            has_highest_price = any(pos.get('highest_price') for pos in positions)
+
+            if has_highest_price:
+                # 고급 정보 포함 헤더
+                print(f"  {'종목코드':<8} {'종목명':<12} {'보유수량':>8} {'매입가':>10} {'현재가':>10} {'최고가':>10} {'수익률':>8} {'트레일링':>8}")
+                print("  " + "-" * 95)
+                for pos in positions[:10]:  # 최대 10개만 표시
+                    profit_rate = pos.get('profit_rate', 0)
+                    profit_color = "[+]" if profit_rate > 0 else "[-]" if profit_rate < 0 else "[=]"
+
+                    # 트레일링 스톱 활성화 체크 (수익률 5% 이상)
+                    trailing_status = "🟢 ON" if profit_rate >= 5.0 else "⚪ OFF"
+
+                    highest_price = pos.get('highest_price', pos.get('current_price', 0))
+
+                    print(f"  {pos.get('code', ''):<8} {pos.get('name', ''):<12} "
+                          f"{pos.get('quantity', 0):>8} {pos.get('buy_price', 0):>10,}원 "
+                          f"{pos.get('current_price', 0):>10,}원 {highest_price:>10,}원 "
+                          f"{profit_color} {profit_rate:>6.2f}% {trailing_status:>8}")
+            else:
+                # 기본 헤더
+                print(f"  {'종목코드':<10} {'종목명':<15} {'보유수량':>10} {'매입가':>12} {'현재가':>12} {'수익률':>10} {'평가손익':>12}")
+                print("  " + "-" * 95)
+                for pos in positions[:10]:  # 최대 10개만 표시
+                    profit_color = "[+]" if pos.get('profit_rate', 0) > 0 else "[-]" if pos.get('profit_rate', 0) < 0 else "[=]"
+                    print(f"  {pos.get('code', ''):<10} {pos.get('name', ''):<15} "
+                          f"{pos.get('quantity', 0):>10} {pos.get('buy_price', 0):>12,}원 "
+                          f"{pos.get('current_price', 0):>12,}원 "
+                          f"{profit_color} {pos.get('profit_rate', 0):>7.2f}% {pos.get('profit', 0):>12,}원")
+
             if len(positions) > 10:
                 print(f"  ... 외 {len(positions) - 10}개 종목")
         else:

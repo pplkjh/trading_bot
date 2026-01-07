@@ -145,7 +145,7 @@ class TraderAdvanced(QMainWindow):
         # ==================================================
 
         # 멀티팩터 최소 스코어 (0-100)
-        self.min_factor_score = 70.0
+        self.min_factor_score = 90.0
 
         # 최대 동시 보유 종목 수
         self.max_positions = 10
@@ -191,6 +191,9 @@ class TraderAdvanced(QMainWindow):
         고급 전략 엔진 초기화
         """
         try:
+            # ✅ realtime_position_monitor 테이블 초기화
+            self.reset_realtime_position_monitor()
+
             if self.use_advanced_buy or self.use_advanced_sell:
                 logger.info("🔧 고급 전략 사용 설정 확인...")
 
@@ -213,6 +216,54 @@ class TraderAdvanced(QMainWindow):
             self.advanced_engine_ready = False
             self.use_advanced_buy = False
             self.use_advanced_sell = False
+
+    def reset_realtime_position_monitor(self):
+        """
+        realtime_position_monitor 테이블 초기화 및 동기화
+
+        trader 시작 시 테이블을 초기화하고,
+        all_item_db의 보유 종목과 동기화합니다.
+        """
+        try:
+            logger.info("🔄 realtime_position_monitor 테이블 초기화 중...")
+
+            # 1. 테이블 초기화
+            self.open_api.engine_JB.execute("TRUNCATE TABLE realtime_position_monitor")
+
+            # 2. all_item_db에서 현재 보유 종목 조회
+            sql = """
+            SELECT code, code_name, purchase_price, buy_date
+            FROM all_item_db
+            WHERE sell_date = '0'
+            GROUP BY code
+            """
+            holdings = self.open_api.engine_JB.execute(sql).fetchall()
+
+            # 3. 보유 종목이 있으면 realtime_position_monitor에 추가
+            if holdings:
+                for holding in holdings:
+                    code = holding[0]
+                    code_name = holding[1]
+                    purchase_price = holding[2]
+                    buy_date = holding[3]
+
+                    # 초기 highest_price는 매수가로 설정
+                    sql_insert = """
+                    INSERT INTO realtime_position_monitor
+                    (code, code_name, entry_price, entry_date, current_price, highest_price, last_update)
+                    VALUES ('%s', '%s', %d, '%s', %d, %d, NOW())
+                    """
+                    self.open_api.engine_JB.execute(sql_insert % (
+                        code, code_name, purchase_price, buy_date,
+                        purchase_price, purchase_price
+                    ))
+
+                logger.info(f"✅ realtime_position_monitor 동기화 완료 ({len(holdings)}개 종목)")
+            else:
+                logger.info("ℹ️  보유 종목 없음 - 테이블 초기화만 완료")
+
+        except Exception as e:
+            logger.warning(f"⚠️  realtime_position_monitor 초기화 실패: {e}")
 
     def auto_trade_stock(self):
         """
@@ -337,38 +388,30 @@ class TraderAdvanced(QMainWindow):
 
                 logger.info(f"고급 청산: {len(self.sell_list)}개 매도 시그널")
 
-                # 고급 청산이 실패하거나 데이터가 없으면 기본 방식 사용
+                # 고급 청산 조건 미충족 시 기본 방식으로 fallback
                 if sell_signals is None or len(sell_signals) == 0:
-                    # 보유 종목이 있는데 시그널이 없으면 데이터 문제일 수 있음
-                    self.open_api.check_balance()
+                    # opw00018_output은 메인 루프에서 이미 업데이트됨
                     has_positions = len(self.open_api.opw00018_output['multi']) > 0
 
                     if has_positions:
-                        logger.warning("⚠️  고급 청산 시그널 없음 - 기본 방식으로 전환")
-                        logger.info("💡 일봉 데이터가 없을 수 있습니다. collector_v3.py 실행을 확인하세요")
-                        self.open_api.sf.get_date_for_simul()
-                        self.sell_list = self.open_api.sf.get_sell_list(
-                            len(self.open_api.sf.date_rows)
-                        )
+                        logger.debug("고급 청산 조건 미충족, 기본 청산 전략 적용")
+                        # 실전 전용 기본 매도 로직 사용 (simulator 코드 사용 안함)
+                        self.sell_list = self.open_api.get_basic_sell_list()
                         logger.info(f"기본 청산: {len(self.sell_list)}개 매도 시그널")
 
             else:
-                # 기존 방식
+                # 기존 방식 (고급 전략 사용 안함)
                 logger.info("📉 기본 방식으로 매도 리스트 생성")
-                self.open_api.sf.get_date_for_simul()
-                self.sell_list = self.open_api.sf.get_sell_list(
-                    len(self.open_api.sf.date_rows)
-                )
+                # 실전 전용 기본 매도 로직 사용 (simulator 코드 사용 안함)
+                self.sell_list = self.open_api.get_basic_sell_list()
 
             logger.debug(f"매도 리스트: {self.sell_list}")
 
         except Exception as e:
             logger.error(f"❌ 매도 리스트 생성 오류: {e}")
             logger.warning("기본 방식으로 재시도합니다")
-            self.open_api.sf.get_date_for_simul()
-            self.sell_list = self.open_api.sf.get_sell_list(
-                len(self.open_api.sf.date_rows)
-            )
+            # 실전 전용 기본 매도 로직 사용 (simulator 코드 사용 안함)
+            self.sell_list = self.open_api.get_basic_sell_list()
 
     def auto_trade_sell_stock(self):
         """
@@ -377,8 +420,7 @@ class TraderAdvanced(QMainWindow):
         logger.debug("auto_trade_sell_stock 함수 실행")
 
         try:
-            # 계좌 정보 업데이트
-            self.open_api.check_balance()
+            # 계좌 정보는 메인 루프에서 이미 업데이트됨 (check_balance() 제거)
 
             # possessed_item 테이블 동기화
             self.open_api.db_to_possesed_item()
@@ -390,13 +432,19 @@ class TraderAdvanced(QMainWindow):
             self.get_sell_list_trade()
 
             # 매도 실행
+            # sell_list 구조: [code, code_name, rate, present_price, valuation_profit]
             for i in range(len(self.sell_list)):
                 try:
                     # 종목 코드
                     sell_code = self.sell_list[i][0]
 
-                    # 수익률
-                    sell_rate = float(self.sell_list[i][1])
+                    # 종목명
+                    stock_name = self.sell_list[i][1]
+
+                    # 수익률 (모의투자는 직접 %, 실전은 100 기준)
+                    sell_rate = float(self.sell_list[i][2])
+                    if self.open_api.mod_gubun != 1:
+                        sell_rate = sell_rate - 100
 
                     # 매도 수량
                     sell_num = self.open_api.get_holding_amount(sell_code)
@@ -405,19 +453,12 @@ class TraderAdvanced(QMainWindow):
                         continue
 
                     if sell_code and sell_code != "0":
-                        # 종목명 찾기
-                        stock_name = ""
-                        for item in self.open_api.opw00018_output['multi']:
-                            if item[6] == sell_code:
-                                stock_name = item[0]
-                                break
-
                         # 매도 사유 결정
                         if sell_rate < 0:
-                            logger.info(f"💔 손절 매도: {sell_code} ({sell_rate:.2f}%) - {sell_num}주")
+                            logger.info(f"💔 손절 매도: {stock_name}({sell_code}) {sell_rate:.2f}% - {sell_num}주")
                             trade_type = "손절매도"
                         else:
-                            logger.info(f"💰 익절 매도: {sell_code} ({sell_rate:.2f}%) - {sell_num}주")
+                            logger.info(f"💰 익절 매도: {stock_name}({sell_code}) {sell_rate:.2f}% - {sell_num}주")
                             trade_type = "익절매도"
 
                         # 거래 내역 기록
@@ -426,7 +467,7 @@ class TraderAdvanced(QMainWindow):
                             'type': '매도',
                             'code': sell_code,
                             'name': stock_name,
-                            'price': int(self.sell_list[i][2]) if len(self.sell_list[i]) > 2 else 0,
+                            'price': int(self.sell_list[i][3]),  # present_price
                             'quantity': sell_num,
                             'strategy': trade_type,
                             'profit_rate': sell_rate
@@ -502,30 +543,63 @@ class TraderAdvanced(QMainWindow):
                 'max_positions': self.max_positions
             }
 
-            # 계좌 정보
+            # 계좌 정보 (opw00018에서 가져온 값 사용)
+            total_evaluation = int(self.open_api.change_total_eval_price) if hasattr(self.open_api, 'change_total_eval_price') else 0
+            estimated_deposit = int(self.open_api.change_estimated_deposit) if hasattr(self.open_api, 'change_estimated_deposit') else 0
+
+            # 예수금 = 추정예탁자산 - 총평가금액
+            deposit = estimated_deposit - total_evaluation if estimated_deposit > 0 else 0
+
             account_info = {
-                'deposit': int(self.open_api.deposit) if hasattr(self.open_api, 'deposit') else 0,
+                'deposit': deposit,
                 'd2_deposit': int(self.open_api.d2_deposit_before_format) if hasattr(self.open_api, 'd2_deposit_before_format') else 0,
-                'total_purchase': int(self.open_api.total_purchase_price) if hasattr(self.open_api, 'total_purchase_price') else 0,
-                'total_evaluation': int(self.open_api.total_evaluation_price) if hasattr(self.open_api, 'total_evaluation_price') else 0,
-                'total_profit': int(self.open_api.total_evaluation_profit_loss_price) if hasattr(self.open_api, 'total_evaluation_profit_loss_price') else 0,
-                'total_profit_rate': float(self.open_api.total_earning_rate) if hasattr(self.open_api, 'total_earning_rate') else 0.0
+                'total_purchase': int(self.open_api.change_total_purchase_price) if hasattr(self.open_api, 'change_total_purchase_price') else 0,
+                'total_evaluation': total_evaluation,
+                'total_profit': int(self.open_api.change_total_eval_profit_loss_price) if hasattr(self.open_api, 'change_total_eval_profit_loss_price') else 0,
+                'total_profit_rate': float(self.open_api.change_total_earning_rate) if hasattr(self.open_api, 'change_total_earning_rate') else 0.0
             }
 
             # 보유 종목
             positions = []
+            trailing_active_count = 0  # 트레일링 스톱 활성화 종목 수
+
             if hasattr(self.open_api, 'opw00018_output') and 'multi' in self.open_api.opw00018_output:
                 for item in self.open_api.opw00018_output['multi']:
                     try:
-                        positions.append({
-                            'code': item[6] if len(item) > 6 else '',
+                        code = item[7] if len(item) > 7 else ''  # 종목코드 (index 7)
+                        current_price = int(item[3]) if len(item) > 3 else 0
+                        profit_rate = float(item[5]) if len(item) > 5 else 0.0
+
+                        # realtime_position_monitor에서 highest_price 조회
+                        highest_price = None
+                        if self.use_advanced_sell and code:
+                            try:
+                                sql = f"SELECT highest_price FROM realtime_position_monitor WHERE code = '{code}'"
+                                result = self.open_api.engine_JB.execute(sql).fetchone()
+                                if result:
+                                    highest_price = result[0]
+                                    # 트레일링 스톱 활성화 체크 (수익 5% 이상)
+                                    if profit_rate >= 5.0:
+                                        trailing_active_count += 1
+                            except Exception as e:
+                                logger.debug(f"highest_price 조회 오류: {e}")
+
+                        position_data = {
+                            'code': code,
                             'name': item[0] if len(item) > 0 else '',
                             'quantity': int(item[1]) if len(item) > 1 else 0,
                             'buy_price': int(item[2]) if len(item) > 2 else 0,
-                            'current_price': int(item[3]) if len(item) > 3 else 0,
-                            'profit_rate': float(item[5]) if len(item) > 5 else 0.0,
+                            'current_price': current_price,
+                            'profit_rate': profit_rate,
                             'profit': int(item[4]) if len(item) > 4 else 0
-                        })
+                        }
+
+                        # highest_price 추가 (있으면)
+                        if highest_price:
+                            position_data['highest_price'] = highest_price
+
+                        positions.append(position_data)
+
                     except (IndexError, ValueError) as e:
                         logger.debug(f"보유 종목 파싱 오류: {e}")
 
@@ -545,14 +619,18 @@ class TraderAdvanced(QMainWindow):
                         })
 
             # 매도 시그널
+            # sell_list 구조: [code, code_name, rate, present_price, valuation_profit]
             sell_signals = []
             if hasattr(self, 'sell_list') and self.sell_list:
                 for sell in self.sell_list:
+                    # 수익률 형식 변환 (모의투자는 직접 %, 실전은 100 기준)
+                    profit_rate = float(sell[2]) if self.open_api.mod_gubun == 1 else float(sell[2]) - 100
+
                     sell_signals.append({
                         'code': sell[0],
-                        'name': '',  # 종목명은 별도로 조회 필요
-                        'price': int(sell[2]),
-                        'profit_rate': float(sell[1]),
+                        'name': sell[1],
+                        'price': int(sell[3]),
+                        'profit_rate': profit_rate,
                         'reason': '매도 시그널',
                         'priority': 50
                     })
@@ -563,7 +641,8 @@ class TraderAdvanced(QMainWindow):
                 'total_value': account_info['total_evaluation'] + account_info['deposit'],
                 'cash_ratio': (account_info['deposit'] / (account_info['total_evaluation'] + account_info['deposit']) * 100) if (account_info['total_evaluation'] + account_info['deposit']) > 0 else 100,
                 'daily_profit': account_info['total_profit'],
-                'daily_profit_rate': account_info['total_profit_rate']
+                'daily_profit_rate': account_info['total_profit_rate'],
+                'trailing_active_count': trailing_active_count  # 트레일링 스톱 활성화 종목 수
             }
 
             # 시스템 상태
@@ -647,9 +726,9 @@ class TraderAdvanced(QMainWindow):
 
                     # 보유 종목 및 매수 후보에 따라 대기 시간 조정
                     if has_positions:
-                        # 보유 종목 있음 → 실시간 모니터링 (0.3초)
-                        sleep_time = 0.3
-                        logger.debug("💼 보유 종목 있음 - 실시간 모니터링 모드")
+                        # 보유 종목 있음 → 실시간 모니터링 (3초)
+                        sleep_time = 3
+                        logger.debug("💼 보유 종목 있음 - 실시간 모니터링 모드 (3초 간격)")
                     elif self.buy_candidates_available == False:
                         # 보유 종목 없고 + 매수 후보도 없음 → 대기 모드 (60초)
                         sleep_time = 60

@@ -10,3 +10,4 @@ PyQt5==5.12
 cryptography==3.4.7
 pyopenssl==20.0.1
 webdriver_manager==3.2.2
+matplotlib==3.2.2

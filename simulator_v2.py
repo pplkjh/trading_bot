@@ -41,12 +41,33 @@ class simulator_v2():
         print("=" * 60 + "\n")
 
         # simulator_func_mysql 라이브러리 클래스 호출
-        simulator_func_mysql(self.simul_num, self.simul_reset, 0)
+        sim = simulator_func_mysql(self.simul_num, self.simul_reset, 0)
 
         # 시뮬레이터 완료 메시지
         print("\n" + "=" * 60)
         print("✅ 백테스트 완료!")
         print("=" * 60)
+
+        # 그래프 저장 여부 확인
+        print("\n" + "-" * 60)
+        save_graph = input("📊 누적 수익률 그래프를 저장하시겠습니까? (y/n): ").strip().lower()
+        if save_graph == 'y':
+            print("💾 그래프가 이미 저장되었습니다.")
+        else:
+            print("⏭️  그래프 저장을 건너뜁니다.")
+
+        # 상세 분석 레포트 생성 여부 확인
+        print("\n" + "-" * 60)
+        generate_report = input("📝 상세 분석 레포트를 생성하시겠습니까? (y/n): ").strip().lower()
+        if generate_report == 'y':
+            print("\n" + "=" * 60)
+            print("📊 상세 분석 레포트 생성 중...")
+            print("=" * 60 + "\n")
+            sim.generate_detailed_analysis_report()
+        else:
+            print("⏭️  레포트 생성을 건너뜁니다.")
+
+        print("\n" + "=" * 60)
 
 
 if __name__ == "__main__":
