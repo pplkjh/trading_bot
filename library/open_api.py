@@ -103,7 +103,7 @@ class open_api(QAxWidget):
 
     # invest_unit을 가져오는 함수
     def get_invest_unit(self):
-        logger.debug("get_invest_unit 함수에 들어왔습니다!")
+        # logger.debug("get_invest_unit 함수에 들어왔습니다!")
         sql = "select invest_unit from setting_data limit 1"
         # 데이타 Fetch
         # rows 는 list안에 튜플이 있는 [()] 형태로 받아온다
@@ -131,7 +131,7 @@ class open_api(QAxWidget):
 
     # 보유량 가져오는 함수
     def get_holding_amount(self, code):
-        logger.debug("get_holding_amount 함수에 들어왔습니다!")
+        # logger.debug("get_holding_amount 함수에 들어왔습니다!")
         sql = "select holding_amount from possessed_item where code = '%s' group by code"
         rows = self.engine_JB.execute(sql % (code)).fetchall()
         if len(rows):
@@ -164,7 +164,7 @@ class open_api(QAxWidget):
 
     # 변수 설정 함수
     def variable_setting(self):
-        logger.debug("variable_setting 함수에 들어왔다.")
+        # logger.debug("variable_setting 함수에 들어왔다.")
         self.get_today_buy_list_code = 0
         self.cf = cf
         self.reset_opw00018_output()
@@ -248,14 +248,14 @@ class open_api(QAxWidget):
 
     # 계좌 정보 함수
     def account_info(self):
-        logger.debug("account_info 함수에 들어왔습니다!")
+        # logger.debug("account_info 함수에 들어왔습니다!")
         account_number = self.get_login_info("ACCNO")
         self.account_number = account_number.split(';')[0]
         logger.debug("계좌번호 : " + self.account_number)
 
     # OpenAPI+에서 계좌 정보 및 로그인 사용자 정보를 얻어오는 메서드는 GetLoginInfo입니다.
     def get_login_info(self, tag):
-        logger.debug("get_login_info 함수에 들어왔습니다!")
+        # logger.debug("get_login_info 함수에 들어왔습니다!")
         try:
             print(tag)
             ret = cf.imi1_accout
@@ -296,7 +296,7 @@ class open_api(QAxWidget):
             logger.critical(e)
 
     def _receive_msg(self, sScrNo, sRQName, sTrCode, sMsg):
-        logger.debug("_receive_msg 함수에 들어왔습니다!")
+        # logger.debug("_receive_msg 함수에 들어왔습니다!")
         # logger.debug("sScrNo!!!")
         # logger.debug(sScrNo)
         # logger.debug("sRQName!!!")
@@ -461,7 +461,7 @@ class open_api(QAxWidget):
 
     # all_item_db에 추가하는 함수
     def db_to_all_item(self, order_num, code, chegyul_check, purchase_price, rate):
-        logger.debug("db_to_all_item 함수에 들어왔다!!!")
+        # logger.debug("db_to_all_item 함수에 들어왔다!!!")
         self.date_setting()
         self.sf.init_df_all_item()
         self.sf.df_all_item.loc[0, 'code'] = str(code)
@@ -538,7 +538,7 @@ class open_api(QAxWidget):
 
     def check_balance(self):
 
-        logger.debug("check_balance 함수에 들어왔습니다!")
+        # logger.debug("check_balance 함수에 들어왔습니다!")
         # 1차원 / 2차원 인스턴스 변수 생성
         self.reset_opw00018_output()
 
@@ -561,7 +561,7 @@ class open_api(QAxWidget):
             # print("self.opw00018_output: ", self.opw00018_output)
 
     def get_count_possesed_item(self):
-        logger.debug("get_count_possesed_item!!!")
+        # logger.debug("get_count_possesed_item!!!")
 
         sql = "select count(*) from possessed_item"
         rows = self.engine_JB.execute(sql).fetchall()
@@ -578,7 +578,7 @@ class open_api(QAxWidget):
 
     # 실제로 키움증권에서 보유한 종목들의 리스트를 가져오는 함수
     def db_to_possesed_item(self):
-        logger.debug("db_to_possesed_item 함수에 들어왔습니다!")
+        # logger.debug("db_to_possesed_item 함수에 들어왔습니다!")
         item_count = len(self.opw00018_output['multi'])
         possesed_item_temp = {'date': [], 'code': [], 'code_name': [], 'holding_amount': [], 'puchase_price': [],
                               'present_price': [], 'valuation_profit': [], 'rate': [], 'item_total_purchase': []}
@@ -663,7 +663,7 @@ class open_api(QAxWidget):
     # code: 종목코드(ex. '005930' )
     # date : 기준일자. (ex. '20200424') => 20200424 일자 까지의 모든 open, high, low, close, volume 데이터 출력
     def get_total_data(self, code, code_name, date):
-        logger.debug("get_total_data 함수에 들어왔다!")
+        # logger.debug("get_total_data 함수에 들어왔다!")
 
         self.ohlcv = defaultdict(list)
         self.set_input_value("종목코드", code)
@@ -852,7 +852,7 @@ class open_api(QAxWidget):
                 f'_opt10081: ({code}, {self.get_today_buy_list_code})'
             )
         try:
-            logger.debug("_opt10081!!!")
+            # logger.debug("_opt10081!!!")
             date = self._get_comm_data(trcode, rqname, 0, "일자")
             open = self._get_comm_data(trcode, rqname, 0, "시가")
             high = self._get_comm_data(trcode, rqname, 0, "고가")
@@ -906,7 +906,7 @@ class open_api(QAxWidget):
     #
     # openapi 매수 요청
     def send_order(self, rqname, screen_no, acc_no, order_type, code, quantity, price, hoga, order_no):
-        logger.debug("send_order!!!")
+        # logger.debug("send_order!!!")
         try:
             self.exit_check()
             self.dynamicCall("SendOrder(QString, QString, QString, int, QString, int, int, QString, QString)",
@@ -950,9 +950,9 @@ class open_api(QAxWidget):
         return False
 
     def end_invest_count_check(self, code):
-        logger.debug("end_invest_count_check 함수로 들어왔습니다!")
-        logger.debug("end_invest_count_check_code!!!!!!!!")
-        logger.debug(code)
+        # logger.debug("end_invest_count_check 함수로 들어왔습니다!")
+        # logger.debug("end_invest_count_check_code!!!!!!!!")
+        # logger.debug(code)
 
         sql = "UPDATE all_item_db SET chegyul_check='%s' WHERE code='%s' and sell_date = '%s' ORDER BY buy_date desc LIMIT 1"
 
@@ -965,7 +965,7 @@ class open_api(QAxWidget):
 
     # 매도 했는데 완벽히 매도 못한 경우
     def sell_chegyul_fail_check(self, code):
-        logger.debug("sell_chegyul_fail_check 함수에 들어왔습니다!")
+        # logger.debug("sell_chegyul_fail_check 함수에 들어왔습니다!")
         logger.debug(code + " check!")
         sql = "UPDATE all_item_db SET chegyul_check='%s' WHERE code='%s' and sell_date = '%s' ORDER BY buy_date desc LIMIT 1"
         self.engine_JB.execute(sql % (1, code, 0))
@@ -986,7 +986,7 @@ class open_api(QAxWidget):
 
     # 잔액 체크 함수
     def jango_check(self):
-        logger.debug("jango_check 함수에 들어왔습니다!")
+        # logger.debug("jango_check 함수에 들어왔습니다!")
 
         # 1. 보유 종목 수 체크
         current_positions = self.get_count_possesed_item()
@@ -1019,25 +1019,25 @@ class open_api(QAxWidget):
     # setting_data 테이블의 today_buy_stop 컬럼에 오늘 날짜가 찍혀있는지 확인하는 함수
     # setting_data 테이블의 today_buy_stop에 날짜가 찍혀 있으면 매수 중지, 0이면 매수 진행 가능
     def buy_check(self):
-        logger.debug("buy_check 함수에 들어왔습니다!")
+        # logger.debug("buy_check 함수에 들어왔습니다!")
         sql = "select today_buy_stop from setting_data limit 1"
         rows = self.engine_JB.execute(sql).fetchall()[0][0]
 
         if rows != self.today:
-            logger.debug("GoGo Buying!!!!!!")
+            # logger.debug("GoGo Buying!!!!!!")
             return True
         else:
-            logger.debug("Stop Buying!!!!!!")
+            # logger.debug("Stop Buying!!!!!!")
             return False
 
     # 몇 개의 주를 살지 계산 하는 함수
     def buy_num_count(self, invest_unit, present_price):
-        logger.debug("buy_num_count 함수에 들어왔습니다!")
+        # logger.debug("buy_num_count 함수에 들어왔습니다!")
         return int(invest_unit / present_price)
 
     # 매수 함수
     def trade(self):
-        logger.debug("trade 함수에 들어왔다!")
+        # logger.debug("trade 함수에 들어왔다!")
         logger.debug(f"매수 대상 종목 코드! {self.get_today_buy_list_code}")
 
         # 실시간 현재가(close) 가져오는 함수
@@ -1080,7 +1080,7 @@ class open_api(QAxWidget):
 
     # 오늘 매수 할 종목들을 가져오는 함수
     def get_today_buy_list(self):
-        logger.debug("get_today_buy_list 함수에 들어왔습니다!")
+        # logger.debug("get_today_buy_list 함수에 들어왔습니다!")
 
         logger.debug("self.today : %s , self.date_rows_yesterday : %s !", self.today, self.date_rows_yesterday)
 
@@ -1143,23 +1143,33 @@ class open_api(QAxWidget):
         ⚠️ 중요: trader는 매수 후보를 자체 생성하지 않습니다.
         collector_v3.py를 먼저 실행하여 realtime_daily_buy_list를 생성해야 합니다.
         """
-        logger.debug("get_advanced_buy_list 함수 실행")
+        # logger.debug("get_advanced_buy_list 함수 실행")
 
         # realtime_daily_buy_list 테이블이 이미 존재하는지 확인
         if self.sf.is_simul_table_exist(self.db_name, "realtime_daily_buy_list"):
-            # 테이블이 비어있는지 확인
-            sql = "SELECT COUNT(*) FROM realtime_daily_buy_list"
-            count = self.engine_JB.execute(sql).fetchone()[0]
+            # 오늘 날짜로 collector가 실행되었는지 확인
+            today = datetime.datetime.now().strftime("%Y%m%d")
+            sql = f"SELECT COUNT(*) FROM realtime_daily_buy_list WHERE date = '{today}'"
+            today_count = self.engine_JB.execute(sql).fetchone()[0]
 
-            if count > 0:
-                logger.info(f"✅ collector가 생성한 매수 후보 로드 ({count}개 종목)")
+            if today_count > 0:
+                logger.info(f"✅ 오늘자 매수 후보 로드 ({today_count}개 종목)")
                 # 테이블 데이터를 메모리에 로드 (trader가 사용할 수 있도록)
                 self.sf.get_realtime_daily_buy_list()
-                logger.debug(f"메모리 로드 완료: {self.sf.len_df_realtime_daily_buy_list}개 종목")
                 return
             else:
-                logger.error("❌ realtime_daily_buy_list 테이블이 비어있습니다")
-                logger.error("💡 collector_v3.py를 먼저 실행하세요")
+                # 오늘 날짜 데이터가 없음 = collector가 안 돌았음
+                sql_total = "SELECT COUNT(*) FROM realtime_daily_buy_list"
+                total_count = self.engine_JB.execute(sql_total).fetchone()[0]
+
+                if total_count > 0:
+                    # 과거 데이터는 있지만 오늘 것이 없음
+                    logger.error(f"❌ 오늘({today}) 매수 후보가 없습니다")
+                    logger.error("💡 collector_v3.py를 먼저 실행하세요")
+                else:
+                    # 테이블이 완전히 비어있음
+                    logger.error("❌ realtime_daily_buy_list 테이블이 비어있습니다")
+                    logger.error("💡 collector_v3.py를 먼저 실행하세요")
                 return
 
         # 테이블이 없으면 에러
@@ -1174,7 +1184,7 @@ class open_api(QAxWidget):
 
         ATR 기반 동적 손절/익절, 트레일링 스톱 사용
         """
-        logger.debug("get_advanced_sell_list 함수 실행")
+        # logger.debug("get_advanced_sell_list 함수 실행")
 
         try:
             from library.exit_strategy import get_exit_signals
@@ -1360,7 +1370,7 @@ class open_api(QAxWidget):
 
         self.rq_count += 1
         # openapi 조회 count 출력
-        logger.debug(self.rq_count)
+        # logger.debug(self.rq_count)
         if self.rq_count == cf.max_api_call:
             sys.exit(1)
 
@@ -1369,12 +1379,12 @@ class open_api(QAxWidget):
         sql = "select code from all_item_db a where (a.sell_date = '%s' or a.sell_date ='%s') and a.code not in ( select code from possessed_item) and a.chegyul_check != '%s'"
 
         rows = self.engine_JB.execute(sql % (0, "", 1)).fetchall()
-        logger.debug("possess_item 테이블에는 없는데 all_item_db에 sell_date가 없는 리스트 처리!!!")
-        logger.debug(rows)
+        # logger.debug("possess_item 테이블에는 없는데 all_item_db에 sell_date가 없는 리스트 처리!!!")
+        # logger.debug(rows)
         num = len(rows)
 
         for t in range(num):
-            logger.debug(f"t!!! {t}")
+            # logger.debug(f"t!!! {t}")
             self.sell_final_check2(rows[t][0])
 
         # 오늘 리스트 다 뽑았으면 today를 setting_data에 체크
@@ -1383,12 +1393,12 @@ class open_api(QAxWidget):
 
     # all_item_db의 rate를 업데이트 한다.
     def rate_check(self):
-        logger.debug("rate_check!!!")
+        # logger.debug("rate_check!!!")
         sql = "select code ,holding_amount, puchase_price, present_price, valuation_profit, rate from possessed_item group by code"
         rows = self.engine_JB.execute(sql).fetchall()
 
-        logger.debug("rate 업데이트 !!!")
-        logger.debug(rows)
+        # logger.debug("rate 업데이트 !!!")
+        # logger.debug(rows)
         num = len(rows)
 
         for k in range(num):
@@ -1413,8 +1423,8 @@ class open_api(QAxWidget):
 
         rows = self.engine_JB.execute(sql).fetchall()
 
-        logger.debug("possess_item 테이블에는 있는데 all_item_db에 없는 종목들 처리!!!")
-        logger.debug(rows)
+        # logger.debug("possess_item 테이블에는 있는데 all_item_db에 없는 종목들 처리!!!")
+        # logger.debug(rows)
 
         for r in rows:
             self.set_input_value("종목코드", r.code)
@@ -1448,14 +1458,14 @@ class open_api(QAxWidget):
         sql = "SELECT code FROM all_item_db where chegyul_check='1' and (sell_date = '0' or sell_date= '')"
         rows = self.engine_JB.execute(sql).fetchall()
 
-        logger.debug("in chegyul_check!!!!! all_item_db에서 cheguyl_check가 1인 종목들(미체결상태) 확인!!!")
-        logger.debug(rows)
+        # logger.debug("in chegyul_check!!!!! all_item_db에서 cheguyl_check가 1인 종목들(미체결상태) 확인!!!")
+        # logger.debug(rows)
 
         # 여기서 너무많이 rq_count 올라간다. 매수를 한 만큼, 매도를 한만큼 그 2배의 시간이 걸림 무조건 .
         for r in rows:
             # 1. Open API 조회 함수 입력값을 설정합니다.
             # 	종목코드 = 전문 조회할 종목코드
-            logger.debug(f"chegyul_check code!! : {r.code}")
+            # logger.debug(f"chegyul_check code!! : {r.code}")
             self.set_input_value("종목코드", r.code)
             # 	조회구분 = 0:전체, 1:종목
             self.set_input_value("조회구분", 1)
@@ -1479,7 +1489,7 @@ class open_api(QAxWidget):
     # 하나의 종목이 체결이 됐는지 확인
     # 그래야 재매수든, 초기매수든 한번 샀는데 미체결량이 남아서 다시 사는건지 확인이 가능하다.
     def stock_chegyul_check(self, code):
-        logger.debug("stock_chegyul_check 함수에 들어왔다!")
+        # logger.debug("stock_chegyul_check 함수에 들어왔다!")
 
         sql = "SELECT chegyul_check FROM all_item_db where code='%s' and sell_date = '%s' ORDER BY buy_date desc LIMIT 1"
         # 무조건 튜플 형태로 실행해야한다. 따라서 인자 하나를 보내더라도 ( , ) 안에 하나 넣어서 보낸다.
@@ -1708,7 +1718,7 @@ class open_api(QAxWidget):
 
     # 예수금(계좌 잔액) 호출 함수
     def get_d2_deposit(self):
-        logger.debug("get_d2_deposit 함수에 들어왔습니다!")
+        # logger.debug("get_d2_deposit 함수에 들어왔습니다!")
         # 이번에는 예수금 데이터를 얻기 위해 opw00001 TR을 요청하는 코드를 구현해 봅시다. opw00001 TR은 연속적으로 데이터를 요청할 필요가 없으므로 상당히 간단합니다.
         # 비밀번호 입력매체 구분, 조회구분 다 작성해야 된다. 안그러면 0 으로 출력됨
         self.set_input_value("계좌번호", self.account_number)
@@ -1719,12 +1729,12 @@ class open_api(QAxWidget):
 
     # 먼저 OnReceiveTrData 이벤트가 발생할 때 수신 데이터를 가져오는 함수인 _opw00001를 open_api 클래스에 추가합니다.
     def _opw00001(self, rqname, trcode):
-        logger.debug("_opw00001!!!")
+        # logger.debug("_opw00001!!!")
         try:
             self.d2_deposit_before_format = self._get_comm_data(trcode, rqname, 0, "d+2출금가능금액")
             self.d2_deposit = self.change_format(self.d2_deposit_before_format)
-            logger.debug("예수금!!!!")
-            logger.debug(self.d2_deposit_before_format)
+            # logger.debug("예수금!!!!")
+            # logger.debug(self.d2_deposit_before_format)
         except Exception as e:
             logger.critical(e)
 
@@ -1872,7 +1882,7 @@ class open_api(QAxWidget):
     # 이번에는 opw00018 TR을 위한 코드를 추가하겠습니다. opw00018 TR은 싱글 데이터를 통해 계좌에 대한 평가 잔고 데이터를 제공하며 멀티 데이터를 통해 보유 종목별 평가 잔고 데이터를 제공합니다.
     # 먼저 총매입금액, 총평가금액, 총평가손익금액, 총수익률, 추정예탁자산을 _get_comm_data 메서드를 통해 얻어옵니다. 얻어온 데이터는 change_format 메서드를 통해 포맷을 문자열로 변경합니다.
     def _opw00018(self, rqname, trcode):
-        logger.debug("_opw00018!!!")
+        # logger.debug("_opw00018!!!")
         # try:
         # 전역변수로 사용하기 위해서 총매입금액은 self로 선언
         # logger.debug(1)

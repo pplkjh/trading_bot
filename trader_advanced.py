@@ -271,7 +271,7 @@ class TraderAdvanced(QMainWindow):
 
         고급 전략 설정에 따라 매수 방식 선택
         """
-        logger.debug("auto_trade_stock 함수 실행")
+        # logger.debug("auto_trade_stock 함수 실행")
 
         try:
             if self.use_advanced_buy and self.advanced_engine_ready:
@@ -359,7 +359,7 @@ class TraderAdvanced(QMainWindow):
 
         고급 전략 설정에 따라 매도 방식 선택
         """
-        logger.debug("get_sell_list_trade 함수 실행")
+        # logger.debug("get_sell_list_trade 함수 실행")
 
         # 체결 확인
         self.open_api.chegyul_check()
@@ -417,7 +417,7 @@ class TraderAdvanced(QMainWindow):
         """
         자동 매도 실행
         """
-        logger.debug("auto_trade_sell_stock 함수 실행")
+        # logger.debug("auto_trade_sell_stock 함수 실행")
 
         try:
             # 계좌 정보는 메인 루프에서 이미 업데이트됨 (check_balance() 제거)
