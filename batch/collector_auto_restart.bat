@@ -1,63 +1,59 @@
 @echo off
+chcp 65001 > nul
 REM ========================================
-REM collector ÀÚµ¿ Àç½ÃÀÛ ½ºÅ©¸³Æ®
+REM collector ìžë™ ìž¬ì‹œìž‘ ìŠ¤í¬ë¦½íŠ¸
 REM ========================================
-REM 999È¸ È£Ãâ ÈÄ Á¾·áµÇ¸é ÀÚµ¿À¸·Î ´Ù½Ã ½ÃÀÛ
-REM µ¥ÀÌÅÍ ¼öÁýÀÌ ¿Ï·áµÉ ¶§±îÁö ¹Ýº¹
+REM ì—ëŸ¬ ë°œìƒ ì‹œ ìžë™ìœ¼ë¡œ ìž¬ì‹œìž‘
+REM ì •ìƒ ì™„ë£Œ ì‹œ cmd ì¢…ë£Œ
 REM ========================================
 
 echo ========================================
-echo Collector ÀÚµ¿ Àç½ÃÀÛ ½ºÅ©¸³Æ®
+echo Collector ìžë™ ìž¬ì‹œìž‘ ìŠ¤í¬ë¦½íŠ¸
 echo ========================================
 echo.
-echo ÀÌ ½ºÅ©¸³Æ®´Â collector°¡ Á¾·áµÇ¸é ÀÚµ¿À¸·Î Àç½ÃÀÛÇÕ´Ï´Ù.
-echo ¼öÁýÀÌ ¿Ï·áµÉ ¶§±îÁö °è¼Ó ½ÇÇàµË´Ï´Ù.
+echo ì—ëŸ¬ ë°œìƒ ì‹œ ìžë™ìœ¼ë¡œ ìž¬ì‹œìž‘í•©ë‹ˆë‹¤.
+echo ì •ìƒ ì™„ë£Œ ì‹œ ìžë™ìœ¼ë¡œ ì¢…ë£Œë©ë‹ˆë‹¤.
 echo.
-echo ÁßÁöÇÏ·Á¸é: Ctrl+C
+echo ì¤‘ë‹¨í•˜ë ¤ë©´: Ctrl+C
 echo ========================================
 echo.
 
-REM Python °æ·Î ¼³Á¤
+REM Python ê²½ë¡œ ì„¤ì •
 set PYTHON_PATH=python
 set SCRIPT_DIR=%~dp0
 
-REM ÇÁ·ÎÁ§Æ® ·çÆ® µð·ºÅä¸®·Î ÀÌµ¿
+REM í”„ë¡œì íŠ¸ ë£¨íŠ¸ ë””ë ‰í† ë¦¬ë¡œ ì´ë™
 cd /d %SCRIPT_DIR%..
 
 :LOOP
     echo.
-    echo [%date% %time%] Collector ½ÃÀÛ...
+    echo [%date% %time%] Collector ì‹œìž‘...
     echo ========================================
 
-    REM collector ½ÇÇà
+    REM collector ì‹¤í–‰
     %PYTHON_PATH% collector_v3.py
 
-    REM Á¾·á ÄÚµå È®ÀÎ
+    REM ì¢…ë£Œ ì½”ë“œ í™•ì¸
     if %ERRORLEVEL% EQU 0 (
         echo.
-        echo [%date% %time%] Collector°¡ Á¤»ó Á¾·áµÇ¾ú½À´Ï´Ù.
-        echo 5ÃÊ ÈÄ Àç½ÃÀÛ...
-        timeout /t 5 /nobreak
-        goto LOOP
+        echo [%date% %time%] Collectorê°€ ì •ìƒ ì¢…ë£Œë˜ì—ˆìŠµë‹ˆë‹¤.
+        echo ========================================
+        echo.
+        goto END
     ) else (
         echo.
-        echo [%date% %time%] Collector°¡ ¿¡·¯·Î Á¾·áµÇ¾ú½À´Ï´Ù. (ÄÚµå: %ERRORLEVEL%)
-        echo ¿¡·¯ È®ÀÎÀÌ ÇÊ¿äÇÕ´Ï´Ù.
+        echo [%date% %time%] Collectorê°€ ì—ëŸ¬ë¡œ ì¢…ë£Œë˜ì—ˆìŠµë‹ˆë‹¤. (ì½”ë“œ: %ERRORLEVEL%)
+        echo 5ì´ˆ í›„ ìžë™ìœ¼ë¡œ ìž¬ì‹œìž‘í•©ë‹ˆë‹¤...
         echo.
-        choice /C YN /M "´Ù½Ã ½ÃÀÛÇÏ½Ã°Ú½À´Ï±î?"
-        if %ERRORLEVEL% EQU 1 (
-            echo Àç½ÃÀÛ Áß...
-            timeout /t 3 /nobreak
-            goto LOOP
-        ) else (
-            echo ÁßÁöµÇ¾ú½À´Ï´Ù.
-            goto END
-        )
+        timeout /t 5 /nobreak
+        goto LOOP
     )
 
 :END
 echo.
 echo ========================================
-echo Collector ÀÚµ¿ Àç½ÃÀÛ Á¾·á
+echo Collector ìžë™ ìž¬ì‹œìž‘ ìŠ¤í¬ë¦½íŠ¸ ì¢…ë£Œ
+echo %date% %time%
 echo ========================================
-pause
+REM ìžë™ ì¢…ë£Œ (pause ì œê±°)
+exit

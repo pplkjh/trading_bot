@@ -1,7 +1,6 @@
-# version 1.3.4
+# version 1.3.5
 import sys
 import time
-import os
 from PyQt5.QtWidgets import QApplication
 from library.collector_api import *
 from library.report_generator import generate_collector_report
@@ -65,9 +64,9 @@ if __name__ == "__main__":
             print("종료하려면 아무 키나 누르세요...")
             input()
 
-        # 60초 정상 완료 시 cmd 창 닫기
+        # 60초 정상 완료 시 종료 (batch에서 cmd 종료 처리)
         if not user_interrupted:
-            os.system("taskkill /f /im cmd.exe")
+            sys.exit(0)
 
     except Exception as e:
         print("\n" + "="*100)
@@ -95,8 +94,6 @@ if __name__ == "__main__":
             print("종료하려면 아무 키나 누르세요...")
             input()
 
-        # 60초 정상 완료 시 cmd 창 닫기
+        # 60초 정상 완료 시 에러 코드로 종료 (batch에서 cmd 종료 처리)
         if not user_interrupted:
-            os.system("taskkill /f /im cmd.exe")
-
-        sys.exit(1)
+            sys.exit(1)

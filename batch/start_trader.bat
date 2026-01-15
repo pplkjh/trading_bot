@@ -1,87 +1,89 @@
 @echo off
+chcp 65001 > nul
 REM ===================================================
-REM ÀÚµ¿ Æ®·¹ÀÌ´õ ½ÇÇà ¹èÄ¡ ÆÄÀÏ
-REM Àå ½ÃÀÛ 30ºĞ Àü¿¡ ½ÇÇàÇÏ¿© ÀÚµ¿ ¸Å¸Å¸¦ ½ÃÀÛÇÕ´Ï´Ù
+REM ìë™ íŠ¸ë ˆì´ë” ì‹¤í–‰ ë°°ì¹˜ íŒŒì¼
+REM ì¥ ì‹œì‘ ì „ì— ì‹¤í–‰í•˜ì—¬ ìë™ ë§¤ë§¤ë¥¼ ì‹œì‘í•©ë‹ˆë‹¤
 REM ===================================================
 
 echo ========================================
-echo ÀÚµ¿ ¸Å¸Å Æ®·¹ÀÌ´õ ½ÃÀÛ
+echo ìë™ ë§¤ë§¤ íŠ¸ë ˆì´ë” ì‹œì‘
 echo ========================================
 echo.
-echo ½ÃÀÛ ½Ã°£: %date% %time%
+echo ì‹œì‘ ì‹œê°: %date% %time%
 echo.
 
-REM Python °æ·Î ¼³Á¤
+REM Python ê²½ë¡œ ì„¤ì •
 set PYTHON_PATH=python
 set SCRIPT_DIR=%~dp0
 
-REM ÀÛ¾÷ µğ·ºÅä¸®·Î ÀÌµ¿ (batch Æú´õÀÇ »óÀ§ µğ·ºÅä¸®)
+REM ì‘ì—… ë””ë ‰í† ë¦¬ë¡œ ì´ë™ (batch í´ë”ì˜ ìƒìœ„ ë””ë ‰í† ë¦¬)
 cd /d %SCRIPT_DIR%..
 
-echo [INFO] ÀÛ¾÷ µğ·ºÅä¸®: %cd%
+echo [INFO] ì‘ì—… ë””ë ‰í† ë¦¬: %cd%
 echo.
 
-REM ¿µ¾÷ÀÏ Ã¼Å©
-echo [INFO] ÁÖ½Ä Àå ¿µ¾÷ÀÏ È®ÀÎ Áß...
+REM ì¥ë‚ ì¸ì§€ ì²´í¬
+echo [INFO] ì¥ë‚  ì—¬ë¶€ í™•ì¸ ì¤‘...
 %PYTHON_PATH% check_trading_day.py
 if %errorlevel% neq 0 (
     echo.
-    echo [ERROR] ¿À´ÃÀº ÁÖ½Ä ÀåÀÌ ¿­¸®Áö ¾Ê´Â ³¯ÀÔ´Ï´Ù.
-    echo [INFO] ÀÚ¼¼ÇÑ ³»¿ëÀº À§ ¸Ş½ÃÁö¸¦ È®ÀÎÇÏ¼¼¿ä.
-    pause
-    exit /b 1
+    echo [INFO] ì˜¤ëŠ˜ì€ ì¥ì´ ì—´ë¦¬ì§€ ì•ŠëŠ” ë‚ ì…ë‹ˆë‹¤.
+    echo [INFO] ìì„¸í•œ ë‚´ìš©ì€ ìœ„ ë©”ì‹œì§€ë¥¼ í™•ì¸í•˜ì„¸ìš”.
+    goto END
 )
 echo.
 
-REM ±âÁ¸ trader_advanced.py ÇÁ·Î¼¼½º È®ÀÎ
+REM ê¸°ì¡´ trader_advanced.py í”„ë¡œì„¸ìŠ¤ í™•ì¸
 tasklist /FI "IMAGENAME eq python.exe" /FI "WINDOWTITLE eq trader_advanced.py*" 2>NUL | find /I /N "python.exe">NUL
 if "%ERRORLEVEL%"=="0" (
-    echo [WARNING] ÀÌ¹Ì trader_advanced.py°¡ ½ÇÇà ÁßÀÔ´Ï´Ù.
-    echo ±âÁ¸ ÇÁ·Î¼¼½º¸¦ Á¾·áÇÏ½Ã°Ú½À´Ï±î? (Y/N)
+    echo [WARNING] ì´ë¯¸ trader_advanced.pyê°€ ì‹¤í–‰ ì¤‘ì…ë‹ˆë‹¤.
+    echo ê¸°ì¡´ í”„ë¡œì„¸ìŠ¤ë¥¼ ì¢…ë£Œí•˜ì‹œê² ìŠµë‹ˆê¹Œ? (Y/N)
     set /p KILL_PROCESS=
 
     if /i "%KILL_PROCESS%"=="Y" (
-        echo ±âÁ¸ ÇÁ·Î¼¼½º Á¾·á Áß...
+        echo ê¸°ì¡´ í”„ë¡œì„¸ìŠ¤ ì¢…ë£Œ ì¤‘...
         taskkill /F /FI "WINDOWTITLE eq trader_advanced.py*" >NUL 2>&1
         timeout /t 3 >NUL
     ) else (
-        echo ±âÁ¸ ÇÁ·Î¼¼½º¸¦ À¯ÁöÇÕ´Ï´Ù.
-        pause
-        exit /b 0
+        echo ê¸°ì¡´ í”„ë¡œì„¸ìŠ¤ë¥¼ ìœ ì§€í•©ë‹ˆë‹¤.
+        goto END
     )
 )
 
-echo [1/2] Å°¿ò OpenAPI ¿¬°á È®ÀÎ Áß...
+echo [1/2] í‚¤ì›€ OpenAPI ì—°ê²° í™•ì¸ ì¤‘...
 echo.
-echo [OK] ÀÚµ¿ ½ÇÇà ¸ğµå
-echo.
-
-echo [2/2] Æ®·¹ÀÌ´õ ½ÇÇà Áß...
-echo.
-echo [START] trader_advanced.py°¡ ½ÇÇàµË´Ï´Ù.
-echo [INFO] Å°¿ò ·Î±×ÀÎ Ã¢ÀÌ ³ªÅ¸³ª¸é ·Î±×ÀÎÇÏ¼¼¿ä.
+echo [OK] ìë™ ì‹¤í–‰ ëª¨ë“œ
 echo.
 
-REM trader_advanced.py ½ÇÇà
+echo [2/2] íŠ¸ë ˆì´ë” ì‹œì‘ ì¤‘...
+echo.
+echo [START] trader_advanced.pyê°€ ì‹œì‘ë©ë‹ˆë‹¤.
+echo [INFO] í‚¤ì›€ ë¡œê·¸ì¸ ì°½ì´ ë‚˜íƒ€ë‚˜ë©´ ë¡œê·¸ì¸í•˜ì„¸ìš”.
+echo.
+
+REM trader_advanced.py ì‹¤í–‰
 %PYTHON_PATH% trader_advanced.py
 
 if %errorlevel% neq 0 (
     echo.
-    echo [ERROR] Æ®·¹ÀÌ´õ ½ÇÇà ½ÇÆĞ!
-    echo ¿À·ù ÄÚµå: %errorlevel%
-    pause
-    exit /b %errorlevel%
+    echo [ERROR] íŠ¸ë ˆì´ë” ì‹¤í–‰ ì‹¤íŒ¨!
+    echo ì—ëŸ¬ ì½”ë“œ: %errorlevel%
+    echo.
+    echo 5ì´ˆ í›„ ì¢…ë£Œë©ë‹ˆë‹¤...
+    timeout /t 5 /nobreak
+    goto END
 )
 
 echo.
 echo ========================================
-echo Æ®·¹ÀÌ´õ Á¾·áµÊ
-echo Á¾·á ½Ã°£: %date% %time%
+echo íŠ¸ë ˆì´ë” ì •ìƒ ì¢…ë£Œ
+echo ì¢…ë£Œ ì‹œê°: %date% %time%
 echo ========================================
 echo.
 
-REM ·Î±× ±â·Ï
-echo %date% %time% - Æ®·¹ÀÌ´õ Á¾·á >> automation_log.txt
+:END
+REM ë¡œê·¸ ê¸°ë¡
+echo %date% %time% - íŠ¸ë ˆì´ë” ì¢…ë£Œ >> automation_log.txt
 
-pause
-exit /b 0
+REM ìë™ ì¢…ë£Œ (pause ì œê±°)
+exit

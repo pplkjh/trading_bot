@@ -3,11 +3,11 @@
   <RegistrationInfo>
     <Date>2025-01-01T00:00:00</Date>
     <Author>TradingBot</Author>
-    <Description>장 시작 30분 전에 자동으로 트레이더를 실행합니다 (평일 08:30 - 완전 자동화)</Description>
+    <Description>장 시작 10분 전에 자동으로 트레이더를 실행합니다 (평일 08:50 - 완전 자동화)</Description>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
-      <StartBoundary>2025-01-01T08:30:00</StartBoundary>
+      <StartBoundary>2025-01-01T08:50:00</StartBoundary>
       <Enabled>true</Enabled>
       <ScheduleByWeek>
         <DaysOfWeek>

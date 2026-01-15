@@ -26,7 +26,6 @@ from library.trading_dashboard import update_dashboard
 from library.report_generator import generate_trader_report
 from PyQt5.QtWidgets import *
 import sys
-import os
 from datetime import datetime
 import logging
 import time
@@ -872,9 +871,9 @@ def main():
             print("종료하려면 아무 키나 누르세요...")
             input()
 
-        # 60초 정상 완료 시 cmd 창 닫기
+        # 60초 정상 완료 시 종료 (batch에서 cmd 종료 처리)
         if not user_interrupted:
-            os.system("taskkill /f /im cmd.exe")
+            sys.exit(0)
 
     except Exception as e:
         logger.error(f"[ERROR] 치명적 오류: {e}")
@@ -906,11 +905,9 @@ def main():
             print("종료하려면 아무 키나 누르세요...")
             input()
 
-        # 60초 정상 완료 시 cmd 창 닫기
+        # 60초 정상 완료 시 에러 코드로 종료 (batch에서 cmd 종료 처리)
         if not user_interrupted:
-            os.system("taskkill /f /im cmd.exe")
-
-        sys.exit(1)
+            sys.exit(1)
 
 
 if __name__ == "__main__":

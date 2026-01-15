@@ -13,7 +13,8 @@
       "Bash(powershell -Command:*)",
       "Bash(paste:*)",
       "Bash(xargs -I {} mysql -u bot -pqwer1232 daily_buy_list -e \"SHOW COLUMNS FROM \\\\`{}\\\\` LIKE ''%score%''\")",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(del \"c:\\\\Users\\\\USER\\\\Desktop\\\\Personal project\\\\trading_bot\\\\scheduler\\\\evening_collect.xml\")"
     ]
   }
 }
