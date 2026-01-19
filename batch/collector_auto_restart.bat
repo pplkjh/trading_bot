@@ -1,5 +1,4 @@
 @echo off
-chcp 65001 > nul
 REM ========================================
 REM collector 자동 재시작 스크립트
 REM ========================================
@@ -19,11 +18,13 @@ echo ========================================
 echo.
 
 REM Python 경로 설정
-set PYTHON_PATH=python
 set SCRIPT_DIR=%~dp0
 
 REM 프로젝트 루트 디렉토리로 이동
 cd /d %SCRIPT_DIR%..
+
+REM Anaconda py37_32 환경 활성화
+call C:\Users\USER\anaconda3\Scripts\activate.bat py37_32
 
 :LOOP
     echo.
@@ -31,7 +32,7 @@ cd /d %SCRIPT_DIR%..
     echo ========================================
 
     REM collector 실행
-    %PYTHON_PATH% collector_v3.py
+    python collector_v3.py
 
     REM 종료 코드 확인
     if %ERRORLEVEL% EQU 0 (

@@ -23,67 +23,49 @@ echo %date% %time% - 자동 종료 확인 시작 >> automation_log.txt
 
 echo.
 echo [INFO] 30분 후 시스템이 자동 종료됩니다.
-echo [INFO] 계속 작업하시려면 아래 팝업에서 "예"를 선택하세요.
+echo [INFO] 계속 작업하시려면 팝업에서 "예"를 선택하세요.
 echo.
 echo ========================================
 echo.
 
-REM 30분 = 1800초 카운트다운 시작 (백그라운드)
-REM 매 5분마다 상태 표시, 마지막 1분은 매 10초마다
+REM 15분 후 첫 번째 팝업 (900초 대기)
+echo [WAIT] 15분 대기 중...
+timeout /t 900 /nobreak > nul
 
-set TOTAL_SECONDS=1800
-set REMAINING=%TOTAL_SECONDS%
+echo.
+echo [POPUP] 15분 후 시스템 종료 예정 - 확인 팝업 표시 중...
+cscript //nologo "%SCRIPT_DIR%popup_timeout.vbs" "15분 후 시스템 종료" "시스템이 15분 후 자동 종료됩니다.\n\n계속 작업하시겠습니까?\n\n(60초 후 자동으로 닫힙니다)" 60 > "%TEMP%\popup_result.txt"
+set /p RESULT=<"%TEMP%\popup_result.txt"
+if "!RESULT!"=="6" goto USER_CONTINUE
+echo [INFO] 종료 진행 - 카운트다운 계속...
 
-:COUNTDOWN
-    REM 남은 시간 계산
-    set /a MINUTES=%REMAINING%/60
-    set /a SECONDS=%REMAINING%%%60
+REM 10분 후 두 번째 팝업 (600초 대기)
+echo [WAIT] 10분 대기 중...
+timeout /t 600 /nobreak > nul
 
-    REM 5분마다 또는 1분 미만일 때 표시
-    set /a CHECK_INTERVAL=%REMAINING%%%300
-    if %REMAINING% LEQ 60 (
-        set /a CHECK_INTERVAL=%REMAINING%%%10
-    )
+echo.
+echo [POPUP] 5분 후 시스템 종료 예정 - 확인 팝업 표시 중...
+cscript //nologo "%SCRIPT_DIR%popup_timeout.vbs" "5분 후 시스템 종료" "시스템이 5분 후 자동 종료됩니다!\n\n계속 작업하시겠습니까?\n\n(60초 후 자동으로 닫힙니다)" 60 > "%TEMP%\popup_result.txt"
+set /p RESULT=<"%TEMP%\popup_result.txt"
+if "!RESULT!"=="6" goto USER_CONTINUE
+echo [INFO] 종료 진행 - 카운트다운 계속...
 
-    if %CHECK_INTERVAL%==0 (
-        echo   [%time%] 남은 시간: %MINUTES%분 %SECONDS%초
-    )
+REM 4분 후 세 번째 팝업 (240초 대기)
+echo [WAIT] 4분 대기 중...
+timeout /t 240 /nobreak > nul
 
-    REM 15분, 5분, 1분 남았을 때 팝업 표시
-    if %REMAINING%==900 goto SHOW_POPUP_15
-    if %REMAINING%==300 goto SHOW_POPUP_5
-    if %REMAINING%==60 goto SHOW_POPUP_1
+echo.
+echo [POPUP] 1분 후 시스템 종료 예정 - 최종 확인 팝업 표시 중...
+cscript //nologo "%SCRIPT_DIR%popup_timeout.vbs" "최종 확인 - 1분 후 종료" "시스템이 1분 후 자동 종료됩니다!\n\n[예] 계속 작업\n[아니오] 종료 진행\n\n(30초 후 자동으로 닫힙니다)" 30 > "%TEMP%\popup_result.txt"
+set /p RESULT=<"%TEMP%\popup_result.txt"
+if "!RESULT!"=="6" goto USER_CONTINUE
+echo [INFO] 종료 진행...
 
-    goto CONTINUE_COUNTDOWN
+REM 마지막 1분 대기
+echo [WAIT] 1분 대기 중...
+timeout /t 60 /nobreak > nul
 
-:SHOW_POPUP_15
-    echo.
-    echo [POPUP] 15분 후 시스템 종료 예정 - 확인 팝업 표시 중...
-    powershell -Command "Add-Type -AssemblyName PresentationFramework; $result = [System.Windows.MessageBox]::Show('시스템이 15분 후 자동 종료됩니다.`n`n계속 작업하시겠습니까?', '자동 종료 알림', 'YesNo', 'Question'); if($result -eq 'Yes') { exit 1 } else { exit 0 }"
-    if %ERRORLEVEL%==1 goto USER_CONTINUE
-    goto CONTINUE_COUNTDOWN
-
-:SHOW_POPUP_5
-    echo.
-    echo [POPUP] 5분 후 시스템 종료 예정 - 확인 팝업 표시 중...
-    powershell -Command "Add-Type -AssemblyName PresentationFramework; $result = [System.Windows.MessageBox]::Show('시스템이 5분 후 자동 종료됩니다!`n`n계속 작업하시겠습니까?', '자동 종료 알림', 'YesNo', 'Warning'); if($result -eq 'Yes') { exit 1 } else { exit 0 }"
-    if %ERRORLEVEL%==1 goto USER_CONTINUE
-    goto CONTINUE_COUNTDOWN
-
-:SHOW_POPUP_1
-    echo.
-    echo [POPUP] 1분 후 시스템 종료 예정 - 최종 확인 팝업 표시 중...
-    powershell -Command "Add-Type -AssemblyName PresentationFramework; $result = [System.Windows.MessageBox]::Show('시스템이 1분 후 자동 종료됩니다!`n`n[예] 계속 작업`n[아니오] 종료 진행', '최종 확인', 'YesNo', 'Exclamation'); if($result -eq 'Yes') { exit 1 } else { exit 0 }"
-    if %ERRORLEVEL%==1 goto USER_CONTINUE
-    goto CONTINUE_COUNTDOWN
-
-:CONTINUE_COUNTDOWN
-    timeout /t 1 /nobreak > nul
-    set /a REMAINING=%REMAINING%-1
-
-    if %REMAINING% GTR 0 goto COUNTDOWN
-
-REM 30분 타임아웃 - 시스템 종료
+REM 시스템 종료
 echo.
 echo ========================================
 echo [SHUTDOWN] 시간 초과 - 시스템을 종료합니다...

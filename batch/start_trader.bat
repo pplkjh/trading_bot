@@ -1,5 +1,4 @@
 @echo off
-chcp 65001 > nul
 REM ===================================================
 REM 자동 트레이더 실행 배치 파일
 REM 장 시작 전에 실행하여 자동 매매를 시작합니다
@@ -13,18 +12,20 @@ echo 시작 시각: %date% %time%
 echo.
 
 REM Python 경로 설정
-set PYTHON_PATH=python
 set SCRIPT_DIR=%~dp0
 
 REM 작업 디렉토리로 이동 (batch 폴더의 상위 디렉토리)
 cd /d %SCRIPT_DIR%..
+
+REM Anaconda py37_32 환경 활성화
+call C:\Users\USER\anaconda3\Scripts\activate.bat py37_32
 
 echo [INFO] 작업 디렉토리: %cd%
 echo.
 
 REM 장날인지 체크
 echo [INFO] 장날 여부 확인 중...
-%PYTHON_PATH% check_trading_day.py
+python check_trading_day.py
 if %errorlevel% neq 0 (
     echo.
     echo [INFO] 오늘은 장이 열리지 않는 날입니다.
@@ -62,7 +63,7 @@ echo [INFO] 키움 로그인 창이 나타나면 로그인하세요.
 echo.
 
 REM trader_advanced.py 실행
-%PYTHON_PATH% trader_advanced.py
+python trader_advanced.py
 
 if %errorlevel% neq 0 (
     echo.

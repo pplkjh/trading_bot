@@ -525,8 +525,8 @@ class collector_api():
                 self.open_api.sf.get_date_for_simul()
                 self.open_api.sf.db_to_realtime_daily_buy_list(self.open_api.today, self.open_api.today, len(self.open_api.sf.date_rows))
 
-            # all_item_db에서 open, clo5~120, volume 등을 오늘 일자 데이터로 업데이트 한다.
-            self.open_api.sf.update_all_db_by_date(self.open_api.today)
+            # all_item_db에서 open, clo5~120, volume 등을 최근 영업일 데이터로 업데이트 한다.
+            self.open_api.sf.update_all_db_by_date(latest_date)
             self.open_api.rate_check()
             # realtime_daily_buy_list(매수 리스트) 테이블 세팅을 완료 했으면 아래 쿼리를 통해 setting_data의 today_buy_list에 오늘 날짜를 찍는다.
             sql = "UPDATE setting_data SET today_buy_list='%s' limit 1"
