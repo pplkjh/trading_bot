@@ -27,14 +27,43 @@ class collector_api():
         self.variable_setting()
         self.kind = KINDCrawler()
 
+        # 진행률 표시용 변수
+        self.current_stock_name = ""
+        self.current_stock_code = ""
+        self.current_status = ""
+        self._progress_lines = 0
+
     def variable_setting(self):
         self.open_api.py_gubun = "collector"
         self.dc = daily_crawler(self.open_api.cf.real_db_name, self.open_api.cf.real_daily_craw_db_name,
                                 self.open_api.cf.real_daily_buy_list_db_name)
         self.dbl = daily_buy_list()
 
-    def print_progress(self, current, total, task_name, start_time=None):
-        """진행률 표시 함수"""
+    def print_progress(self, current, total, task_name, start_time=None, stock_name="", stock_code="", status=""):
+        """
+        진행률 표시 함수 (실시간 업데이트)
+
+        Parameters:
+        -----------
+        current : int - 현재 진행 수
+        total : int - 전체 수
+        task_name : str - 작업명
+        start_time : float - 시작 시간
+        stock_name : str - 현재 처리 중인 종목명
+        stock_code : str - 현재 처리 중인 종목코드
+        status : str - 현재 상태 메시지
+        """
+        # 현재 종목 정보 업데이트
+        if stock_name:
+            self.current_stock_name = stock_name
+        if stock_code:
+            self.current_stock_code = stock_code
+        if status:
+            self.current_status = status
+
+        # 0으로 나누기 방지
+        if total <= 0:
+            total = 1
         percent = (current / total) * 100
         bar_length = 50
         filled = int(bar_length * current / total)
@@ -44,14 +73,68 @@ class collector_api():
         eta_str = ""
         if start_time and current > 0:
             elapsed = time.time() - start_time
-            rate = current / elapsed
-            remaining = (total - current) / rate if rate > 0 else 0
-            eta_str = f" | ETA: {int(remaining//60)}분 {int(remaining%60)}초"
+            if elapsed > 0:
+                rate = current / elapsed
+                remaining = (total - current) / rate if rate > 0 else 0
+                eta_str = f" | ETA: {int(remaining//60)}분 {int(remaining%60)}초"
 
-        print(f"\r{task_name}: [{bar}] {percent:>5.1f}% ({current}/{total}){eta_str}", end='', flush=True)
+        # 이전 출력 지우기 (커서를 위로 이동)
+        if self._progress_lines > 0:
+            print(f"\033[{self._progress_lines}A", end='')
 
+        # 진행률 바
+        line1 = f"{task_name}: [{bar}] {percent:>5.1f}% ({current}/{total}){eta_str}"
+
+        # 현재 종목 정보
+        stock_info = ""
+        if self.current_stock_name:
+            stock_info = f"  📌 현재: {self.current_stock_name}"
+            if self.current_stock_code:
+                stock_info += f" ({self.current_stock_code})"
+
+        # 상태 메시지
+        status_info = ""
+        if self.current_status:
+            # 상태 메시지가 너무 길면 자르기
+            max_len = 80
+            if len(self.current_status) > max_len:
+                status_info = f"  💬 {self.current_status[:max_len]}..."
+            else:
+                status_info = f"  💬 {self.current_status}"
+
+        # 출력 (각 줄 끝에 공백으로 이전 텍스트 덮어쓰기)
+        print(f"\033[K{line1}")
+        if stock_info:
+            print(f"\033[K{stock_info}")
+        if status_info:
+            print(f"\033[K{status_info}")
+
+        # 출력한 줄 수 계산
+        self._progress_lines = 1
+        if stock_info:
+            self._progress_lines += 1
+        if status_info:
+            self._progress_lines += 1
+
+        # 완료 시
         if current == total:
+            self._progress_lines = 0
+            self.current_stock_name = ""
+            self.current_stock_code = ""
+            self.current_status = ""
             print()  # 완료 시 줄바꿈
+
+    def update_status(self, status):
+        """상태 메시지만 실시간 업데이트 (진행률 표시 중일 때)"""
+        self.current_status = status
+        if self._progress_lines >= 3:  # 상태 줄이 표시되고 있을 때만
+            max_len = 80
+            if len(status) > max_len:
+                status_info = f"  💬 {status[:max_len]}..."
+            else:
+                status_info = f"  💬 {status}"
+            # 상태 줄로 이동 후 업데이트
+            print(f"\033[1A\033[K{status_info}")
 
     # 콜렉팅을 실행하는 함수
     def code_update_check(self):
@@ -1045,9 +1128,9 @@ class collector_api():
             collected += 1
             logger.debug("++++++++++++++" + str(code_name) + "++++++++++++++++++++" + str(collected) + '/' + str(targets_to_collect))
 
-            # 진행률 표시 (10개마다 또는 마지막)
-            if collected % 10 == 0 or collected == targets_to_collect:
-                self.print_progress(collected, targets_to_collect, "    일봉 수집", start_time)
+            # 진행률 표시 (매 종목마다 업데이트)
+            self.print_progress(collected, targets_to_collect, "    일봉 수집", start_time,
+                              stock_name=code_name, stock_code=code)
 
             check_item_gubun = self.set_daily_crawler_table(code, code_name)
 
@@ -1376,8 +1459,10 @@ class collector_api():
         return check_item_gubun
 
     def set_daily_crawler_table(self, code, code_name):
+        self.update_status("데이터 조회 중...")
         df = self.open_api.get_total_data(code, code_name, self.open_api.today)
         if len(df) == 0:
+            self.update_status("데이터 없음 - 스킵")
             return 1
         oldest_row = df.iloc[-1]
         check_row = None
@@ -1394,6 +1479,7 @@ class collector_api():
             UPDATE daily_buy_list.stock_item_all SET check_daily_crawler = '4' WHERE code = '{}'
         """
 
+        self.update_status("기존 데이터 확인 중...")
         if self.open_api.engine_daily_craw.dialect.has_table(self.open_api.engine_daily_craw, code_name):
             check_row = self.open_api.engine_daily_craw.execute(f"""
                 SELECT * FROM `{code_name}` WHERE date = '{oldest_row['date']}' LIMIT 1
@@ -1433,6 +1519,7 @@ class collector_api():
             deleted = True
 
         if (check_row and (check_row[0]['close'] != oldest_row['close'])) or diff:
+            self.update_status("수정주가 변경 감지 - 재수집 중...")
             logger.info(f'{code} {code_name}의 액면분할/증자 등의 이유로 수정주가가 달라져서 처음부터 다시 콜렉팅')
             # daily_craw 삭제
             logger.info('daily_craw와 min_craw 삭제 중..')
@@ -1468,6 +1555,7 @@ class collector_api():
         df_temp = df_temp.sort_values(by=['date'], ascending=True)
         # df_temp = df_temp[1:]
 
+        self.update_status("이동평균 계산 중...")
         df_temp['code'] = code
         df_temp['code_name'] = code_name
         df_temp['d1_diff_rate'] = round(
@@ -1539,6 +1627,7 @@ class collector_api():
                 df_temp = df_temp[df_temp.date > last_date]
 
         if len(df_temp) == 0 and check_daily_crawler != '4':
+            self.update_status("이미 최신 - 스킵")
             logger.debug("이미 daily_craw db의 " + code_name + " 테이블에 콜렉팅 완료 했다! df_temp가 비었다!!")
 
             # 이렇게 안해주면 아래 프로세스들을 안하고 바로 넘어가기때문에 그만큼 tr 조회 하는 시간이 짧아지고 1초에 5회 이상의 조회를 할 수 가있다 따라서 비었을 경우는 sleep해줘야 안멈춘다
@@ -1561,6 +1650,7 @@ class collector_api():
         # inf 를 NaN으로 변경 (inf can not be used with MySQL 에러 방지)
         df_temp = df_temp.replace([numpy.inf, -numpy.inf], numpy.nan)
 
+        self.update_status("DB 저장 중...")
         df_temp.to_sql(name=code_name, con=self.open_api.engine_daily_craw, if_exists='append', index=False)
         index_name = ''.join(c for c in code_name if c.isalnum())
         if deleted:
@@ -1574,6 +1664,7 @@ class collector_api():
 
         # check_daily_crawler 가 4 인 경우는 액면분할, 증자 등으로 인해 daily_buy_list 업데이트를 해야하는 경우
         if check_daily_crawler == '4':
+            self.update_status("daily_buy_list 동기화 중...")
             logger.debug(f'daily_craw.{code_name} 업데이트 완료 {code}')
             logger.debug('daily_buy_list 업데이트 중..')
 
@@ -1599,6 +1690,7 @@ class collector_api():
 
             logger.debug('daily_buy_list 업데이트 완료')
 
+        self.update_status("완료")
         check_item_gubun = 1
         return check_item_gubun
 

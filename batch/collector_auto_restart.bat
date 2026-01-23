@@ -53,8 +53,24 @@ call C:\Users\USER\anaconda3\Scripts\activate.bat py37_32
 :END
 echo.
 echo ========================================
-echo Collector 자동 재시작 스크립트 종료
+echo Collector 정상 완료 - Trader 자동 시작
 echo %date% %time%
 echo ========================================
-REM 자동 종료 (pause 제거)
+echo.
+
+REM Collector 완료 후 Trader 자동 시작
+echo [INFO] Trader를 시작합니다...
+call "%SCRIPT_DIR%start_trader.bat"
+
+echo.
+echo ========================================
+echo Trader 종료 - 시스템 종료 확인
+echo %date% %time%
+echo ========================================
+echo.
+
+REM Trader 완료 후 시스템 종료 확인 (30분 타이머)
+echo [INFO] 시스템 종료 확인 프로세스 시작...
+call "%SCRIPT_DIR%shutdown_prompt.bat"
+
 exit
