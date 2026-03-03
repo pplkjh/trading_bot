@@ -1,6 +1,6 @@
-# version 1.3.5
+# version 1.3.7
 import sys
-import time
+import os
 from PyQt5.QtWidgets import QApplication
 from library.collector_api import *
 from library.report_generator import generate_collector_report
@@ -48,25 +48,11 @@ if __name__ == "__main__":
             print(f"⚠️  리포트 생성 오류: {e}")
 
         print("\n" + "="*100)
-        print("💡 리포트 파일을 열어 상세한 수집 결과를 확인하세요")
-        print("⏰ 60초 후 자동으로 종료됩니다 (Ctrl+C로 중단 가능)")
+        print("Collector finished. Starting Trader...")
         print("="*100 + "\n")
 
-        user_interrupted = False
-        try:
-            for i in range(60, 0, -1):
-                print(f"\r종료까지 {i}초 남음... (Ctrl+C로 중단 가능)", end="", flush=True)
-                time.sleep(1)
-            print("\n\n프로그램을 종료합니다.")
-        except KeyboardInterrupt:
-            user_interrupted = True
-            print("\n\n사용자가 종료를 취소했습니다. 창이 유지됩니다.")
-            print("종료하려면 아무 키나 누르세요...")
-            input()
-
-        # 60초 정상 완료 시 종료 (batch에서 cmd 종료 처리)
-        if not user_interrupted:
-            sys.exit(0)
+        # 정상 완료 - 바로 종료 (PyQt5 crash 방지)
+        os._exit(0)
 
     except Exception as e:
         print("\n" + "="*100)
@@ -76,24 +62,8 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
 
-        # 오류 발생 시에도 60초 대기
+        # 에러 발생 - exit code 1로 종료 (batch에서 재시작)
         print("\n" + "="*100)
-        print("⏰ 60초 후 자동으로 종료됩니다 (Ctrl+C로 중단 가능)")
-        print("📝 상세 로그: log/jackbot.log")
+        print("Error occurred. Collector will restart...")
         print("="*100 + "\n")
-
-        user_interrupted = False
-        try:
-            for i in range(60, 0, -1):
-                print(f"\r종료까지 {i}초 남음... (Ctrl+C로 중단 가능)", end="", flush=True)
-                time.sleep(1)
-            print("\n\n프로그램을 종료합니다.")
-        except KeyboardInterrupt:
-            user_interrupted = True
-            print("\n\n사용자가 종료를 취소했습니다. 창이 유지됩니다.")
-            print("종료하려면 아무 키나 누르세요...")
-            input()
-
-        # 60초 정상 완료 시 에러 코드로 종료 (batch에서 cmd 종료 처리)
-        if not user_interrupted:
-            sys.exit(1)
+        os._exit(1)

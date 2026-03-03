@@ -22,45 +22,13 @@ query = """
 SELECT
     code, code_name, close, rsi14, volume/vol20 as vol_ratio,
     ROUND((
-        (
-            CASE
-                WHEN volume > vol20 * 2.0 THEN 20
-                WHEN volume > vol20 * 1.5 THEN 15
-                WHEN volume > vol20 * 1.2 THEN 10
-                ELSE 5
-            END +
-            CASE
-                WHEN clo5 > clo20 AND clo20 > clo60 THEN 20
-                WHEN clo5 > clo20 THEN 15
-                ELSE 5
-            END +
-            CASE
-                WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20
-                WHEN atr14 > 0 AND (high - low) > atr14 THEN 15
-                ELSE 10
-            END
-        ) * 0.6
-        +
-        (
-            CASE
-                WHEN rsi14 <= 30 THEN 15
-                WHEN rsi14 <= 40 THEN 10
-                WHEN rsi14 <= 50 THEN 5
-                ELSE 0
-            END +
-            CASE
-                WHEN bb_lower > 0 AND close <= bb_lower THEN 15
-                WHEN bb_lower > 0 AND close <= bb_lower * 1.02 THEN 10
-                WHEN bb_middle > 0 AND close < bb_middle THEN 5
-                ELSE 0
-            END +
-            CASE
-                WHEN close > clo20 * 0.95 AND close < clo20 * 1.0 THEN 10
-                WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8
-                ELSE 3
-            END
-        ) * 0.4
-    ) * (100.0 / 52.0), 1) as score
+        CASE WHEN volume > vol20 * 2.0 THEN 20 WHEN volume > vol20 * 1.5 THEN 15 WHEN volume > vol20 * 1.2 THEN 10 ELSE 5 END +
+        CASE WHEN clo5 > clo20 AND clo20 > clo60 THEN 20 WHEN clo5 > clo20 THEN 15 ELSE 5 END +
+        CASE WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20 WHEN atr14 > 0 AND (high - low) > atr14 THEN 15 ELSE 10 END +
+        CASE WHEN rsi14 <= 30 THEN 15 WHEN rsi14 <= 40 THEN 10 WHEN rsi14 <= 50 THEN 5 ELSE 0 END +
+        CASE WHEN bb_lower > 0 AND close <= bb_lower THEN 15 WHEN bb_lower > 0 AND close <= bb_lower * 1.02 THEN 10 WHEN bb_middle > 0 AND close < bb_middle THEN 5 ELSE 0 END +
+        CASE WHEN close > clo20 * 0.95 AND close < clo20 * 1.0 THEN 10 WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8 ELSE 3 END
+    ), 0) as score
 FROM `20251224`
 WHERE close > 0 AND volume > 0 AND rsi14 > 0 AND bb_lower > 0
     AND (

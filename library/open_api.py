@@ -398,6 +398,10 @@ class open_api(QAxWidget):
             # logger.debug("opt10080_req!!!")
             # logger.debug("Get an de_deposit!!!")
             self._opt10080(rqname, trcode)
+        elif rqname == "opt10001_req":
+            self._opt10001(rqname, trcode)
+        elif rqname == "opt20006_req":
+            self._opt20006(rqname, trcode)
         elif rqname == "send_order_req":
             pass
         else:
@@ -1323,12 +1327,12 @@ class open_api(QAxWidget):
             # 모의투자: rate가 직접 % 값 (-10.53 형식)
             # 실전: rate가 100 기준 값 (89.47 형식)
             if self.mod_gubun == 1:  # 모의투자
-                sell_point = 7.0  # 익절 기준 7%
-                losscut_point = -4.0  # 손절 기준 -4%
+                sell_point = 6.0  # 익절 기준 6% (simul_num=3 최적화 기준)
+                losscut_point = -3.0  # 손절 기준 -3%
                 logger.debug(f"모의투자 모드: 익절 {sell_point}%, 손절 {losscut_point}%")
             else:  # 실전
-                sell_point = 107  # 익절 기준 7% (100 + 7)
-                losscut_point = 96  # 손절 기준 -4% (100 - 4)
+                sell_point = 106  # 익절 기준 6% (100 + 6)
+                losscut_point = 97  # 손절 기준 -3% (100 - 3)
                 logger.debug(f"실전 모드: 익절 {sell_point}, 손절 {losscut_point}")
 
             sell_list = []
@@ -1735,6 +1739,61 @@ class open_api(QAxWidget):
             self.d2_deposit = self.change_format(self.d2_deposit_before_format)
             # logger.debug("예수금!!!!")
             # logger.debug(self.d2_deposit_before_format)
+        except Exception as e:
+            logger.critical(e)
+
+    def _opt10001(self, rqname, trcode):
+        """OPT10001 (주식기본정보요청) 수신 처리 — 단일행 TR
+        결과는 self.fundamental_data dict에 저장.
+        tr_event_loop.exit()는 _receive_tr_data에서 자동 처리.
+        """
+        try:
+            def gd(field):
+                return self._get_comm_data(trcode, rqname, 0, field).strip()
+
+            self.fundamental_data = {
+                'per':           gd("PER"),
+                'eps':           gd("EPS"),
+                'roe':           gd("ROE"),
+                'pbr':           gd("PBR"),
+                'ev':            gd("EV"),
+                'bps':           gd("BPS"),
+                'sales':         gd("매출액"),
+                'operating_profit': gd("영업이익"),
+                'net_profit':    gd("당기순이익"),
+                'market_cap':    gd("시가총액"),
+                'foreign_rate':  gd("외인소진률"),
+                'credit_rate':   gd("신용비율"),
+                'float_shares':  gd("유통주식"),
+                'float_rate':    gd("유통비율"),
+                'high_250_rate': gd("250최고가대비율"),
+                'low_250_rate':  gd("250최저가대비율"),
+            }
+        except Exception as e:
+            logger.critical(e)
+            self.fundamental_data = {}
+
+    def _opt20006(self, rqname, trcode):
+        """OPT20006 (업종일봉차트조회) 수신 처리 — 반복행 TR
+        결과는 self.ohlcv dict에 누적 저장 (collector_opt10081과 동일 패턴).
+        tr_event_loop.exit()는 _receive_tr_data에서 자동 처리.
+        """
+        try:
+            ohlcv_cnt = self._get_repeat_cnt(trcode, rqname)
+            for i in range(ohlcv_cnt):
+                date = self._get_comm_data(trcode, rqname, i, "일자")
+                open_val = self._get_comm_data(trcode, rqname, i, "시가")
+                high_val = self._get_comm_data(trcode, rqname, i, "고가")
+                low_val = self._get_comm_data(trcode, rqname, i, "저가")
+                close_val = self._get_comm_data(trcode, rqname, i, "현재가")
+                volume_val = self._get_comm_data(trcode, rqname, i, "거래량")
+
+                self.ohlcv['date'].append(date.strip())
+                self.ohlcv['open'].append(int(open_val) if open_val.strip() else 0)
+                self.ohlcv['high'].append(int(high_val) if high_val.strip() else 0)
+                self.ohlcv['low'].append(int(low_val) if low_val.strip() else 0)
+                self.ohlcv['close'].append(int(close_val) if close_val.strip() else 0)
+                self.ohlcv['volume'].append(int(volume_val) if volume_val.strip() else 0)
         except Exception as e:
             logger.critical(e)
 

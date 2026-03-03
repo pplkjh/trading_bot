@@ -403,6 +403,13 @@ class collector_api():
             print(f"    사유: {str(e)[:100]}")
             logger.warning(f"KIND 크롤링 실패: {e}")
 
+        # v2 확장 데이터 수집 (simul_num과 무관하게 항상 수집, 실패해도 기존 수집 영향 없음)
+        try:
+            self.collect_market_index()
+            self.collect_stock_fundamental()
+        except Exception as e:
+            logger.warning(f"v2 확장 데이터 수집 실패 (무시하고 계속): {e}")
+
         # 전체 완료
         total_time = time.time() - overall_start
         print("\n" + "="*100)
@@ -419,10 +426,113 @@ class collector_api():
             path = pathlib.Path(__file__).parent.parent.absolute() / 'bat' / 'ai_filter.bat'
             os.system(f"start {path} {self.open_api.db_name} {self.open_api.simul_num}")
 
+    # ── v2 확장 데이터 수집 메서드 ──────────────────────────────────────────
+
+    def collect_market_index(self):
+        """OPT20006 (업종일봉차트조회)으로 코스피/코스닥 지수 일봉 수집
+        → daily_craw DB의 kospi_index, kosdaq_index 테이블에 저장
+        오늘 데이터가 이미 있으면 스킵.
+        """
+        today = self.open_api.today
+        engine_craw = self.open_api.engine_daily_craw
+
+        for index_code, table_name in [("001", "kospi_index"), ("101", "kosdaq_index")]:
+            # 오늘 데이터 이미 있으면 스킵
+            try:
+                check_sql = f"SELECT 1 FROM `{table_name}` WHERE date = '{today}' LIMIT 1"
+                if engine_craw.execute(check_sql).fetchone():
+                    logger.debug(f"{table_name} 오늘 데이터 존재, 스킵")
+                    continue
+            except Exception:
+                pass  # 테이블 없으면 계속 진행
+
+            # OPT20006 호출
+            self.open_api.ohlcv = defaultdict(list)
+            self.open_api.set_input_value("업종코드", index_code)
+            self.open_api.set_input_value("기준일자", today)
+            self.open_api.set_input_value("수정주가구분", 1)
+            self.open_api.comm_rq_data("opt20006_req", "opt20006", 0, "0102")
+            time.sleep(cf.TR_REQ_TIME_INTERVAL)
+
+            if not self.open_api.ohlcv or not self.open_api.ohlcv.get('date'):
+                continue
+
+            df = DataFrame(
+                self.open_api.ohlcv,
+                columns=['date', 'open', 'high', 'low', 'close', 'volume']
+            )
+            df = df[df['date'].str.strip() != '']
+            if len(df) == 0:
+                continue
+
+            df.to_sql(table_name, engine_craw, if_exists='append', index=False)
+            logger.debug(f"{table_name} {len(df)}행 저장 완료")
+
+    def collect_stock_fundamental(self):
+        """OPT10001 (주식기본정보요청)으로 전 종목 펀더멘털 수집
+        → daily_buy_list DB의 stock_fundamental 테이블에 저장
+        cf.v2_fundamental_collect_interval일 미경과 시 스킵.
+        """
+        import datetime as _dt
+        today = self.open_api.today
+        engine_buy = self.open_api.engine_daily_buy_list
+
+        # updated_date 체크
+        try:
+            row = engine_buy.execute(
+                "SELECT updated_date FROM stock_fundamental ORDER BY updated_date DESC LIMIT 1"
+            ).fetchone()
+            if row:
+                last_date = str(row[0]).replace('-', '')[:8]
+                today_dt = _dt.datetime.strptime(today, "%Y%m%d")
+                last_dt = _dt.datetime.strptime(last_date, "%Y%m%d")
+                if (today_dt - last_dt).days < cf.v2_fundamental_collect_interval:
+                    logger.debug("펀더멘털 수집 스킵 (주기 미경과)")
+                    return
+        except Exception:
+            pass  # 테이블 없으면 진행
+
+        # 전 종목 코드 조회
+        stocks = engine_buy.execute(
+            "SELECT code_name, code FROM stock_item_all"
+        ).fetchall()
+
+        records = []
+        for code_name, code in stocks:
+            try:
+                self.open_api.fundamental_data = {}
+                self.open_api.set_input_value("종목코드", code)
+                self.open_api.comm_rq_data("opt10001_req", "opt10001", 0, "0103")
+                time.sleep(cf.TR_REQ_TIME_INTERVAL)
+
+                fd = self.open_api.fundamental_data
+                if fd:
+                    fd['code'] = code
+                    fd['code_name'] = code_name
+                    fd['updated_date'] = today
+                    records.append(fd)
+            except Exception as e:
+                logger.debug(f"{code} 펀더멘털 수집 실패: {e}")
+
+        if records:
+            import pandas as pd
+            df = pd.DataFrame(records)
+            df.to_sql('stock_fundamental', engine_buy, if_exists='replace', index=False)
+            logger.debug(f"stock_fundamental 저장 완료: {len(records)}개")
+
     # 실전 봇, 모의 봇 매수 종목 세팅 + all_item_db 업데이트 함수
     # 고급 전략 통합 버전 (date_based_strategy 사용)
     def realtime_daily_buy_list_check(self):
-        # 최근 영업일 테이블 찾기
+        # simul_num=3: HybridStrategyV2 Python 점수 기반 선정
+        # (simulator_func_mysql.db_to_realtime_daily_buy_list_num=21 분기에서 처리)
+        if self.open_api.simul_num == 3:
+            self.open_api.sf.get_date_for_simul()
+            self.open_api.sf.db_to_realtime_daily_buy_list(
+                self.open_api.today, self.open_api.today, len(self.open_api.sf.date_rows)
+            )
+            return
+
+        # 최근 영업일 테이블 찾기 (simul_num=1,2 기존 전략)
         from library.date_based_strategy import get_latest_date_table
 
         latest_date = get_latest_date_table('daily_buy_list')
@@ -689,64 +799,52 @@ class collector_api():
                 bb_lower,
                 atr14,
 
-                -- 하이브리드 스코어 (모멘텀 60% + 평균회귀 40%)
+                -- 하이브리드 스코어 (모멘텀 60점 + 평균회귀 40점 = 100점 만점)
                 (
-                    -- 모멘텀 브레이크아웃 스코어 (60점 만점)
-                    (
-                        -- 거래량 조건 (20점)
-                        CASE
-                            WHEN volume > vol20 * 2.0 THEN 20
-                            WHEN volume > vol20 * 1.5 THEN 15
-                            WHEN volume > vol20 * 1.2 THEN 10
-                            ELSE 5
-                        END +
+                    -- === 모멘텀 (60점 만점) ===
+                    -- 거래량 조건 (20점)
+                    CASE
+                        WHEN volume > vol20 * 2.0 THEN 20
+                        WHEN volume > vol20 * 1.5 THEN 15
+                        WHEN volume > vol20 * 1.2 THEN 10
+                        ELSE 5
+                    END +
+                    -- 모멘텀 조건 (20점)
+                    CASE
+                        WHEN clo5 > clo20 AND clo20 > clo60 THEN 20
+                        WHEN clo5 > clo20 THEN 15
+                        ELSE 5
+                    END +
+                    -- ATR 기반 변동성 돌파 (20점)
+                    CASE
+                        WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20
+                        WHEN atr14 > 0 AND (high - low) > atr14 THEN 15
+                        ELSE 10
+                    END +
 
-                        -- 모멘텀 조건 (20점)
-                        CASE
-                            WHEN clo5 > clo20 AND clo20 > clo60 THEN 20  -- 강한 상승
-                            WHEN clo5 > clo20 THEN 15  -- 상승
-                            ELSE 5
-                        END +
+                    -- === 평균회귀 (40점 만점) ===
+                    -- RSI 과매도 (15점)
+                    CASE
+                        WHEN rsi14 <= 30 THEN 15
+                        WHEN rsi14 <= 40 THEN 10
+                        WHEN rsi14 <= 50 THEN 5
+                        ELSE 0
+                    END +
+                    -- 볼린저 밴드 하단 근처 (15점)
+                    CASE
+                        WHEN bb_lower > 0 AND close <= bb_lower THEN 15
+                        WHEN bb_lower > 0 AND close <= bb_lower * 1.02 THEN 10
+                        WHEN bb_middle > 0 AND close < bb_middle THEN 5
+                        ELSE 0
+                    END +
+                    -- 지지선 반등 (10점)
+                    CASE
+                        WHEN close > clo20 * 0.95 AND close < clo20 * 1.0 THEN 10
+                        WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8
+                        ELSE 3
+                    END
+                ) as score,
 
-                        -- ATR 기반 변동성 돌파 (20점)
-                        CASE
-                            WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20
-                            WHEN atr14 > 0 AND (high - low) > atr14 THEN 15
-                            ELSE 10
-                        END
-                    ) * 0.6
-
-                    +
-
-                    -- 평균회귀 스코어 (40점 만점)
-                    (
-                        -- RSI 과매도 (15점)
-                        CASE
-                            WHEN rsi14 <= 30 THEN 15
-                            WHEN rsi14 <= 40 THEN 10
-                            WHEN rsi14 <= 50 THEN 5
-                            ELSE 0
-                        END +
-
-                        -- 볼린저 밴드 하단 근처 (15점)
-                        CASE
-                            WHEN bb_lower > 0 AND close <= bb_lower THEN 15
-                            WHEN bb_lower > 0 AND close <= bb_lower * 1.02 THEN 10
-                            WHEN bb_middle > 0 AND close < bb_middle THEN 5
-                            ELSE 0
-                        END +
-
-                        -- 지지선 반등 (10점)
-                        CASE
-                            WHEN close > clo20 * 0.95 AND close < clo20 * 1.0 THEN 10
-                            WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8
-                            ELSE 3
-                        END
-                    ) * 0.4
-
-                ) * (100.0 / 52.0) as score,  -- 100점 스케일로 정규화 (이론상 최대 52점 → 100점)
-
-                -- 전략 타입: 하이브리드 전략은 모멘텀+평균회귀 합산이므로 모두 'hybrid'
                 'hybrid' as strategy_type
 
             FROM `{latest_date}`
@@ -877,9 +975,58 @@ class collector_api():
                         END
                     ) * 30.0 AS date_score,
 
-                    -- 하이브리드 스코어 (100점 스케일)
+                    -- 하이브리드 스코어 (모멘텀 60점 + 평균회귀 40점 = 100점 만점)
                     (
-                        -- 모멘텀 브레이크아웃 (60점 만점)
+                        -- 모멘텀 (60점 만점)
+                        CASE
+                            WHEN volume > vol20 * 2.0 THEN 20
+                            WHEN volume > vol20 * 1.5 THEN 15
+                            WHEN volume > vol20 * 1.2 THEN 10
+                            ELSE 5
+                        END +
+                        CASE
+                            WHEN clo5 > clo20 AND clo20 > clo60 THEN 20
+                            WHEN clo5 > clo20 THEN 15
+                            ELSE 5
+                        END +
+                        CASE
+                            WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20
+                            WHEN atr14 > 0 AND (high - low) > atr14 THEN 15
+                            ELSE 10
+                        END +
+                        -- 평균회귀 (40점 만점)
+                        CASE
+                            WHEN rsi14 <= 30 THEN 15
+                            WHEN rsi14 <= 40 THEN 10
+                            WHEN rsi14 <= 50 THEN 5
+                            ELSE 0
+                        END +
+                        CASE
+                            WHEN bb_lower > 0 AND close <= bb_lower THEN 15
+                            WHEN bb_lower > 0 AND close <= bb_lower * 1.02 THEN 10
+                            WHEN bb_middle > 0 AND close < bb_middle THEN 5
+                            ELSE 0
+                        END +
+                        CASE
+                            WHEN close > clo20 * 0.95 AND close < clo20 * 1.0 THEN 10
+                            WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8
+                            ELSE 3
+                        END
+                    ) AS hybrid_score,
+
+                    -- 최종 혼합 스코어 (날짜 20% + 하이브리드 80% 가중 합산)
+                    (
+                        -- 날짜 기반 (20%)
+                        (
+                            (volume / NULLIF(vol5, 0)) *
+                            (clo5 / NULLIF(clo20, 0)) *
+                            CASE
+                                WHEN volume > vol20 * 1.5 THEN 1.2
+                                ELSE 1.0
+                            END
+                        ) * 30.0 * 0.2
+                        +
+                        -- 하이브리드 (80%)
                         (
                             CASE
                                 WHEN volume > vol20 * 2.0 THEN 20
@@ -896,11 +1043,7 @@ class collector_api():
                                 WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20
                                 WHEN atr14 > 0 AND (high - low) > atr14 THEN 15
                                 ELSE 10
-                            END
-                        ) * 0.6
-                        +
-                        -- 평균회귀 (40점 만점)
-                        (
+                            END +
                             CASE
                                 WHEN rsi14 <= 30 THEN 15
                                 WHEN rsi14 <= 40 THEN 10
@@ -918,64 +1061,7 @@ class collector_api():
                                 WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8
                                 ELSE 3
                             END
-                        ) * 0.4
-                    ) * (100.0 / 52.0) AS hybrid_score,
-
-                    -- 최종 혼합 스코어 (날짜 20% + 하이브리드 80% 가중 합산)
-                    (
-                        -- 날짜 기반 (20%)
-                        (
-                            (volume / NULLIF(vol5, 0)) *
-                            (clo5 / NULLIF(clo20, 0)) *
-                            CASE
-                                WHEN volume > vol20 * 1.5 THEN 1.2
-                                ELSE 1.0
-                            END
-                        ) * 30.0 * 0.2
-                        +
-                        -- 하이브리드 (80%)
-                        (
-                            (
-                                (
-                                    CASE
-                                        WHEN volume > vol20 * 2.0 THEN 20
-                                        WHEN volume > vol20 * 1.5 THEN 15
-                                        WHEN volume > vol20 * 1.2 THEN 10
-                                        ELSE 5
-                                    END +
-                                    CASE
-                                        WHEN clo5 > clo20 AND clo20 > clo60 THEN 20
-                                        WHEN clo5 > clo20 THEN 15
-                                        ELSE 5
-                                    END +
-                                    CASE
-                                        WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20
-                                        WHEN atr14 > 0 AND (high - low) > atr14 THEN 15
-                                        ELSE 10
-                                    END
-                                ) * 0.6
-                                +
-                                (
-                                    CASE
-                                        WHEN rsi14 <= 30 THEN 15
-                                        WHEN rsi14 <= 40 THEN 10
-                                        WHEN rsi14 <= 50 THEN 5
-                                        ELSE 0
-                                    END +
-                                    CASE
-                                        WHEN bb_lower > 0 AND close <= bb_lower THEN 15
-                                        WHEN bb_lower > 0 AND close <= bb_lower * 1.02 THEN 10
-                                        WHEN bb_middle > 0 AND close < bb_middle THEN 5
-                                        ELSE 0
-                                    END +
-                                    CASE
-                                        WHEN close > clo20 * 0.95 AND close < clo20 * 1.0 THEN 10
-                                        WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8
-                                        ELSE 3
-                                    END
-                                ) * 0.4
-                            ) * (100.0 / 52.0) * 0.8
-                        )
+                        ) * 0.8
                     ) AS combined_score
 
                 FROM `{latest_date}`

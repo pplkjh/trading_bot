@@ -120,7 +120,7 @@ def get_day_name():
 
 if __name__ == "__main__":
     today = datetime.date.today()
-    today_str = today.strftime('%Y년 %m월 %d일')
+    today_str = f"{today.year}년 {today.month:02d}월 {today.day:02d}일"
     day_name = get_day_name()
 
     if is_trading_day():

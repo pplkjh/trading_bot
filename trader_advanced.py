@@ -146,8 +146,8 @@ class TraderAdvanced(QMainWindow):
         # 멀티팩터 최소 스코어 (0-100)
         self.min_factor_score = 90.0
 
-        # 최대 동시 보유 종목 수
-        self.max_positions = 10
+        # 최대 동시 보유 종목 수 (예수금이 허락하는 한 무제한)
+        self.max_positions = 999
 
         # 일일 최대 손실 한도 (%)
         self.max_daily_loss_pct = -8.0

@@ -8,7 +8,12 @@ from library import cf
 from pandas import DataFrame
 from .open_api import escape_percentage
 from library.logging_pack import logger
-from library.technical_indicators import calculate_rsi, calculate_bollinger_bands, calculate_atr
+from library.technical_indicators import (
+    calculate_rsi, calculate_bollinger_bands, calculate_atr,
+    calculate_macd, calculate_adx, calculate_obv, calculate_mfi, calculate_cmf,
+    calculate_ichimoku, calculate_pivot_points, detect_candle_pattern,
+    calculate_bollinger_bandwidth
+)
 import pandas as pd
 
 MARKET_KOSPI = 0
@@ -108,21 +113,68 @@ class daily_buy_list():
                         # 시간순 정렬 (오래된 것 → 최신 순)
                         df_120 = df_120.sort_values('date').reset_index(drop=True)
 
-                        # 기술적 지표 계산
+                        # 기술적 지표 계산 (기존 5개)
                         rsi14 = calculate_rsi(df_120['close'], 14)
                         bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(df_120['close'], 20)
                         atr14 = calculate_atr(df_120['high'], df_120['low'], df_120['close'], 14)
+
+                        # v2 확장 지표 계산 (신규 20개)
+                        macd, macd_signal, macd_histogram = calculate_macd(df_120['close'])
+                        adx, plus_di, minus_di = calculate_adx(df_120['high'], df_120['low'], df_120['close'])
+                        obv = calculate_obv(df_120['close'], df_120['volume'])
+                        mfi14 = calculate_mfi(df_120['high'], df_120['low'], df_120['close'], df_120['volume'], 14)
+                        cmf20 = calculate_cmf(df_120['high'], df_120['low'], df_120['close'], df_120['volume'], 20)
+                        ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_a, ichimoku_senkou_b = calculate_ichimoku(
+                            df_120['high'], df_120['low'], df_120['close'])
+                        if len(df_120) >= 2:
+                            pivot, pivot_s1, pivot_s2, pivot_r1, pivot_r2 = calculate_pivot_points(
+                                float(df_120['high'].iloc[-2]),
+                                float(df_120['low'].iloc[-2]),
+                                float(df_120['close'].iloc[-2])
+                            )
+                            candle_pattern_score = detect_candle_pattern(
+                                float(df_120['open'].iloc[-1]), float(df_120['high'].iloc[-1]),
+                                float(df_120['low'].iloc[-1]), float(df_120['close'].iloc[-1]),
+                                float(df_120['open'].iloc[-2]), float(df_120['high'].iloc[-2]),
+                                float(df_120['low'].iloc[-2]), float(df_120['close'].iloc[-2])
+                            )
+                        else:
+                            pivot, pivot_s1, pivot_s2, pivot_r1, pivot_r2 = 0.0, 0.0, 0.0, 0.0, 0.0
+                            candle_pattern_score = 0.0
+                        bb_bandwidth = calculate_bollinger_bandwidth(bb_upper, bb_middle, bb_lower)
                     else:
                         # 데이터 부족 시 기본값
                         rsi14, bb_upper, bb_middle, bb_lower, atr14 = 50.0, 0.0, 0.0, 0.0, 0.0
+                        macd, macd_signal, macd_histogram = 0.0, 0.0, 0.0
+                        adx, plus_di, minus_di = 0.0, 0.0, 0.0
+                        obv, mfi14, cmf20 = 0.0, 50.0, 0.0
+                        ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_a, ichimoku_senkou_b = 0.0, 0.0, 0.0, 0.0
+                        pivot, pivot_s1, pivot_s2, pivot_r1, pivot_r2 = 0.0, 0.0, 0.0, 0.0, 0.0
+                        candle_pattern_score, bb_bandwidth = 0.0, 0.0
 
                 except Exception as e:
                     # 에러 발생 시 기본값
                     logger.debug(f"{code_name} 기술적 지표 계산 실패: {e}")
                     rsi14, bb_upper, bb_middle, bb_lower, atr14 = 50.0, 0.0, 0.0, 0.0, 0.0
+                    macd, macd_signal, macd_histogram = 0.0, 0.0, 0.0
+                    adx, plus_di, minus_di = 0.0, 0.0, 0.0
+                    obv, mfi14, cmf20 = 0.0, 50.0, 0.0
+                    ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_a, ichimoku_senkou_b = 0.0, 0.0, 0.0, 0.0
+                    pivot, pivot_s1, pivot_s2, pivot_r1, pivot_r2 = 0.0, 0.0, 0.0, 0.0, 0.0
+                    candle_pattern_score, bb_bandwidth = 0.0, 0.0
 
                 # 3. 오늘 데이터에 기술적 지표 추가
-                rows_with_indicators = [tuple(row) + (rsi14, bb_upper, bb_middle, bb_lower, atr14) for row in rows]
+                rows_with_indicators = [
+                    tuple(row) + (
+                        rsi14, bb_upper, bb_middle, bb_lower, atr14,
+                        macd, macd_signal, macd_histogram,
+                        adx, plus_di, minus_di,
+                        obv, mfi14, cmf20,
+                        ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_a, ichimoku_senkou_b,
+                        pivot, pivot_s1, pivot_s2, pivot_r1, pivot_r2,
+                        candle_pattern_score, bb_bandwidth
+                    ) for row in rows
+                ]
                 multi_list += rows_with_indicators
 
             if len(multi_list) != 0:
@@ -138,8 +190,16 @@ class daily_buy_list():
                                              'yes_clo100', 'yes_clo120',
                                              'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
                                              'vol100', 'vol120',
-                                             # 기술적 지표 추가
-                                             'rsi14', 'bb_upper', 'bb_middle', 'bb_lower', 'atr14'
+                                             # 기술적 지표 (기존 5개)
+                                             'rsi14', 'bb_upper', 'bb_middle', 'bb_lower', 'atr14',
+                                             # v2 확장 지표 (신규 20개)
+                                             'macd', 'macd_signal', 'macd_histogram',
+                                             'adx', 'plus_di', 'minus_di',
+                                             'obv', 'mfi14', 'cmf20',
+                                             'ichimoku_tenkan', 'ichimoku_kijun',
+                                             'ichimoku_senkou_a', 'ichimoku_senkou_b',
+                                             'pivot', 'pivot_s1', 'pivot_s2', 'pivot_r1', 'pivot_r2',
+                                             'candle_pattern_score', 'bb_bandwidth'
                                              ])
                 df_temp.to_sql(
                     name=self.date_rows[k][0],

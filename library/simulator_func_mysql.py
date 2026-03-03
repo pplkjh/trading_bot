@@ -184,6 +184,23 @@ class simulator_func_mysql:
             self.invest_limit_rate = 1.03
             self.invest_min_limit_rate = 0.97
 
+        elif self.simul_num == 3:
+            # v2 확장 Scoring 시스템 (250점 만점, HybridStrategyV2)
+            self.simul_start_date = "20230102"
+            self.use_min = False
+            self.only_nine_buy = False
+            self.db_to_realtime_daily_buy_list_num = 21  # HybridStrategyV2 Python 점수 기반
+            self.sell_list_num = 20                       # 스윙 익절/손절 + MA 데드크로스
+            self.start_invest_price = 10000000
+            self.invest_unit = 1000000   # 1M씩 분산
+            self.limit_money = 300000
+            self.sell_point = 6          # 빠른 익절 6% (자동매매 장점 활용)
+            self.losscut_point = -3      # 타이트 손절 -3% (갭하락 피해 최소화)
+            self.max_positions = 999     # 예수금이 허락하는 한 무제한 보유
+            self.invest_limit_rate = 1.02
+            self.invest_min_limit_rate = 0.97
+            self.use_hybrid_v2 = True
+
         # ==================== 기존 전략 (20번대로 이동) ====================
 
         elif self.simul_num == 21:
@@ -792,62 +809,44 @@ class simulator_func_mysql:
         if self.db_to_realtime_daily_buy_list_num == 1:
             sql = '''
                 SELECT a.*,
-                    -- 하이브리드 스코어 계산 (모멘텀 60% + 평균회귀 40%)
+                    -- 하이브리드 스코어 (모멘텀 60점 + 평균회귀 40점 = 100점 만점)
                     (
-                        -- 모멘텀 브레이크아웃 스코어 (60점 만점)
-                        (
-                            -- 거래량 조건 (20점)
-                            CASE
-                                WHEN a.volume > a.vol20 * 2.0 THEN 20
-                                WHEN a.volume > a.vol20 * 1.5 THEN 15
-                                WHEN a.volume > a.vol20 * 1.2 THEN 10
-                                ELSE 5
-                            END +
-
-                            -- 모멘텀 조건 (20점)
-                            CASE
-                                WHEN a.clo5 > a.clo20 AND a.clo20 > a.clo60 THEN 20  -- 강한 상승
-                                WHEN a.clo5 > a.clo20 THEN 15  -- 상승
-                                ELSE 5
-                            END +
-
-                            -- ATR 기반 변동성 돌파 (20점)
-                            CASE
-                                WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 * 1.5 THEN 20
-                                WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 THEN 15
-                                ELSE 10
-                            END
-                        ) * 0.6
-
-                        +
-
-                        -- 평균회귀 스코어 (40점 만점)
-                        (
-                            -- RSI 과매도 (15점)
-                            CASE
-                                WHEN a.rsi14 <= 30 THEN 15
-                                WHEN a.rsi14 <= 40 THEN 10
-                                WHEN a.rsi14 <= 50 THEN 5
-                                ELSE 0
-                            END +
-
-                            -- 볼린저 밴드 하단 근처 (15점)
-                            CASE
-                                WHEN a.bb_lower > 0 AND a.close <= a.bb_lower THEN 15
-                                WHEN a.bb_lower > 0 AND a.close <= a.bb_lower * 1.02 THEN 10
-                                WHEN a.bb_middle > 0 AND a.close < a.bb_middle THEN 5
-                                ELSE 0
-                            END +
-
-                            -- 지지선 반등 (10점)
-                            CASE
-                                WHEN a.close > a.clo20 * 0.95 AND a.close < a.clo20 * 1.0 THEN 10
-                                WHEN a.close > a.clo60 * 0.95 AND a.close < a.clo60 * 1.0 THEN 8
-                                ELSE 3
-                            END
-                        ) * 0.4
-
-                    ) * (100.0 / 52.0) AS calculated_score  -- 100점 스케일로 정규화
+                        -- 모멘텀 (60점 만점)
+                        CASE
+                            WHEN a.volume > a.vol20 * 2.0 THEN 20
+                            WHEN a.volume > a.vol20 * 1.5 THEN 15
+                            WHEN a.volume > a.vol20 * 1.2 THEN 10
+                            ELSE 5
+                        END +
+                        CASE
+                            WHEN a.clo5 > a.clo20 AND a.clo20 > a.clo60 THEN 20
+                            WHEN a.clo5 > a.clo20 THEN 15
+                            ELSE 5
+                        END +
+                        CASE
+                            WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 * 1.5 THEN 20
+                            WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 THEN 15
+                            ELSE 10
+                        END +
+                        -- 평균회귀 (40점 만점)
+                        CASE
+                            WHEN a.rsi14 <= 30 THEN 15
+                            WHEN a.rsi14 <= 40 THEN 10
+                            WHEN a.rsi14 <= 50 THEN 5
+                            ELSE 0
+                        END +
+                        CASE
+                            WHEN a.bb_lower > 0 AND a.close <= a.bb_lower THEN 15
+                            WHEN a.bb_lower > 0 AND a.close <= a.bb_lower * 1.02 THEN 10
+                            WHEN a.bb_middle > 0 AND a.close < a.bb_middle THEN 5
+                            ELSE 0
+                        END +
+                        CASE
+                            WHEN a.close > a.clo20 * 0.95 AND a.close < a.clo20 * 1.0 THEN 10
+                            WHEN a.close > a.clo60 * 0.95 AND a.close < a.clo60 * 1.0 THEN 8
+                            ELSE 3
+                        END
+                    ) AS calculated_score
                 FROM `''' + date_rows_yesterday + '''` a
                 WHERE
                     -- 기본 필터
@@ -894,9 +893,56 @@ class simulator_func_mysql:
                         END
                     ) * 30.0 AS date_score,
 
-                    -- 하이브리드 스코어 (원본, 100점 스케일)
+                    -- 하이브리드 스코어 (모멘텀 60점 + 평균회귀 40점 = 100점 만점)
                     (
-                        -- 모멘텀 브레이크아웃 (60점 만점)
+                        CASE
+                            WHEN a.volume > a.vol20 * 2.0 THEN 20
+                            WHEN a.volume > a.vol20 * 1.5 THEN 15
+                            WHEN a.volume > a.vol20 * 1.2 THEN 10
+                            ELSE 5
+                        END +
+                        CASE
+                            WHEN a.clo5 > a.clo20 AND a.clo20 > a.clo60 THEN 20
+                            WHEN a.clo5 > a.clo20 THEN 15
+                            ELSE 5
+                        END +
+                        CASE
+                            WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 * 1.5 THEN 20
+                            WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 THEN 15
+                            ELSE 10
+                        END +
+                        CASE
+                            WHEN a.rsi14 <= 30 THEN 15
+                            WHEN a.rsi14 <= 40 THEN 10
+                            WHEN a.rsi14 <= 50 THEN 5
+                            ELSE 0
+                        END +
+                        CASE
+                            WHEN a.bb_lower > 0 AND a.close <= a.bb_lower THEN 15
+                            WHEN a.bb_lower > 0 AND a.close <= a.bb_lower * 1.02 THEN 10
+                            WHEN a.bb_middle > 0 AND a.close < a.bb_middle THEN 5
+                            ELSE 0
+                        END +
+                        CASE
+                            WHEN a.close > a.clo20 * 0.95 AND a.close < a.clo20 * 1.0 THEN 10
+                            WHEN a.close > a.clo60 * 0.95 AND a.close < a.clo60 * 1.0 THEN 8
+                            ELSE 3
+                        END
+                    ) AS hybrid_score,
+
+                    -- 최종 혼합 스코어 (날짜 20% + 하이브리드 80% 가중 합산)
+                    (
+                        -- 날짜 기반 (20%)
+                        (
+                            (a.volume / NULLIF(a.vol5, 0)) *
+                            (a.clo5 / NULLIF(a.clo20, 0)) *
+                            CASE
+                                WHEN a.volume > a.vol20 * 1.5 THEN 1.2
+                                ELSE 1.0
+                            END
+                        ) * 30.0 * 0.2
+                        +
+                        -- 하이브리드 (80%)
                         (
                             CASE
                                 WHEN a.volume > a.vol20 * 2.0 THEN 20
@@ -913,11 +959,7 @@ class simulator_func_mysql:
                                 WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 * 1.5 THEN 20
                                 WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 THEN 15
                                 ELSE 10
-                            END
-                        ) * 0.6
-                        +
-                        -- 평균회귀 (40점 만점)
-                        (
+                            END +
                             CASE
                                 WHEN a.rsi14 <= 30 THEN 15
                                 WHEN a.rsi14 <= 40 THEN 10
@@ -935,65 +977,6 @@ class simulator_func_mysql:
                                 WHEN a.close > a.clo60 * 0.95 AND a.close < a.clo60 * 1.0 THEN 8
                                 ELSE 3
                             END
-                        ) * 0.4
-                    ) * (100.0 / 52.0) AS hybrid_score,
-
-                    -- 최종 혼합 스코어 (날짜 20% + 하이브리드 80% 가중 합산)
-                    (
-                        -- 날짜 기반 (20%)
-                        (
-                            (a.volume / NULLIF(a.vol5, 0)) *
-                            (a.clo5 / NULLIF(a.clo20, 0)) *
-                            CASE
-                                WHEN a.volume > a.vol20 * 1.5 THEN 1.2
-                                ELSE 1.0
-                            END
-                        ) * 30.0 * 0.2
-                        +
-                        -- 하이브리드 (80%) - 원본 가중치 + 정규화 방식
-                        (
-                            (
-                                -- 모멘텀 브레이크아웃 (60점 만점)
-                                (
-                                    CASE
-                                        WHEN a.volume > a.vol20 * 2.0 THEN 20
-                                        WHEN a.volume > a.vol20 * 1.5 THEN 15
-                                        WHEN a.volume > a.vol20 * 1.2 THEN 10
-                                        ELSE 5
-                                    END +
-                                    CASE
-                                        WHEN a.clo5 > a.clo20 AND a.clo20 > a.clo60 THEN 20
-                                        WHEN a.clo5 > a.clo20 THEN 15
-                                        ELSE 5
-                                    END +
-                                    CASE
-                                        WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 * 1.5 THEN 20
-                                        WHEN a.atr14 > 0 AND (a.high - a.low) > a.atr14 THEN 15
-                                        ELSE 10
-                                    END
-                                ) * 0.6
-                                +
-                                -- 평균회귀 (40점 만점)
-                                (
-                                    CASE
-                                        WHEN a.rsi14 <= 30 THEN 15
-                                        WHEN a.rsi14 <= 40 THEN 10
-                                        WHEN a.rsi14 <= 50 THEN 5
-                                        ELSE 0
-                                    END +
-                                    CASE
-                                        WHEN a.bb_lower > 0 AND a.close <= a.bb_lower THEN 15
-                                        WHEN a.bb_lower > 0 AND a.close <= a.bb_lower * 1.02 THEN 10
-                                        WHEN a.bb_middle > 0 AND a.close < a.bb_middle THEN 5
-                                        ELSE 0
-                                    END +
-                                    CASE
-                                        WHEN a.close > a.clo20 * 0.95 AND a.close < a.clo20 * 1.0 THEN 10
-                                        WHEN a.close > a.clo60 * 0.95 AND a.close < a.clo60 * 1.0 THEN 8
-                                        ELSE 3
-                                    END
-                                ) * 0.4
-                            ) * (100.0 / 52.0)
                         ) * 0.8
                     ) AS calculated_score
 
@@ -1176,6 +1159,119 @@ class simulator_func_mysql:
                                                             "and close < '%s' group by code limit 10"
 
             realtime_daily_buy_list = self.engine_daily_buy_list.execute(sql % (self.invest_unit)).fetchall()
+
+        # 🤖 전략 21: HybridStrategyV2 (250점 만점 Python 점수 기반)
+        elif self.db_to_realtime_daily_buy_list_num == 21:
+            import pandas as pd
+            from library.hybrid_strategy_v2 import HybridStrategyV2
+            strategy_v2 = HybridStrategyV2()
+
+            # SQL 사전 필터: 모멘텀/추세/과매도 신호 기준 상위 200개 종목만 선별
+            # (전 종목 df_120 로딩은 너무 느림: 2300개 × 768일)
+            try:
+                candidates_sql = f"""
+                    SELECT a.* FROM `{date_rows_today}` a
+                    WHERE NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code=b.code)
+                    AND a.close > 0 AND a.close < {self.invest_unit}
+                    AND a.volume > 0 AND a.vol20 > 0
+                    ORDER BY (
+                        (CASE WHEN a.adx > 20 THEN 1 ELSE 0 END) +
+                        (CASE WHEN a.clo5 > a.clo20 THEN 1 ELSE 0 END) +
+                        (CASE WHEN a.rsi14 BETWEEN 30 AND 55 THEN 1 ELSE 0 END) +
+                        (CASE WHEN a.macd > a.macd_signal THEN 1 ELSE 0 END) +
+                        (CASE WHEN a.cmf20 > 0 THEN 1 ELSE 0 END)
+                    ) DESC
+                    LIMIT 200
+                """
+                candidates = self.engine_daily_buy_list.execute(candidates_sql).fetchall()
+            except Exception:
+                candidates = []
+
+            # dart 테이블에서 날짜 기준 연도 재무 데이터 로드 (역사적 정확성)
+            # 사업보고서 공시: 보통 3~4월 → 1~3월은 전전년도, 4월~ 는 전년도 사용
+            fundamental_dict = {}
+            try:
+                _year = int(date_rows_today[:4])
+                _month = int(date_rows_today[4:6])
+                _bsns_year = str(_year - 2 if _month <= 3 else _year - 1)
+                dart_sql = (
+                    "SELECT code, account_nm, thstrm_amount FROM dart "
+                    "WHERE bsns_year = '{}' AND fs_nm = '재무제표' "
+                    "AND account_nm IN ("
+                    "'매출액','수익(매출액)','영업이익','영업이익(손실)',"
+                    "'당기순이익','당기순이익(손실)','자본총계')"
+                ).format(_bsns_year)
+                dart_rows = self.engine_daily_buy_list.execute(dart_sql).fetchall()
+                for dr in dart_rows:
+                    _code = dr[0]
+                    _acct = dr[1]
+                    _amt = float(dr[2]) / 1e8 if dr[2] else 0.0  # 억원 단위
+                    if _code not in fundamental_dict:
+                        fundamental_dict[_code] = {}
+                    if '매출액' in _acct or '수익' in _acct:
+                        fundamental_dict[_code]['sales'] = _amt
+                    elif '영업이익' in _acct:
+                        fundamental_dict[_code]['operating_profit'] = _amt
+                    elif '당기순이익' in _acct:
+                        fundamental_dict[_code]['net_profit'] = _amt
+                    elif _acct == '자본총계':
+                        fundamental_dict[_code]['total_equity'] = _amt
+                # ROE 계산
+                for _fd in fundamental_dict.values():
+                    _eq = _fd.get('total_equity', 0)
+                    _np = _fd.get('net_profit', 0)
+                    _fd['roe'] = (_np / _eq * 100) if _eq and _eq != 0 else 0.0
+            except Exception:
+                pass
+
+            # kospi_index 최근 20일 close 로드 (없으면 None)
+            market_data = None
+            try:
+                ki_df = pd.read_sql(
+                    "SELECT close FROM kospi_index ORDER BY date DESC LIMIT 20",
+                    self.engine_daily_craw
+                )
+                if len(ki_df) >= 20:
+                    market_data = ki_df['close'].iloc[::-1].reset_index(drop=True)
+            except Exception:
+                pass
+
+            # 종목별 Python 점수 계산
+            scored_list = []
+            for row in candidates:
+                code = row['code']
+                code_name = row['code_name']
+                try:
+                    df_120 = pd.read_sql(
+                        f"SELECT * FROM `{code_name}` WHERE code = '{code}'"
+                        f" AND date <= '{date_rows_today}' ORDER BY date DESC LIMIT 120",
+                        self.engine_daily_craw
+                    )
+                    if len(df_120) < 2:
+                        continue
+                    df_120 = df_120.sort_values('date').reset_index(drop=True)
+                except Exception:
+                    continue
+
+                fd = fundamental_dict.get(code)
+                row_dict = dict(row)  # RowProxy → dict (.get() 사용 가능)
+                # fundamental_data=None으로 넘겨 PER/PBR 기반 필터 우회
+                # (dart 데이터는 roe/sales만 있어 PER/PBR 필터 통과 불가)
+                total_score = strategy_v2.calculate_total_score(row_dict, df_120, None, market_data)
+                # dart ROE 보너스 별도 계산 (펀더멘털 가산점)
+                if fd and total_score >= 0:
+                    roe = fd.get('roe', 0) or 0
+                    if roe >= 15:
+                        total_score += 15
+                    elif roe >= 5:
+                        total_score += int((roe - 5) / 10 * 15)
+
+                if total_score >= cf.v2_min_score:
+                    scored_list.append((row_dict, total_score))
+
+            scored_list.sort(key=lambda x: x[1], reverse=True)
+            # dict 리스트: DataFrame(list_of_dicts, columns=[...]) 로 45컬럼 처리
+            realtime_daily_buy_list = [item[0] for item in scored_list]
 
         # 🔧 전략 100: 심플 프로토타입 전략 (이동평균 기반)
         # 기본 이동평균 + 거래량 조합
@@ -1749,6 +1845,16 @@ class simulator_func_mysql:
                 "AND ((ALLDB.present_price - BEFORE_DAY.close) / BEFORE_DAY.close * 100 < '%s' " \
                 "OR ALLDB.rate <= '%s')"
            sell_list = self.engine_simulator.execute(sql % (self.diff_point * (-1), self.losscut_point)).fetchall()
+
+        # 스윙 매도: 익절/손절 OR 5/20 데드크로스 (simul_num=3 전용)
+        # all_item_db 컬럼은 ma5, ma20 (clo5/clo20 아님)
+        elif self.sell_list_num == 20:
+            sql = "SELECT code, code_name, rate, present_price, valuation_profit FROM all_item_db " \
+                  "WHERE (sell_date = '0') " \
+                  "AND ((rate >= '%s') OR (rate <= '%s') OR (ma5 < ma20)) GROUP BY code"
+            sell_list = self.engine_simulator.execute(
+                sql % (self.sell_point, self.losscut_point)
+            ).fetchall()
 
         # 🚀 고급 통합 전략: exit_strategy.py 사용 (ATR 기반 동적 손절/익절)
         elif self.sell_list_num == 100:

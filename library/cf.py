@@ -11,10 +11,10 @@ db_port='3306'
 # 모의 투자 계좌번호를 넣는다. 모의 투자 계좌는 3개월에 한번씩 만료 되기 때문에 3개월 이용 후 재신청 하게 되면 계좌 번호가 변경된다.
 # 이때 계정이 존재 하지 않는다!!! 는 에러가 뜰텐데 그때 변경 된 계좌번호를 다시 아래 imi1_account 변수에 넣으면 된다.
 # 계좌 번호 쉽게 알아보는법:  콘솔창에 보면 상단 부분에 로그로 "계좌번호 :  " 옆에 출력이 된다
-imi1_accout = "8115136011" # [모의투자 계좌번호를 넣어주세요. 주의! 10자리 계좌번호입니다. 모의투자는 8자리 계좌번호 뒤에 11, 실전은 10이 붙어 있음]
+imi1_accout = "8120380811" # [모의투자 계좌번호를 넣어주세요. 주의! 10자리 계좌번호입니다. 모의투자는 8자리 계좌번호 뒤에 11, 실전은 10이 붙어 있음]
 
 # imi1_simul_num은 알고리즘의 번호이다. 새로운 알고리즘으로 새롭게 database를 구축해서 운영하고 싶을 경우 번호를 2, 3, 4 ... 순차적으로 올려 주면 된다.
-imi1_simul_num=1
+imi1_simul_num=3
 imi1_db_name = "jackbot"+str(imi1_simul_num)+"_imi1"
 
 
@@ -53,4 +53,21 @@ use_etf = False
 use_min_crawler = False
 
 # dart api key
-dart_api_key = '8c44ace91948ce4d34b8ba27051836c2c8c35257'
+# dart_api_key = '8c44ace91948ce4d34b8ba27051836c2c8c35257'
+dart_api_key = 'cc3e62c424689322f224f18b4f5ab5f6bfdb5497'
+
+# ===== v2 확장 Scoring 설정 (simul_num=3 전용) =====
+# 250점 만점 중 최소 매수 기준점
+v2_min_score = 90
+
+# 펀더멘털 사전 필터 사용 여부
+v2_fundamental_filter = True
+
+# 펀더멘털 최소 점수 (50점 만점 중)
+v2_fundamental_min_score = 15
+
+# 펀더멘털 수집 주기 (일)
+v2_fundamental_collect_interval = 7
+
+# 동적 가중치 (ADX 기반)
+v2_dynamic_weights = True

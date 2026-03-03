@@ -177,52 +177,42 @@ if table_exists > 0:
         rsi14,
 
         (
-            (
-                CASE
-                    WHEN volume > vol20 * 2.0 THEN 20
-                    WHEN volume > vol20 * 1.5 THEN 15
-                    WHEN volume > vol20 * 1.2 THEN 10
-                    ELSE 5
-                END +
-
-                CASE
-                    WHEN clo5 > clo20 AND clo20 > clo60 THEN 20
-                    WHEN clo5 > clo20 THEN 15
-                    ELSE 5
-                END +
-
-                CASE
-                    WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20
-                    WHEN atr14 > 0 AND (high - low) > atr14 THEN 15
-                    ELSE 10
-                END
-            ) * 0.6
-
-            +
-
-            (
-                CASE
-                    WHEN rsi14 <= 30 THEN 15
-                    WHEN rsi14 <= 40 THEN 10
-                    WHEN rsi14 <= 50 THEN 5
-                    ELSE 0
-                END +
-
-                CASE
-                    WHEN bb_lower > 0 AND close <= bb_lower THEN 15
-                    WHEN bb_lower > 0 AND close <= bb_lower * 1.02 THEN 10
-                    WHEN bb_middle > 0 AND close < bb_middle THEN 5
-                    ELSE 0
-                END +
-
-                CASE
-                    WHEN close > clo20 * 0.95 AND close < clo20 * 1.0 THEN 10
-                    WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8
-                    ELSE 3
-                END
-            ) * 0.4
-
-        ) * (100.0 / 52.0) as composite_score,
+            -- 모멘텀 (60점 만점)
+            CASE
+                WHEN volume > vol20 * 2.0 THEN 20
+                WHEN volume > vol20 * 1.5 THEN 15
+                WHEN volume > vol20 * 1.2 THEN 10
+                ELSE 5
+            END +
+            CASE
+                WHEN clo5 > clo20 AND clo20 > clo60 THEN 20
+                WHEN clo5 > clo20 THEN 15
+                ELSE 5
+            END +
+            CASE
+                WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20
+                WHEN atr14 > 0 AND (high - low) > atr14 THEN 15
+                ELSE 10
+            END +
+            -- 평균회귀 (40점 만점)
+            CASE
+                WHEN rsi14 <= 30 THEN 15
+                WHEN rsi14 <= 40 THEN 10
+                WHEN rsi14 <= 50 THEN 5
+                ELSE 0
+            END +
+            CASE
+                WHEN bb_lower > 0 AND close <= bb_lower THEN 15
+                WHEN bb_lower > 0 AND close <= bb_lower * 1.02 THEN 10
+                WHEN bb_middle > 0 AND close < bb_middle THEN 5
+                ELSE 0
+            END +
+            CASE
+                WHEN close > clo20 * 0.95 AND close < clo20 * 1.0 THEN 10
+                WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8
+                ELSE 3
+            END
+        ) as composite_score,
 
         CASE
             WHEN rsi14 <= 30 AND bb_lower > 0 AND close <= bb_lower * 1.02 THEN 'mean_reversion'
