@@ -226,7 +226,21 @@ class TraderAdvanced(QMainWindow):
         try:
             logger.info("🔄 realtime_position_monitor 테이블 초기화 중...")
 
-            # 1. 테이블 초기화
+            # 1. 테이블 없으면 생성
+            self.open_api.engine_JB.execute("""
+                CREATE TABLE IF NOT EXISTS realtime_position_monitor (
+                    code VARCHAR(10) NOT NULL,
+                    code_name VARCHAR(50),
+                    entry_price INT DEFAULT 0,
+                    entry_date VARCHAR(10),
+                    current_price INT DEFAULT 0,
+                    highest_price INT DEFAULT 0,
+                    last_update DATETIME,
+                    PRIMARY KEY (code)
+                )
+            """)
+
+            # 2. 테이블 초기화
             self.open_api.engine_JB.execute("TRUNCATE TABLE realtime_position_monitor")
 
             # 2. all_item_db에서 현재 보유 종목 조회

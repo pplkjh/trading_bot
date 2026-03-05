@@ -686,41 +686,25 @@ class simulator_func_mysql:
         # check_item = 매수 했을 시 날짜가 찍혀 있다. 매수 하지 않았을 때는 0
         # composite_score 내림차순 정렬: 점수가 높은 종목부터 매수 (실제 트레이더만)
         if self.op == 'real':
-            # 실제 트레이더: composite_score로 정렬
-            sql = "select * from realtime_daily_buy_list where check_item = '%s' order by composite_score desc, code"
-        else:
-            # 시뮬레이터: composite_score 컬럼이 없으므로 code로만 정렬
-            sql = "select * from realtime_daily_buy_list where check_item = '%s' order by code"
-
-        logger.debug("SQL query: %s", sql % (0))
-        logger.debug("Using database engine: %s", self.engine_simulator.url)
-
-        realtime_daily_buy_list = self.engine_simulator.execute(sql % (0)).fetchall()
-        logger.debug("Query returned %d rows", len(realtime_daily_buy_list))
-
-        # 시뮬레이터와 실제 트레이더는 다른 테이블 구조를 가짐
-        if self.op == 'real':
-            # 실제 트레이더: strategy_type, composite_score, volume_ratio 포함 (45개)
-            self.df_realtime_daily_buy_list = DataFrame(realtime_daily_buy_list,
-                                                        columns=['code', 'code_name', 'date', 'check_item',
-                                                                 'd1_diff_rate', 'close', 'open',
-                                                                 'high', 'low',
-                                                                 'volume',
-                                                                 'clo5', 'clo10', 'clo20', 'clo40', 'clo60', 'clo80',
-                                                                 'clo100', 'clo120',
-                                                                 "clo5_diff_rate", "clo10_diff_rate", "clo20_diff_rate",
-                                                                 "clo40_diff_rate", "clo60_diff_rate",
-                                                                 "clo80_diff_rate", "clo100_diff_rate",
-                                                                 "clo120_diff_rate",
-                                                                 'yes_clo5', 'yes_clo10', 'yes_clo20', 'yes_clo40',
-                                                                 'yes_clo60',
-                                                                 'yes_clo80',
-                                                                 'yes_clo100', 'yes_clo120',
-                                                                 'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
-                                                                 'vol100', 'vol120',
-                                                                 'strategy_type', 'composite_score', 'volume_ratio'])
+            # 실제 트레이더: composite_score로 정렬 (컬럼 없으면 code로 폴백)
+            import pandas as pd
+            logger.debug("Using database engine: %s", self.engine_simulator.url)
+            try:
+                sql = "select * from realtime_daily_buy_list where check_item = '0' order by composite_score desc, code"
+                logger.debug("SQL query: %s", sql)
+                self.df_realtime_daily_buy_list = pd.read_sql(sql, self.engine_simulator)
+            except Exception:
+                sql = "select * from realtime_daily_buy_list where check_item = '0' order by code"
+                logger.debug("composite_score 없음, code 정렬로 폴백: %s", sql)
+                self.df_realtime_daily_buy_list = pd.read_sql(sql, self.engine_simulator)
+            logger.debug("Query returned %d rows", len(self.df_realtime_daily_buy_list))
         else:
             # 시뮬레이터: rsi14, bb_upper, bb_middle, bb_lower, atr14 포함 (47개)
+            sql = "select * from realtime_daily_buy_list where check_item = '%s' order by code"
+            logger.debug("SQL query: %s", sql % (0))
+            logger.debug("Using database engine: %s", self.engine_simulator.url)
+            realtime_daily_buy_list = self.engine_simulator.execute(sql % (0)).fetchall()
+            logger.debug("Query returned %d rows", len(realtime_daily_buy_list))
             self.df_realtime_daily_buy_list = DataFrame(realtime_daily_buy_list,
                                                         columns=['date', 'check_item', 'code', 'code_name',
                                                                  'd1_diff_rate', 'close', 'open', 'high',
@@ -1267,6 +1251,7 @@ class simulator_func_mysql:
                         total_score += int((roe - 5) / 10 * 15)
 
                 if total_score >= cf.v2_min_score:
+                    row_dict['composite_score'] = total_score
                     scored_list.append((row_dict, total_score))
 
             scored_list.sort(key=lambda x: x[1], reverse=True)
@@ -1397,7 +1382,14 @@ class simulator_func_mysql:
             else:
                 # check_item 컬럼에 0 으로 setting
                 df_realtime_daily_buy_list['check_item'] = int(0)
-                df_realtime_daily_buy_list.to_sql('realtime_daily_buy_list', self.engine_simulator, if_exists='replace', index=False)
+                # num=21: row_dict 기반이므로 composite_score 포함 DataFrame으로 저장
+                if self.db_to_realtime_daily_buy_list_num == 21:
+                    import pandas as pd
+                    df_write = pd.DataFrame(realtime_daily_buy_list)
+                    df_write['check_item'] = int(0)
+                    df_write.to_sql('realtime_daily_buy_list', self.engine_simulator, if_exists='replace', index=False)
+                else:
+                    df_realtime_daily_buy_list.to_sql('realtime_daily_buy_list', self.engine_simulator, if_exists='replace', index=False)
 
                 # 현재 보유 중인 종목들은 삭제
                 sql = "delete from realtime_daily_buy_list where code in (select code from possessed_item)"
