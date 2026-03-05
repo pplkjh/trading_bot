@@ -1,10 +1,12 @@
 from sqlalchemy import create_engine, text
 import pymysql
 import datetime
+from library.cf import db_id, db_passwd, db_ip, db_port, imi1_db_name
 pymysql.install_as_MySQLdb()
 
-engine = create_engine('mysql+mysqldb://bot:qwer1232@localhost:3306/jackbot1_imi1', encoding='utf-8')
-engine_daily = create_engine('mysql+mysqldb://bot:qwer1232@localhost:3306/daily_buy_list', encoding='utf-8')
+_url = f'mysql+mysqldb://{db_id}:{db_passwd}@{db_ip}:{db_port}'
+engine = create_engine(f'{_url}/{imi1_db_name}', encoding='utf-8')
+engine_daily = create_engine(f'{_url}/daily_buy_list', encoding='utf-8')
 
 print("=" * 100)
 print("매수 후보 리스트 (realtime_daily_buy_list)")
@@ -12,7 +14,7 @@ print("=" * 100)
 
 # 1. 전체 매수 후보 확인 (점수순 정렬)
 sql = """
-SELECT code, code_name, composite_score, check_item, close, strategy_type
+SELECT code, code_name, composite_score, check_item, close
 FROM realtime_daily_buy_list
 ORDER BY composite_score DESC, code
 """
@@ -21,13 +23,13 @@ result = engine.execute(sql).fetchall()
 
 print(f"\n총 {len(result)}개 종목")
 print("-" * 100)
-print(f"{'순위':<5} {'종목코드':<10} {'종목명':<20} {'점수':<10} {'매수상태':<10} {'종가':<10} {'전략':<15}")
+print(f"{'순위':<5} {'종목코드':<10} {'종목명':<20} {'점수':<10} {'매수상태':<10} {'종가':<10}")
 print("-" * 100)
 
 for idx, row in enumerate(result, 1):
-    code, code_name, score, check_item, close, strategy = row
+    code, code_name, score, check_item, close = row
     status = "완료" if check_item == 1 else "대기"
-    print(f"{idx:<5} {code:<10} {code_name:<20} {score:<10.2f} {status:<10} {close:<10} {strategy:<15}")
+    print(f"{idx:<5} {code:<10} {code_name:<20} {score:<10.2f} {status:<10} {close:<10}")
 
 # 2. 매수 대기 중인 종목만 표시
 print("\n" + "=" * 100)
@@ -35,7 +37,7 @@ print("매수 대기 중인 종목 (check_item = 0)")
 print("=" * 100)
 
 sql_pending = """
-SELECT code, code_name, composite_score, close, strategy_type
+SELECT code, code_name, composite_score, close
 FROM realtime_daily_buy_list
 WHERE check_item = 0
 ORDER BY composite_score DESC, code
@@ -46,12 +48,12 @@ pending = engine.execute(sql_pending).fetchall()
 if len(pending) > 0:
     print(f"\n총 {len(pending)}개 종목 매수 대기 중")
     print("-" * 100)
-    print(f"{'순위':<5} {'종목코드':<10} {'종목명':<20} {'점수':<10} {'종가':<10} {'전략':<15}")
+    print(f"{'순위':<5} {'종목코드':<10} {'종목명':<20} {'점수':<10} {'종가':<10}")
     print("-" * 100)
 
     for idx, row in enumerate(pending, 1):
-        code, code_name, score, close, strategy = row
-        print(f"{idx:<5} {code:<10} {code_name:<20} {score:<10.2f} {close:<10} {strategy:<15}")
+        code, code_name, score, close = row
+        print(f"{idx:<5} {code:<10} {code_name:<20} {score:<10.2f} {close:<10}")
 else:
     print("\n매수 대기 중인 종목이 없습니다.")
 
@@ -61,7 +63,7 @@ print("매수 시도 완료 종목 (check_item = 1)")
 print("=" * 100)
 
 sql_done = """
-SELECT code, code_name, composite_score, close, strategy_type
+SELECT code, code_name, composite_score, close
 FROM realtime_daily_buy_list
 WHERE check_item = 1
 ORDER BY composite_score DESC, code
@@ -72,12 +74,12 @@ done = engine.execute(sql_done).fetchall()
 if len(done) > 0:
     print(f"\n총 {len(done)}개 종목 매수 시도 완료")
     print("-" * 100)
-    print(f"{'순위':<5} {'종목코드':<10} {'종목명':<20} {'점수':<10} {'종가':<10} {'전략':<15}")
+    print(f"{'순위':<5} {'종목코드':<10} {'종목명':<20} {'점수':<10} {'종가':<10}")
     print("-" * 100)
 
     for idx, row in enumerate(done, 1):
-        code, code_name, score, close, strategy = row
-        print(f"{idx:<5} {code:<10} {code_name:<20} {score:<10.2f} {close:<10} {strategy:<15}")
+        code, code_name, score, close = row
+        print(f"{idx:<5} {code:<10} {code_name:<20} {score:<10.2f} {close:<10}")
 else:
     print("\n매수 시도 완료된 종목이 없습니다.")
 

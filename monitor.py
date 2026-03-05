@@ -188,7 +188,7 @@ def get_portfolio_status(db_name: str):
 
                     if 'composite_score' in cols and pd.notna(row.get('composite_score')):
                         score = row['composite_score']
-                        print(f"  종합 스코어:  {score:>12.1f}/100")
+                        print(f"  종합 스코어:  {score:>12.1f}/200")
 
                     if 'volume_ratio' in cols and pd.notna(row.get('volume_ratio')):
                         vol_ratio = row['volume_ratio']
@@ -357,8 +357,8 @@ def get_daily_performance(db_name: str, days: int = 7):
 
 def main():
     parser = argparse.ArgumentParser(description='포트폴리오 모니터링')
-    parser.add_argument('--db', type=str, default='JackBot1_imi1',
-                        help='데이터베이스 이름 (기본: JackBot1_imi1)')
+    parser.add_argument('--db', type=str, default=imi1_db_name,
+                        help=f'데이터베이스 이름 (기본: {imi1_db_name})')
     parser.add_argument('--days', type=int, default=7,
                         help='성과 조회 기간 (기본: 7일)')
     parser.add_argument('--no-trader-check', action='store_true',
