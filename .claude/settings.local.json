@@ -15,7 +15,8 @@
       "Bash(xargs -I {} mysql -u bot -pqwer1232 daily_buy_list -e \"SHOW COLUMNS FROM \\\\`{}\\\\` LIKE ''%score%''\")",
       "Bash(findstr:*)",
       "Bash(del \"c:\\\\Users\\\\USER\\\\Desktop\\\\Personal project\\\\trading_bot\\\\scheduler\\\\evening_collect.xml\")",
-      "Bash(schtasks:*)"
+      "Bash(schtasks:*)",
+      "Bash(C:/Users/USER/anaconda3/envs/py37_32/python.exe -c \":*)"
     ]
   }
 }

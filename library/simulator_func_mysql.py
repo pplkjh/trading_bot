@@ -653,29 +653,9 @@ class simulator_func_mysql:
     # 최근 daily_buy_list의 날짜 테이블에서 code에 해당 하는 row만 가져오는 함수
     def get_daily_buy_list_by_code(self, code, date):
         # print("get_daily_buy_list_by_code 함수에 들어왔습니다!")
-
-        sql = "select * from `" + date + "` where code = '%s' group by code"
-
-        daily_buy_list = self.engine_daily_buy_list.execute(sql % (code)).fetchall()
-
-        df_daily_buy_list = DataFrame(daily_buy_list,
-                                      columns=['date', 'check_item',
-                                               'code', 'code_name', 'd1_diff_rate', 'close', 'open',
-                                               'high', 'low',
-                                               'volume',
-                                               'clo5', 'clo10', 'clo20', 'clo40', 'clo60', 'clo80',
-                                               'clo100', 'clo120',
-                                               "clo5_diff_rate", "clo10_diff_rate", "clo20_diff_rate",
-                                               "clo40_diff_rate", "clo60_diff_rate",
-                                               "clo80_diff_rate", "clo100_diff_rate",
-                                               "clo120_diff_rate",
-                                               'yes_clo5', 'yes_clo10', 'yes_clo20', 'yes_clo40',
-                                               'yes_clo60',
-                                               'yes_clo80',
-                                               'yes_clo100', 'yes_clo120',
-                                               'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
-                                               'vol100', 'vol120',
-                                               'rsi14', 'bb_upper', 'bb_middle', 'bb_lower', 'atr14'])
+        import pandas as pd
+        sql = "select * from `%s` where code = '%s' group by code" % (date, code)
+        df_daily_buy_list = pd.read_sql(sql, self.engine_daily_buy_list)
         return df_daily_buy_list
 
     # realtime_daily_buy_list 테이블의 매수 리스트를 가져오는 함수

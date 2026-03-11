@@ -97,35 +97,64 @@ def get_portfolio_status(db_name: str):
         SELECT
             code,
             code_name,
-            buy_date,
+            buy_date as trade_date,
             purchase_price,
+            holding_amount,
+            0 as sell_price,
+            0.0 as sell_rate,
+            0 as realized_profit,
             'BUY' as type
         FROM all_item_db
-        WHERE buy_date = %s
+        WHERE LEFT(buy_date, 8) = %s
 
         UNION ALL
 
         SELECT
             code,
             code_name,
-            sell_date as buy_date,
-            sell_price as purchase_price,
+            sell_date as trade_date,
+            purchase_price,
+            holding_amount,
+            sell_price,
+            sell_rate,
+            realized_profit,
             'SELL' as type
         FROM all_item_db
-        WHERE sell_date = %s
+        WHERE LEFT(sell_date, 8) = %s AND sell_date != '0'
 
-        ORDER BY buy_date DESC
+        ORDER BY trade_date DESC
         """
 
         df_today = pd.read_sql(query_today_trades, con, params=(today, today))
 
         if not df_today.empty:
-            print(f"\n📝 오늘 매매 이력 ({len(df_today)}건)")
+            buy_rows  = df_today[df_today['type'] == 'BUY']
+            sell_rows = df_today[df_today['type'] == 'SELL']
+            print(f"\n📝 오늘 매매 이력 ({len(df_today)}건: 매수 {len(buy_rows)}건 / 매도 {len(sell_rows)}건)")
             print("-"*100)
 
             for idx, row in df_today.iterrows():
-                action = "매수" if row['type'] == 'BUY' else "매도"
-                print(f"[{idx+1}] {action} - {row['code']} ({row['code_name']}) @ {row['purchase_price']:,}원")
+                if row['type'] == 'BUY':
+                    amount = int(row['holding_amount']) if row['holding_amount'] else 0
+                    total = int(row['purchase_price']) * amount
+                    print(f"  🟢 매수  {row['code']} ({row['code_name']:<12})  "
+                          f"{int(row['purchase_price']):>8,}원 × {amount:>4}주 = {total:>12,}원  "
+                          f"({row['trade_date'][8:10]}:{row['trade_date'][10:12]})")
+                else:
+                    rate = float(row['sell_rate'])
+                    profit = int((row['sell_price'] - row['purchase_price']) * row['holding_amount'])
+                    sign = '+' if rate >= 0 else ''
+                    emoji = '🔴' if rate >= 0 else '🔵'
+                    print(f"  {emoji} 매도  {row['code']} ({row['code_name']:<12})  "
+                          f"{int(row['sell_price']):>8,}원  "
+                          f"수익률 {sign}{rate:.2f}%  실현손익 {sign}{profit:,}원  "
+                          f"({row['trade_date'][8:10]}:{row['trade_date'][10:12]})")
+
+            if not sell_rows.empty:
+                total_realized = int(((sell_rows['sell_price'] - sell_rows['purchase_price']) * sell_rows['holding_amount']).sum())
+                sign = '+' if total_realized >= 0 else ''
+                print(f"  {'─'*90}")
+                print(f"  오늘 실현손익 합계: {sign}{total_realized:,}원")
 
         # 3. 설정 정보
         query_settings = """
@@ -264,30 +293,28 @@ def get_portfolio_status(db_name: str):
 
 def check_trader_running():
     """
-    트레이더 실행 상태 확인 (Windows 전용)
+    트레이더 실행 상태 확인 (realtime_position_monitor last_update 기준)
     """
-    import subprocess
-    import sys
-
-    if sys.platform != 'win32':
-        print("⚠️  트레이더 상태 확인은 Windows에서만 지원됩니다.")
-        return
-
     try:
-        # wmic로 커맨드라인을 포함한 프로세스 정보 확인
-        result = subprocess.run(
-            ['wmic', 'process', 'where', 'name="python.exe"', 'get', 'commandline'],
-            capture_output=True,
-            text=True,
-            encoding='cp949',
-            errors='ignore'
-        )
+        import pymysql
+        pymysql.install_as_MySQLdb()
+        from sqlalchemy import create_engine, text
+        from library.cf import db_id, db_passwd, db_ip, db_port, imi1_db_name
+        from datetime import datetime, timedelta
 
-        # trader_advanced.py가 커맨드라인에 있는지 확인
-        if 'trader_advanced.py' in result.stdout:
-            print("\n✅ 트레이더가 실행 중입니다.")
+        url = f'mysql+mysqldb://{db_id}:{db_passwd}@{db_ip}:{db_port}/{imi1_db_name}'
+        engine = create_engine(url, encoding='utf-8')
+
+        row = engine.execute(text('SELECT MAX(last_update) FROM realtime_position_monitor')).fetchone()
+        last_update = row[0]
+
+        if last_update and datetime.now() - last_update < timedelta(minutes=2):
+            print(f"\n✅ 트레이더가 실행 중입니다. (최근 업데이트: {last_update.strftime('%H:%M:%S')})")
         else:
-            print("\n⚠️  트레이더가 실행되지 않았습니다.")
+            if last_update:
+                print(f"\n⚠️  트레이더가 실행되지 않았습니다. (마지막 업데이트: {last_update.strftime('%H:%M:%S')})")
+            else:
+                print("\n⚠️  트레이더가 실행되지 않았습니다.")
 
     except Exception as e:
         print(f"⚠️  트레이더 상태 확인 실패: {e}")

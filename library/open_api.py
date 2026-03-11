@@ -1647,12 +1647,15 @@ class open_api(QAxWidget):
                     logger.debug("일단 체결은 된 경우!")
                     if self.is_all_item_db_check(code) == False:
                         logger.debug("all_item_db에 매수한 종목이 없음 ! 즉 신규 매수하는 종목이다!!!!")
-                        if chegyul_fail_amount_temp == "0":
-                            logger.debug("완벽히 싹 다 체결됨!!!!!!!!!!!!!!!!!!!!!!!!!")
-                            self.db_to_all_item(order_num, code, 0, purchase_price, 0)
-                        else:
-                            logger.debug("체결 되었지만 덜 체결 됨!!!!!!!!!!!!!!!!!!")
-                            self.db_to_all_item(order_num, code, 1, purchase_price, 0)
+                        try:
+                            if chegyul_fail_amount_temp == "0":
+                                logger.debug("완벽히 싹 다 체결됨!!!!!!!!!!!!!!!!!!!!!!!!!")
+                                self.db_to_all_item(order_num, code, 0, purchase_price, 0)
+                            else:
+                                logger.debug("체결 되었지만 덜 체결 됨!!!!!!!!!!!!!!!!!!")
+                                self.db_to_all_item(order_num, code, 1, purchase_price, 0)
+                        except Exception as e:
+                            logger.error(f"db_to_all_item 오류 ({code}): {e}")
 
                     elif order_gubun == "+매수":
                         if chegyul_fail_amount_temp != "0" and self.stock_chegyul_check(code) == True:

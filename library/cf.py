@@ -58,7 +58,7 @@ dart_api_key = 'cc3e62c424689322f224f18b4f5ab5f6bfdb5497'
 
 # ===== v2 확장 Scoring 설정 (simul_num=3 전용) =====
 # 250점 만점 중 최소 매수 기준점
-v2_min_score = 90
+v2_min_score = 120
 
 # 펀더멘털 사전 필터 사용 여부
 v2_fundamental_filter = True

@@ -24,6 +24,7 @@ print(f"Trader Advanced Version: {ver}")
 from library.open_api import *
 from library.trading_dashboard import update_dashboard
 from library.report_generator import generate_trader_report
+from library import cf
 from PyQt5.QtWidgets import *
 import sys
 from datetime import datetime
@@ -143,8 +144,8 @@ class TraderAdvanced(QMainWindow):
         # 📊 고급 전략 파라미터
         # ==================================================
 
-        # 멀티팩터 최소 스코어 (0-100)
-        self.min_factor_score = 90.0
+        # 멀티팩터 최소 스코어 (cf.v2_min_score와 동기화)
+        self.min_factor_score = float(cf.v2_min_score)
 
         # 최대 동시 보유 종목 수 (예수금이 허락하는 한 무제한)
         self.max_positions = 999
