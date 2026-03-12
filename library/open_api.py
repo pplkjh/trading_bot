@@ -166,6 +166,7 @@ class open_api(QAxWidget):
     def variable_setting(self):
         # logger.debug("variable_setting 함수에 들어왔다.")
         self.get_today_buy_list_code = 0
+        self.get_today_buy_list_atr14 = 0
         self.cf = cf
         self.reset_opw00018_output()
         # 아래 분기문은 실전 투자 인지, 모의 투자 인지 결정
@@ -1052,10 +1053,16 @@ class open_api(QAxWidget):
             logger.debug(f"{self.get_today_buy_list_code} 의 현재가가 비어있다 !!!")
             return False
 
-        # 매수 가격 최저 범위
-        min_buy_limit = int(self.get_today_buy_list_close) * self.sf.invest_min_limit_rate
-        # 매수 가격 최고 범위
-        max_buy_limit = int(self.get_today_buy_list_close) * self.sf.invest_limit_rate
+        prev_close = int(self.get_today_buy_list_close)
+        atr14 = self.get_today_buy_list_atr14
+        if atr14 and atr14 > 0:
+            # ATR 기반 동적 범위: 상단 0.5×ATR, 하단 1.0×ATR
+            max_buy_limit = prev_close + atr14 * 0.5
+            min_buy_limit = prev_close - atr14 * 1.0
+        else:
+            # ATR 없는 경우 기존 고정 비율로 폴백
+            min_buy_limit = prev_close * self.sf.invest_min_limit_rate
+            max_buy_limit = prev_close * self.sf.invest_limit_rate
         # 현재가가 매수 가격 최저 범위와 매수 가격 최고 범위 안에 들어와 있다면 매수 한다.
         if min_buy_limit < current_price < max_buy_limit:
             buy_num = self.buy_num_count(self.invest_unit, int(current_price))
@@ -1078,9 +1085,9 @@ class open_api(QAxWidget):
                 self.buy_check_stop()
         else:
             logger.debug(
-                "invest_limit_rate 만큼 급등 or invest_min_limit_rate 만큼 급락 해서 매수 안함 !!! code :%s, 목표가: %s , 현재가: %s, invest_limit_rate: %s , invest_min_limit_rate : %s, today : %s, today_min : %s, date_rows_yesterday : %s",
-                self.get_today_buy_list_code, self.get_today_buy_list_close, current_price, self.sf.invest_limit_rate,
-                self.sf.invest_min_limit_rate, self.today, self.today_detail, self.date_rows_yesterday)
+                "invest_limit_rate 만큼 급등 or invest_min_limit_rate 만큼 급락 해서 매수 안함 !!! code :%s, 목표가: %s , 현재가: %s, min_buy_limit: %s, max_buy_limit: %s, atr14: %s, invest_limit_rate: %s , invest_min_limit_rate : %s, today : %s, today_min : %s, date_rows_yesterday : %s",
+                self.get_today_buy_list_code, self.get_today_buy_list_close, current_price, min_buy_limit, max_buy_limit,
+                atr14, self.sf.invest_limit_rate, self.sf.invest_min_limit_rate, self.today, self.today_detail, self.date_rows_yesterday)
 
     # 오늘 매수 할 종목들을 가져오는 함수
     def get_today_buy_list(self):
@@ -1131,6 +1138,10 @@ class open_api(QAxWidget):
 
                 self.get_today_buy_list_code = code
                 self.get_today_buy_list_close = close
+                try:
+                    self.get_today_buy_list_atr14 = float(self.sf.df_realtime_daily_buy_list.loc[i, 'atr14'] or 0)
+                except Exception:
+                    self.get_today_buy_list_atr14 = 0
                 # 매수 하기 전에 해당 종목의 check_item을 1로 변경. 즉, 이미 매수 했으니까 다시 매수 하지말라고 체크 하는 로직
                 sql = "UPDATE realtime_daily_buy_list SET check_item='%s' WHERE code='%s'"
                 self.engine_JB.execute(sql % (1, self.get_today_buy_list_code))
