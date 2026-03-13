@@ -1130,6 +1130,8 @@ class simulator_func_mysql:
             from library.hybrid_strategy_v2 import HybridStrategyV2
             strategy_v2 = HybridStrategyV2()
 
+            logger.debug(f"[num=21] 매수후보 스코어링 시작 - 기준날짜: {date_rows_today}")
+
             # SQL 사전 필터: 모멘텀/추세/과매도 신호 기준 상위 200개 종목만 선별
             # (전 종목 df_120 로딩은 너무 느림: 2300개 × 768일)
             try:
@@ -1148,7 +1150,9 @@ class simulator_func_mysql:
                     LIMIT 200
                 """
                 candidates = self.engine_daily_buy_list.execute(candidates_sql).fetchall()
-            except Exception:
+                logger.debug(f"[num=21] SQL 사전필터 완료 - 후보: {len(candidates)}개")
+            except Exception as e:
+                logger.debug(f"[num=21] SQL 사전필터 실패: {e}")
                 candidates = []
 
             # dart 테이블에서 날짜 기준 연도 재무 데이터 로드 (역사적 정확성)
@@ -1185,8 +1189,10 @@ class simulator_func_mysql:
                     _eq = _fd.get('total_equity', 0)
                     _np = _fd.get('net_profit', 0)
                     _fd['roe'] = (_np / _eq * 100) if _eq and _eq != 0 else 0.0
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[num=21] DART 재무데이터 로드 실패: {e}")
+
+            logger.debug(f"[num=21] DART 재무데이터 로드 완료 - {len(fundamental_dict)}개 종목")
 
             # kospi_index 최근 20일 close 로드 (없으면 None)
             market_data = None
@@ -1197,14 +1203,17 @@ class simulator_func_mysql:
                 )
                 if len(ki_df) >= 20:
                     market_data = ki_df['close'].iloc[::-1].reset_index(drop=True)
-            except Exception:
-                pass
+                logger.debug(f"[num=21] kospi_index 로드 완료 - {len(ki_df)}일치")
+            except Exception as e:
+                logger.debug(f"[num=21] kospi_index 로드 실패: {e}")
 
             # 종목별 Python 점수 계산
+            logger.debug(f"[num=21] 종목별 스코어링 시작 - {len(candidates)}개 후보")
             scored_list = []
-            for row in candidates:
+            for idx, row in enumerate(candidates):
                 code = row['code']
                 code_name = row['code_name']
+                logger.debug(f"[num=21] 스코어링 {idx+1}/{len(candidates)}: {code_name}({code})")
                 try:
                     df_120 = pd.read_sql(
                         f"SELECT * FROM `{code_name}` WHERE code = '{code}'"
@@ -1214,7 +1223,8 @@ class simulator_func_mysql:
                     if len(df_120) < 2:
                         continue
                     df_120 = df_120.sort_values('date').reset_index(drop=True)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"[num=21] df_120 로드 실패 {code_name}: {e}")
                     continue
 
                 fd = fundamental_dict.get(code)
@@ -1233,7 +1243,9 @@ class simulator_func_mysql:
                 if total_score >= cf.v2_min_score:
                     row_dict['composite_score'] = total_score
                     scored_list.append((row_dict, total_score))
+                    logger.debug(f"[num=21] ✅ 합격: {code_name} {total_score}pt")
 
+            logger.debug(f"[num=21] 스코어링 완료 - 합격: {len(scored_list)}개 / {len(candidates)}개")
             scored_list.sort(key=lambda x: x[1], reverse=True)
             # dict 리스트: DataFrame(list_of_dicts, columns=[...]) 로 45컬럼 처리
             realtime_daily_buy_list = [item[0] for item in scored_list]
@@ -1306,6 +1318,15 @@ class simulator_func_mysql:
         else:
             print(f"{self.simul_num}번 알고리즘에 대한 self.db_to_realtime_daily_buy_list_num 설정이 비었습니다. variable_setting 함수에서 self.db_to_realtime_daily_buy_list_num 을 확인해주세요.")
             sys.exit(1)
+        # num=21 실전 모드: 0개여도 테이블을 클리어해 어제 데이터가 남지 않도록 함
+        # (트레이더가 date 컬럼으로 collector 실행 여부를 판단하므로 오래된 데이터가 남으면 오동작)
+        if self.db_to_realtime_daily_buy_list_num == 21 and self.op == 'real' and len(realtime_daily_buy_list) == 0:
+            try:
+                if self.is_simul_table_exist(self.db_name, "realtime_daily_buy_list"):
+                    self.engine_simulator.execute("DELETE FROM realtime_daily_buy_list")
+            except Exception as e:
+                print(f"realtime_daily_buy_list 클리어 실패: {e}")
+
         # realtime_daily_buy_list 에 종목이 하나라도 있다면, 즉 매수할 종목이 하나라도 있다면 아래 로직을 들어간다.
         if len(realtime_daily_buy_list) > 0:
             # realtime_daily_buy_list 라는 리스트를 df_realtime_daily_buy_list 라는 데이터프레임으로 변환하는 과정

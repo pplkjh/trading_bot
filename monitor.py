@@ -252,9 +252,9 @@ def get_portfolio_status(db_name: str):
                 today_table_exists = cursor_daily.fetchone()[0]
 
                 if today_table_exists > 0:
-                    # collector는 돌았지만 90점 이상이 없는 경우
+                    # collector는 돌았지만 min_score 이상이 없는 경우
                     print("  ✅ collector_v3.py 실행 완료")
-                    print(f"  ❌ 오늘({today}) 90점 이상 종목이 없습니다.")
+                    print(f"  ❌ 오늘({today}) {v2_min_score}점 이상 종목이 없습니다.")
                     print("  💡 시장 상황이 좋지 않아 매수 조건을 만족하는 종목이 없습니다.")
                 else:
                     # collector가 안 돌아간 경우 - 최신 데이터 날짜 확인

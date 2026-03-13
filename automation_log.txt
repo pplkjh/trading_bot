@@ -201,3 +201,20 @@
 2026-03-11 16:00:01.03 - 자동 종료 확인 시작 
 2026-03-11 16:01:01.90 - Trader exit 
 [DEBUG] Collector exit code: -1073741819 
+2026-03-12 16:00:00.74 - 자동 종료 확인 시작 
+2026-03-12 16:00:07.05 - 자동 종료 취소 (사용자 선택) 
+[DEBUG] Collector exit code: -1073741819 (?�도 1) 
+[DEBUG] Collector exit code: -1073741819 (?�도 1) 
+[DEBUG] Collector exit code: -1 (attempt 1) 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+2026-03-13 16:00:00.56 - 자동 종료 확인 시작 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] DONE_CHECK=1, EXIT=-1073741819 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] DONE_CHECK=0, EXIT=-1073741819 

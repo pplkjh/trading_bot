@@ -68,111 +68,59 @@ else:
             print(f"📅 가장 최근 데이터: {latest[0]}")
         print("💡 collector_v3.py를 먼저 실행하세요.")
 
-# 3. 전체 시장 상위 20개 (HybridStrategyV2 간이 점수 — df_120 제외, 최대 ~142pt)
+# 3. 전체 시장 상위 20개 (collector가 저장한 200pt 실제 점수)
 print("\n" + "=" * 100)
-print(f"전체 시장 상위 20개 (HybridStrategyV2 간이점수, df_120 미사용 최대 ~142pt)")
+print(f"전체 시장 상위 20개 (collector 200pt 실제 점수, realtime_daily_buy_list 기준)")
 print("=" * 100)
 
-table_exists = engine_daily.execute(f"""
-    SELECT COUNT(*) FROM information_schema.TABLES
-    WHERE TABLE_SCHEMA = 'daily_buy_list' AND TABLE_NAME = '{today}'
-""").fetchone()[0]
+latest_table_row = engine_daily.execute("""
+    SELECT TABLE_NAME FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = 'daily_buy_list' AND TABLE_NAME REGEXP '^[0-9]{8}$'
+    ORDER BY TABLE_NAME DESC LIMIT 1
+""").fetchone()
+latest_table = latest_table_row[0] if latest_table_row else None
 
-if table_exists:
-    # 어제 날짜 테이블 찾기 (전일비 계산용)
-    prev_table_row = engine_daily.execute(f"""
-        SELECT TABLE_NAME FROM information_schema.TABLES
-        WHERE TABLE_SCHEMA = 'daily_buy_list' AND TABLE_NAME REGEXP '^[0-9]{{8}}$'
-        AND TABLE_NAME < '{today}'
-        ORDER BY TABLE_NAME DESC LIMIT 1
-    """).fetchone()
-    prev_table = prev_table_row[0] if prev_table_row else None
+top20_rows = engine.execute(f"""
+    SELECT r.code, r.code_name, r.composite_score, r.check_item,
+           d.close, d.volume, d.vol20, d.clo5, d.clo20, d.clo60,
+           d.rsi14, d.adx, d.cmf20, d.d1_diff_rate
+    FROM realtime_daily_buy_list r
+    LEFT JOIN daily_buy_list.`{latest_table}` d ON r.code = d.code
+    ORDER BY r.composite_score DESC
+    LIMIT 20
+""").fetchall() if latest_table else []
 
-    # SQL 사전 필터: 모멘텀/추세/수급 신호 기준 상위 200개 후보
-    if prev_table:
-        candidates_sql = text(f"""
-            SELECT a.*,
-                ROUND((a.close - b.close) / b.close * 100, 2) as d1_change
-            FROM `{today}` a
-            LEFT JOIN `{prev_table}` b ON a.code = b.code
-            WHERE a.close > 0 AND a.volume > 0 AND a.vol20 > 0
-              AND a.adx > 0 AND a.rsi14 > 0 AND a.bb_lower > 0
-              AND a.close BETWEEN 1000 AND 500000
-            ORDER BY (
-                (CASE WHEN a.adx > 20 THEN 1 ELSE 0 END) +
-                (CASE WHEN a.clo5 > a.clo20 THEN 1 ELSE 0 END) +
-                (CASE WHEN a.rsi14 BETWEEN 30 AND 55 THEN 1 ELSE 0 END) +
-                (CASE WHEN a.macd > a.macd_signal THEN 1 ELSE 0 END) +
-                (CASE WHEN a.cmf20 > 0 THEN 1 ELSE 0 END)
-            ) DESC
-            LIMIT 200
-        """)
-    else:
-        candidates_sql = text(f"""
-            SELECT a.*, 0 as d1_change
-            FROM `{today}` a
-            WHERE a.close > 0 AND a.volume > 0 AND a.vol20 > 0
-              AND a.adx > 0 AND a.rsi14 > 0 AND a.bb_lower > 0
-              AND a.close BETWEEN 1000 AND 500000
-            ORDER BY (
-                (CASE WHEN a.adx > 20 THEN 1 ELSE 0 END) +
-                (CASE WHEN a.clo5 > a.clo20 THEN 1 ELSE 0 END) +
-                (CASE WHEN a.rsi14 BETWEEN 30 AND 55 THEN 1 ELSE 0 END) +
-                (CASE WHEN a.macd > a.macd_signal THEN 1 ELSE 0 END) +
-                (CASE WHEN a.cmf20 > 0 THEN 1 ELSE 0 END)
-            ) DESC
-            LIMIT 200
-        """)
+if top20_rows:
+    print(f"\n상위 {len(top20_rows)}개 종목 (날짜: {latest_table}, 200pt 만점)")
+    print("-" * 100)
+    for idx, row in enumerate(top20_rows, 1):
+        code, code_name, score, check_item = row[0], row[1], row[2], row[3]
+        close   = row[4] or 0
+        vol     = row[5] or 0
+        vol20   = row[6] or 0
+        clo5    = row[7] or 0
+        clo20   = row[8] or 0
+        clo60   = row[9] or 0
+        rsi     = row[10] or 0
+        adx     = row[11] or 0
+        cmf     = row[12] or 0
+        d1_diff = row[13] or 0
 
-    candidates = engine_daily.execute(candidates_sql).fetchall()
+        flag      = "✅" if float(score) >= v2_min_score else "  "
+        status    = "완료" if check_item == 1 else "대기"
+        vol_ratio = (vol / vol20 * 100) if vol20 > 0 else 0
 
-    if candidates:
-        from library.hybrid_strategy_v2 import HybridStrategyV2
-        strategy_v2 = HybridStrategyV2()
+        print(f"\n[{idx:2d}] {flag} {code} {code_name:<20} | 점수: {float(score):>6.1f}/200 ({status}) | RSI: {float(rsi):>5.1f} | ADX: {float(adx):>5.1f} | CMF: {float(cmf):>+5.2f}")
+        print(f"     종가: {close:>8,.0f}원 | 전일비: {float(d1_diff):>+6.2f}% | 거래량비율: {vol_ratio:>5.1f}%")
+        print(f"     이평: 5일 {clo5:>8,.0f} | 20일 {clo20:>8,.0f} | 60일 {clo60:>8,.0f}")
 
-        scored = []
-        for row in candidates:
-            row_dict = dict(row)
-            # df_120=None → A4/D1/D3/E1/E2/F1 스킵, 나머지 row dict만으로 계산
-            score = strategy_v2.calculate_total_score(row_dict, None, None, None)
-            scored.append((row_dict, score))
-
-        scored.sort(key=lambda x: x[1], reverse=True)
-        top20 = scored[:20]
-
-        print(f"\n상위 {len(top20)}개 종목 (날짜: {today}, 간이점수 최대 ~142pt — df_120 없이 A+B+C+D2+E3 계산)")
-        print("-" * 100)
-        for idx, (row_dict, score) in enumerate(top20, 1):
-            code = row_dict.get('code', '')
-            code_name = row_dict.get('code_name', '')
-            close = row_dict.get('close', 0) or 0
-            vol = row_dict.get('volume', 0) or 0
-            vol20 = row_dict.get('vol20', 0) or 0
-            clo5 = row_dict.get('clo5', 0) or 0
-            clo20 = row_dict.get('clo20', 0) or 0
-            clo60 = row_dict.get('clo60', 0) or 0
-            rsi = row_dict.get('rsi14', 0) or 0
-            adx = row_dict.get('adx', 0) or 0
-            cmf = row_dict.get('cmf20', 0) or 0
-            d1_change = row_dict.get('d1_change', 0) or 0
-
-            flag = "✅" if score >= v2_min_score else "  "
-            vol_ratio = (vol / vol20 * 100) if vol20 > 0 else 0
-            d1_str = f"{float(d1_change):>+6.2f}%"
-
-            print(f"\n[{idx:2d}] {flag} {code} {code_name:<20} | 간이점수: {score:>6.1f} | RSI: {rsi:>5.1f} | ADX: {adx:>5.1f} | CMF: {float(cmf):>+5.2f}")
-            print(f"     종가: {close:>8,.0f}원 | 전일비: {d1_str} | 거래량비율: {vol_ratio:>5.1f}%")
-            print(f"     이평: 5일 {clo5:>8,.0f} | 20일 {clo20:>8,.0f} | 60일 {clo60:>8,.0f}")
-
-        print("\n" + "=" * 100)
-        scores = [s for _, s in top20]
-        print(f"범위: {min(scores):.1f} ~ {max(scores):.1f} | 평균: {sum(scores)/len(scores):.1f}")
-        print(f"커트라인({v2_min_score}점) 이상: {sum(1 for s in scores if s >= v2_min_score)}개 / {len(scores)}개")
-        print("=" * 100)
-    else:
-        print(f"\n❌ {today} 테이블에 데이터가 없습니다.")
+    print("\n" + "=" * 100)
+    scores = [float(r[2]) for r in top20_rows]
+    print(f"범위: {min(scores):.1f} ~ {max(scores):.1f} | 평균: {sum(scores)/len(scores):.1f}")
+    print(f"커트라인({v2_min_score}점) 이상: {sum(1 for s in scores if s >= v2_min_score)}개 / {len(scores)}개")
+    print("=" * 100)
 else:
-    print(f"\n❌ {today} 테이블이 없습니다. collector_v3.py를 먼저 실행하세요.")
+    print(f"\n❌ realtime_daily_buy_list가 비어있습니다. collector_v3.py를 먼저 실행하세요.")
 
 engine.dispose()
 engine_daily.dispose()

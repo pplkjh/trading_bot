@@ -75,10 +75,22 @@ class daily_buy_list():
                 )
 
                 if not empty:
-                    # 데이터가 이미 있으면 스킵
-                    # (collector_api의 시간 체크로 오후 4시 이후 수집은 이미 필터링됨)
-                    logger.debug(current_date + "테이블은 존재한다 !! continue!! ")
-                    continue
+                    if is_today:
+                        # 오늘 날짜: check_daily_crawler=4(주식분할/증자 등)로 인해
+                        # 일부 종목만 먼저 삽입된 부분 생성 테이블일 수 있으므로 행 수 확인
+                        row_count = self.engine_daily_buy_list.execute(
+                            f"SELECT COUNT(*) FROM `{current_date}`"
+                        ).fetchone()[0]
+                        if row_count < 100:
+                            logger.debug(f"{current_date} 테이블이 {row_count}행만 있어 (부분 생성) 재생성합니다.")
+                            self.engine_daily_buy_list.execute(f"DROP TABLE `{current_date}`")
+                        else:
+                            logger.debug(current_date + "테이블은 존재한다 !! continue!! ")
+                            continue
+                    else:
+                        # 과거 날짜: 이미 있으면 스킵
+                        logger.debug(current_date + "테이블은 존재한다 !! continue!! ")
+                        continue
                 else:
                     # to_sql() 도중 콜렉터가 꺼질 시 테이블만 생성하고 데이터를 못 넣는 경우에 대비하여 비어있을 시 테이블을 드랍
                     logger.debug(f"{current_date} 테이블이 비어있어서 다시 생성합니다.")
@@ -90,7 +102,17 @@ class daily_buy_list():
 
             multi_list = list()
 
-            for i in range(len(self.stock_item_all)):
+            from PyQt5.QtWidgets import QApplication
+            total_stocks = len(self.stock_item_all)
+            for i in range(total_stocks):
+                if i % 500 == 0:
+                    logger.debug(f"{current_date} 테이블 생성 중... {i}/{total_stocks}")
+                    # Kiwoom COM 이벤트가 백그라운드 스레드에서 ACCESS VIOLATION을
+                    # 일으키지 않도록 주기적으로 Qt 이벤트 큐를 메인스레드에서 소화
+                    app = QApplication.instance()
+                    if app:
+                        app.processEvents()
+
                 code = self.stock_item_all[i][1]
                 code_name = self.stock_item_all[i][0]
                 if self.is_table_exist_daily_craw(code, code_name) == False:
@@ -177,36 +199,44 @@ class daily_buy_list():
                 ]
                 multi_list += rows_with_indicators
 
+            logger.debug(f"{current_date} 루프 완료 - {len(multi_list)}개 종목 수집됨")
             if len(multi_list) != 0:
-                df_temp = DataFrame(multi_list,
-                                    columns=['date', 'check_item', 'code', 'code_name', 'd1_diff_rate',
-                                             'close', 'open', 'high', 'low',
-                                             'volume', 'clo5', 'clo10', 'clo20', 'clo40', 'clo60', 'clo80',
-                                             'clo100', 'clo120', "clo5_diff_rate", "clo10_diff_rate",
-                                             "clo20_diff_rate", "clo40_diff_rate", "clo60_diff_rate",
-                                             "clo80_diff_rate", "clo100_diff_rate", "clo120_diff_rate",
-                                             'yes_clo5', 'yes_clo10', 'yes_clo20', 'yes_clo40', 'yes_clo60',
-                                             'yes_clo80',
-                                             'yes_clo100', 'yes_clo120',
-                                             'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
-                                             'vol100', 'vol120',
-                                             # 기술적 지표 (기존 5개)
-                                             'rsi14', 'bb_upper', 'bb_middle', 'bb_lower', 'atr14',
-                                             # v2 확장 지표 (신규 20개)
-                                             'macd', 'macd_signal', 'macd_histogram',
-                                             'adx', 'plus_di', 'minus_di',
-                                             'obv', 'mfi14', 'cmf20',
-                                             'ichimoku_tenkan', 'ichimoku_kijun',
-                                             'ichimoku_senkou_a', 'ichimoku_senkou_b',
-                                             'pivot', 'pivot_s1', 'pivot_s2', 'pivot_r1', 'pivot_r2',
-                                             'candle_pattern_score', 'bb_bandwidth'
-                                             ])
-                df_temp.to_sql(
-                    name=self.date_rows[k][0],
-                    con=self.engine_daily_buy_list,
-                    if_exists='replace',
-                    index=False
-                )
+                col_names = ['date', 'check_item', 'code', 'code_name', 'd1_diff_rate',
+                             'close', 'open', 'high', 'low',
+                             'volume', 'clo5', 'clo10', 'clo20', 'clo40', 'clo60', 'clo80',
+                             'clo100', 'clo120', "clo5_diff_rate", "clo10_diff_rate",
+                             "clo20_diff_rate", "clo40_diff_rate", "clo60_diff_rate",
+                             "clo80_diff_rate", "clo100_diff_rate", "clo120_diff_rate",
+                             'yes_clo5', 'yes_clo10', 'yes_clo20', 'yes_clo40', 'yes_clo60',
+                             'yes_clo80',
+                             'yes_clo100', 'yes_clo120',
+                             'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
+                             'vol100', 'vol120',
+                             'rsi14', 'bb_upper', 'bb_middle', 'bb_lower', 'atr14',
+                             'macd', 'macd_signal', 'macd_histogram',
+                             'adx', 'plus_di', 'minus_di',
+                             'obv', 'mfi14', 'cmf20',
+                             'ichimoku_tenkan', 'ichimoku_kijun',
+                             'ichimoku_senkou_a', 'ichimoku_senkou_b',
+                             'pivot', 'pivot_s1', 'pivot_s2', 'pivot_r1', 'pivot_r2',
+                             'candle_pattern_score', 'bb_bandwidth']
+                # to_sql을 500행 청크로 나눠서 COM 콜백 차단 방지
+                chunk_size = 500
+                app = QApplication.instance()
+                for chunk_idx, chunk_start in enumerate(range(0, len(multi_list), chunk_size)):
+                    chunk = multi_list[chunk_start:chunk_start + chunk_size]
+                    df_chunk = DataFrame(chunk, columns=col_names)
+                    if_exists_mode = 'replace' if chunk_start == 0 else 'append'
+                    logger.debug(f"{current_date} to_sql 청크 {chunk_idx+1} ({chunk_start}~{chunk_start+len(chunk)})...")
+                    df_chunk.to_sql(
+                        name=self.date_rows[k][0],
+                        con=self.engine_daily_buy_list,
+                        if_exists=if_exists_mode,
+                        index=False
+                    )
+                    if app:
+                        app.processEvents()
+                logger.debug(f"{current_date} to_sql 완료 - 인덱스 생성 중...")
                 try:
                     self.engine_daily_buy_list.execute(f"""
                         CREATE INDEX ix_{self.date_rows[k][0]}_code
@@ -214,6 +244,7 @@ class daily_buy_list():
                     """)
                 except Exception:
                     pass
+                logger.debug(f"{current_date} daily_buy_list 테이블 생성 완전 완료")
 
     def get_stock_item_all(self):
         logger.debug("get_stock_item_all!!!!!!")

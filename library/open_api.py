@@ -414,6 +414,7 @@ class open_api(QAxWidget):
             self.tr_loop_count -= 1
         try:
             if self.tr_loop_count <= 0:
+                self.timer.stop()  # TR 응답 받았으니 타임아웃 타이머 취소
                 self.tr_event_loop.exit()
                 self.tr_loop_count = 0
         except AttributeError:
@@ -1160,37 +1161,44 @@ class open_api(QAxWidget):
         """
         # logger.debug("get_advanced_buy_list 함수 실행")
 
-        # realtime_daily_buy_list 테이블이 이미 존재하는지 확인
+        today = datetime.datetime.now().strftime("%Y%m%d")
+
+        # collector 실행 여부: daily_buy_list.{today} 테이블 존재 여부로 판단
+        # (realtime_daily_buy_list.date 는 키움 데이터 기준 전일 날짜라 today와 다름 — 사용 불가)
+        try:
+            daily_buy_list_url = self.engine_JB.url.set(database='daily_buy_list')
+            from sqlalchemy import create_engine as _ce
+            _eng = _ce(daily_buy_list_url, encoding='utf-8')
+            collector_ran = _eng.execute(
+                f"SELECT COUNT(*) FROM information_schema.TABLES "
+                f"WHERE TABLE_SCHEMA='daily_buy_list' AND TABLE_NAME='{today}'"
+            ).fetchone()[0]
+            _eng.dispose()
+        except Exception:
+            collector_ran = 0
+
+        if not collector_ran:
+            logger.error(f"❌ 오늘({today}) collector가 실행되지 않았습니다 (daily_buy_list.{today} 테이블 없음)")
+            logger.error("💡 collector_v3.py를 먼저 실행하세요")
+            return
+
+        # collector 오늘 실행 확인됨 → realtime_daily_buy_list 로드
         if self.sf.is_simul_table_exist(self.db_name, "realtime_daily_buy_list"):
-            # 오늘 날짜로 collector가 실행되었는지 확인
-            today = datetime.datetime.now().strftime("%Y%m%d")
-            sql = f"SELECT COUNT(*) FROM realtime_daily_buy_list WHERE date = '{today}'"
-            today_count = self.engine_JB.execute(sql).fetchone()[0]
+            candidate_count = self.engine_JB.execute(
+                "SELECT COUNT(*) FROM realtime_daily_buy_list"
+            ).fetchone()[0]
 
-            if today_count > 0:
-                logger.info(f"✅ 오늘자 매수 후보 로드 ({today_count}개 종목)")
-                # 테이블 데이터를 메모리에 로드 (trader가 사용할 수 있도록)
+            if candidate_count > 0:
+                logger.info(f"✅ 오늘자 매수 후보 로드 ({candidate_count}개 종목)")
                 self.sf.get_realtime_daily_buy_list()
-                return
             else:
-                # 오늘 날짜 데이터가 없음 = collector가 안 돌았음
-                sql_total = "SELECT COUNT(*) FROM realtime_daily_buy_list"
-                total_count = self.engine_JB.execute(sql_total).fetchone()[0]
-
-                if total_count > 0:
-                    # 과거 데이터는 있지만 오늘 것이 없음
-                    logger.error(f"❌ 오늘({today}) 매수 후보가 없습니다")
-                    logger.error("💡 collector_v3.py를 먼저 실행하세요")
-                else:
-                    # 테이블이 완전히 비어있음
-                    logger.error("❌ realtime_daily_buy_list 테이블이 비어있습니다")
-                    logger.error("💡 collector_v3.py를 먼저 실행하세요")
-                return
-
-        # 테이블이 없으면 에러
-        logger.error("❌ realtime_daily_buy_list 테이블이 없습니다")
-        logger.error("💡 collector_v3.py를 먼저 실행하세요")
-        logger.error("💡 trader는 매수 후보를 자체 생성하지 않습니다. collector의 분석 결과만 사용합니다.")
+                # collector 완료됐지만 v2_min_score 이상 종목 없음 → 매수 없이 매도 대기
+                logger.warning(f"⚠️ 오늘({today}) {self.sf.min_factor_score}점 이상 매수 후보가 없습니다 (collector 실행 확인됨)")
+                logger.warning("💡 보유 종목 매도 감시는 계속 진행합니다.")
+        else:
+            # realtime_daily_buy_list 테이블 자체가 없음 (collector가 scoring 전에 종료된 경우)
+            logger.warning(f"⚠️ realtime_daily_buy_list 테이블이 없습니다 (collector가 scoring 전에 종료된 것으로 추정)")
+            logger.warning("💡 보유 종목 매도 감시는 계속 진행합니다.")
         return
 
     def get_advanced_sell_list(self):

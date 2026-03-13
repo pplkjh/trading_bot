@@ -346,11 +346,14 @@ class collector_api():
             else:
                 print(f"\n[{current_task}/{total_tasks}] 🎯 매수 후보 분석 중...")
             task_start = time.time()
+            logger.debug("[collector] daily_buy_list_check 시작")
             self.daily_buy_list_check()
+            logger.debug("[collector] daily_buy_list_check 완료")
             # 결과 출력
             try:
                 buy_list_sql = f"SELECT COUNT(*) FROM daily_buy_list.`{self.open_api.today}`"
                 buy_list_count = self.open_api.engine_daily_buy_list.execute(buy_list_sql).fetchone()[0]
+                logger.debug(f"[collector] daily_buy_list 종목수: {buy_list_count}")
                 print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
                 print(f"    🎯 매수 후보 종목: {buy_list_count}개")
                 print(f"    📊 기술적 지표 분석 완료 (RSI, Bollinger Bands, ATR)")
@@ -363,17 +366,22 @@ class collector_api():
         if rows[0][4] != self.open_api.today:
             current_task += 1
             print(f"\n[{current_task}/{total_tasks}] 🔍 체결 확인 및 업데이트 중...")
+            logger.debug("[collector] chegyul_check 시작")
             task_start = time.time()
             self.open_api.chegyul_check()
+            logger.debug("[collector] chegyul_check 완료 → final_chegyul_check 시작")
             self.open_api.final_chegyul_check()
+            logger.debug("[collector] final_chegyul_check 완료")
             print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
         # 내일 매수 종목 업데이트 (realtime_daily_buy_list)
         if rows[0][6] != self.open_api.today:
             current_task += 1
             print(f"\n[{current_task}/{total_tasks}] 🚀 실시간 매수 리스트 생성 중...")
+            logger.debug(f"[collector] realtime_daily_buy_list_check 시작")
             task_start = time.time()
             self.realtime_daily_buy_list_check()
+            logger.debug(f"[collector] realtime_daily_buy_list_check 완료")
             # 결과 출력
             try:
                 realtime_sql = "SELECT COUNT(*) FROM realtime_daily_buy_list"
@@ -497,8 +505,11 @@ class collector_api():
             "SELECT code_name, code FROM stock_item_all"
         ).fetchall()
 
+        logger.debug(f"펀더멘털 수집 시작 - {len(stocks)}개 종목 (약 {len(stocks)*cf.TR_REQ_TIME_INTERVAL/60:.0f}분 소요 예상)")
         records = []
-        for code_name, code in stocks:
+        for i, (code_name, code) in enumerate(stocks):
+            if i % 500 == 0:
+                logger.debug(f"펀더멘털 수집 진행 중... {i}/{len(stocks)}")
             try:
                 self.open_api.fundamental_data = {}
                 self.open_api.set_input_value("종목코드", code)
@@ -530,6 +541,9 @@ class collector_api():
             self.open_api.sf.db_to_realtime_daily_buy_list(
                 self.open_api.today, self.open_api.today, len(self.open_api.sf.date_rows)
             )
+            # check_collector_done.py가 확인하는 값 — simul_num=1,2와 동일하게 업데이트
+            sql = "UPDATE setting_data SET today_buy_list='%s' limit 1"
+            self.engine_JB.execute(sql % (self.open_api.today))
             return
 
         # 최근 영업일 테이블 찾기 (simul_num=1,2 기존 전략)
