@@ -243,3 +243,4 @@
 2026-03-16 18:54:44.61 - 자동 종료 취소 (사용자 선택) 
 [DEBUG] Collector exit code: -1073741819 (attempt 1) 
 [DEBUG] DONE_CHECK=0, EXIT=-1073741819 
+2026-03-17 12:15:23.11 - Trader exit 

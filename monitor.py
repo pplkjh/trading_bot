@@ -65,11 +65,13 @@ def get_portfolio_status(db_name: str):
             print(f"\n📈 보유 종목 ({len(df_positions)}개)")
             print("-"*100)
 
+            total_buy = 0
             total_value = 0
             total_profit = 0
 
             for idx, row in df_positions.iterrows():
                 value = row['present_price'] * row['holding_amount']
+                total_buy += row['puchase_price'] * row['holding_amount']
                 total_value += value
                 total_profit += row['valuation_profit']
 
@@ -83,9 +85,10 @@ def get_portfolio_status(db_name: str):
                 print(f"  평가손익:   {row['valuation_profit']:>10,}원")
 
             print("\n" + "-"*100)
-            print(f"총 평가금액:  {total_value:>15,}원")
-            print(f"총 평가손익:  {total_profit:>15,}원")
-            print(f"총 수익률:    {(total_profit/total_value*100) if total_value > 0 else 0:>15.2f}%")
+            print(f"총 매수금액:  {total_buy:>15,.0f}원")
+            print(f"총 평가금액:  {total_value:>15,.0f}원")
+            print(f"총 평가손익:  {total_profit:>15,.0f}원")
+            print(f"총 수익률:    {(total_profit/total_buy*100) if total_buy > 0 else 0:>15.2f}%")
 
         else:
             print("\n✅ 보유 종목이 없습니다.")
