@@ -72,3 +72,5 @@ snapshots/
 # 크롬드라이버 캐시
 .wdm/
 webdriver/
+
+automation_log.txt
