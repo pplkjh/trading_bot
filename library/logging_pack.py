@@ -1,25 +1,28 @@
 import os
+import re
 import logging
 import pathlib
 from logging.handlers import TimedRotatingFileHandler
 
 
 class DeduplicateFilter(logging.Filter):
-    """동일한 (파일, 줄번호, 메시지) 조합의 반복 로그를 억제한다.
-    ERROR/WARNING/CRITICAL은 항상 통과. 내용이 바뀌면 다시 찍힌다."""
+    """동일한 (파일, 줄번호, 메시지 패턴) 조합의 반복 로그를 억제한다.
+    ERROR/WARNING/CRITICAL은 항상 통과.
+    숫자를 '#'으로 정규화하여 카운트다운/타이머 메시지도 억제한다."""
 
     def __init__(self):
         super().__init__()
-        self._last = {}  # key: (filename, lineno) → last message
+        self._last = {}  # key: (filename, lineno) → last normalized message
 
     def filter(self, record):
         if record.levelno >= logging.WARNING:
             return True  # WARNING 이상 항상 통과
         key = (record.filename, record.lineno)
         msg = record.getMessage()
-        if self._last.get(key) == msg:
-            return False  # 동일 메시지 억제
-        self._last[key] = msg
+        normalized = re.sub(r'\d+', '#', msg)  # 숫자 → '#' 정규화
+        if self._last.get(key) == normalized:
+            return False  # 동일 패턴 억제
+        self._last[key] = normalized
         return True
 
 # 목적

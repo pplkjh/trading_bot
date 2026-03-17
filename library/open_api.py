@@ -1166,15 +1166,12 @@ class open_api(QAxWidget):
         # collector 실행 여부: daily_buy_list.{today} 테이블 존재 여부로 판단
         # (realtime_daily_buy_list.date 는 키움 데이터 기준 전일 날짜라 today와 다름 — 사용 불가)
         try:
-            daily_buy_list_url = self.engine_JB.url.set(database='daily_buy_list')
-            from sqlalchemy import create_engine as _ce
-            _eng = _ce(daily_buy_list_url, encoding='utf-8')
-            collector_ran = _eng.execute(
+            collector_ran = self.sf.engine_daily_buy_list.execute(
                 f"SELECT COUNT(*) FROM information_schema.TABLES "
                 f"WHERE TABLE_SCHEMA='daily_buy_list' AND TABLE_NAME='{today}'"
             ).fetchone()[0]
-            _eng.dispose()
-        except Exception:
+        except Exception as e:
+            logger.error(f"daily_buy_list.{today} 테이블 확인 중 오류: {e}")
             collector_ran = 0
 
         if not collector_ran:
