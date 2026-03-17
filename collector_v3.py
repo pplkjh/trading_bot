@@ -1,10 +1,18 @@
 # version 1.3.7
 import sys
 import os
+import traceback
 from PyQt5.QtWidgets import QApplication
 from library.collector_api import *
 from library.report_generator import generate_collector_report
 from datetime import datetime  # collector_api의 import 이후에 선언
+
+def _global_exception_handler(exc_type, exc_value, exc_tb):
+    tb_str = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    logger.error(f"[UNCAUGHT EXCEPTION] {exc_type.__name__}: {exc_value}")
+    logger.error(tb_str)
+
+sys.excepthook = _global_exception_handler
 
 print("\n" + "="*100)
 print("🚀 JackBot 데이터 수집 시스템")
@@ -55,12 +63,17 @@ if __name__ == "__main__":
         os._exit(0)
 
     except Exception as e:
+        import traceback
+        tb_str = traceback.format_exc()
+
         print("\n" + "="*100)
         print(f"❌ 데이터 수집 중 오류 발생!")
         print("="*100)
         print(f"\n오류 내용: {e}")
-        import traceback
-        traceback.print_exc()
+        print(tb_str)
+
+        logger.error(f"❌ collector 오류 발생: {e}")
+        logger.error(tb_str)
 
         # 에러 발생 - exit code 1로 종료 (batch에서 재시작)
         print("\n" + "="*100)

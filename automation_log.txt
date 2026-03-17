@@ -218,3 +218,28 @@
 [DEBUG] DONE_CHECK=1, EXIT=-1073741819 
 [DEBUG] Collector exit code: -1073741819 (attempt 1) 
 [DEBUG] DONE_CHECK=0, EXIT=-1073741819 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] DONE_CHECK=0, EXIT=-1073741819 
+2026-03-14  8:50:41.49 - Trader exit 
+2026-03-14  8:50:41.56 - 자동 종료 확인 시작 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] DONE_CHECK=0, EXIT=-1073741819 
+2026-03-15  8:50:34.83 - Trader exit 
+2026-03-15  8:50:34.91 - 자동 종료 확인 시작 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] DONE_CHECK=1, EXIT=-1073741819 
+[DEBUG] Collector exit code: -1073741819 (attempt 2) 
+[DEBUG] DONE_CHECK=0, EXIT=-1073741819 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] DONE_CHECK=0, EXIT=-1073741819 
+2026-03-16 16:00:00.83 - 자동 종료 확인 시작 
+2026-03-16 16:15:03.88 - 자동 종료 취소 (사용자 선택) 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] DONE_CHECK=0, EXIT=-1073741819 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] DONE_CHECK=0, EXIT=-1073741819 
+2026-03-16 18:39:40.99 - Trader exit 
+2026-03-16 18:39:41.04 - 자동 종료 확인 시작 
+2026-03-16 18:54:44.61 - 자동 종료 취소 (사용자 선택) 
+[DEBUG] Collector exit code: -1073741819 (attempt 1) 
+[DEBUG] DONE_CHECK=0, EXIT=-1073741819 

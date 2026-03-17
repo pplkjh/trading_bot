@@ -97,6 +97,11 @@ echo %date% %time%
 echo ========================================
 echo.
 
+REM collector 크래시 후 COM/Qt 정리 대기
+echo [INFO] Waiting 15s for COM cleanup before trader...
+echo [%date% %time%] [BAT] waiting 15s for COM cleanup before trader >> log\jackbot.log
+timeout /t 15 /nobreak >NUL
+
 REM Start Trader after Collector completes
 echo [INFO] Starting Trader...
 call "%SCRIPT_DIR%start_trader.bat"

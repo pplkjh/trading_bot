@@ -21,6 +21,16 @@ Version: 2.0.0
 ver = "#version 2.0.0 - Advanced Strategy Integrated"
 print(f"Trader Advanced Version: {ver}")
 
+import traceback as _traceback
+
+def _global_exception_handler(exc_type, exc_value, exc_tb):
+    tb_str = "".join(_traceback.format_exception(exc_type, exc_value, exc_tb))
+    logger.error(f"[UNCAUGHT EXCEPTION] {exc_type.__name__}: {exc_value}")
+    logger.error(tb_str)
+
+import sys as _sys
+_sys.excepthook = _global_exception_handler
+
 from library.open_api import *
 from library.trading_dashboard import update_dashboard
 from library.report_generator import generate_trader_report
@@ -892,7 +902,7 @@ def main():
 
     except Exception as e:
         logger.error(f"[ERROR] 치명적 오류: {e}")
-        logger.debug("오류 상세:", exc_info=True)
+        logger.error("오류 상세:", exc_info=True)
 
         # 오류 발생 시에도 리포트 생성 시도
         if 'trader' in locals():

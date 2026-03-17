@@ -221,11 +221,13 @@ class daily_buy_list():
                              'pivot', 'pivot_s1', 'pivot_s2', 'pivot_r1', 'pivot_r2',
                              'candle_pattern_score', 'bb_bandwidth']
                 # to_sql을 500행 청크로 나눠서 COM 콜백 차단 방지
+                import numpy as np
                 chunk_size = 500
                 app = QApplication.instance()
                 for chunk_idx, chunk_start in enumerate(range(0, len(multi_list), chunk_size)):
                     chunk = multi_list[chunk_start:chunk_start + chunk_size]
                     df_chunk = DataFrame(chunk, columns=col_names)
+                    df_chunk.replace([np.inf, -np.inf], np.nan, inplace=True)
                     if_exists_mode = 'replace' if chunk_start == 0 else 'append'
                     logger.debug(f"{current_date} to_sql 청크 {chunk_idx+1} ({chunk_start}~{chunk_start+len(chunk)})...")
                     df_chunk.to_sql(

@@ -3,6 +3,25 @@ import logging
 import pathlib
 from logging.handlers import TimedRotatingFileHandler
 
+
+class DeduplicateFilter(logging.Filter):
+    """동일한 (파일, 줄번호, 메시지) 조합의 반복 로그를 억제한다.
+    ERROR/WARNING/CRITICAL은 항상 통과. 내용이 바뀌면 다시 찍힌다."""
+
+    def __init__(self):
+        super().__init__()
+        self._last = {}  # key: (filename, lineno) → last message
+
+    def filter(self, record):
+        if record.levelno >= logging.WARNING:
+            return True  # WARNING 이상 항상 통과
+        key = (record.filename, record.lineno)
+        msg = record.getMessage()
+        if self._last.get(key) == msg:
+            return False  # 동일 메시지 억제
+        self._last[key] = msg
+        return True
+
 # 목적
 # 콜렉터, 시뮬레이터, 봇 모두 logging_pack.py를 import 하고있다.
 # jackbot.log 라는 이름으로 로그파일이 만들어진다.
@@ -31,9 +50,10 @@ logger.setLevel(logging.DEBUG)
 stream_handler = logging.StreamHandler()
 stream_handler.setLevel(logging.INFO)  # 콘솔에는 INFO 이상만 출력
 
-# 파일 핸들러 (DEBUG 모두 기록)
+# 파일 핸들러 (DEBUG 모두 기록, 중복 억제)
 file_handler = TimedRotatingFileHandler(file_path, when="midnight", encoding='utf-8')
 file_handler.setLevel(logging.DEBUG)  # 파일에는 DEBUG 모두 기록
+file_handler.addFilter(DeduplicateFilter())
 
 # formatter 생성
 formatter = logging.Formatter('[%(levelname)s|%(filename)s:%(lineno)s] %(asctime)s > %(message)s')
