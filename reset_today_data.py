@@ -19,6 +19,7 @@ import datetime
 import pymysql
 from sqlalchemy import create_engine
 from library import cf
+from library.utils import get_latest_complete_date
 
 # Windows 콘솔 UTF-8 인코딩 설정
 if sys.platform == 'win32':
@@ -31,6 +32,7 @@ class TodayDataResetter:
     def __init__(self):
         """데이터베이스 연결 초기화"""
         self.today = datetime.datetime.today().strftime("%Y%m%d")
+        self.target_date = get_latest_complete_date()  # daily_buy_list 테이블 기준 날짜
 
         # 데이터베이스 연결 (pymysql 사용)
         db_url_base = f"mysql+pymysql://{cf.db_id}:{cf.db_passwd}@{cf.db_ip}:{cf.db_port}"
@@ -70,13 +72,13 @@ class TodayDataResetter:
         # 2. daily_buy_list 테이블 확인
         sql = f"""
             SELECT 1 FROM information_schema.tables
-            WHERE table_schema = 'daily_buy_list' AND table_name = '{self.today}'
+            WHERE table_schema = 'daily_buy_list' AND table_name = '{self.target_date}'
         """
         result = self.engine_daily_buy_list.execute(sql).fetchone()
 
-        print(f"\n2️⃣  daily_buy_list.{self.today} 테이블:")
+        print(f"\n2️⃣  daily_buy_list.{self.target_date} 테이블 (기준날짜):")
         if result:
-            sql_count = f"SELECT COUNT(*) FROM `{self.today}`"
+            sql_count = f"SELECT COUNT(*) FROM `{self.target_date}`"
             count = self.engine_daily_buy_list.execute(sql_count).fetchone()[0]
             print(f"   - 존재함 ({count}개 종목)")
         else:
@@ -112,9 +114,9 @@ class TodayDataResetter:
         print(f"🔄 오늘({self.today}) 데이터 리셋 시작...\n")
 
         # 1. daily_buy_list 테이블 삭제
-        print("1️⃣  daily_buy_list 테이블 삭제 중...")
+        print(f"1️⃣  daily_buy_list.{self.target_date} 테이블 삭제 중...")
         try:
-            sql = f"DROP TABLE IF EXISTS `{self.today}`"
+            sql = f"DROP TABLE IF EXISTS `{self.target_date}`"
             self.engine_daily_buy_list.execute(sql)
             print("   ✅ 완료")
         except Exception as e:

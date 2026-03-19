@@ -2,6 +2,7 @@ from sqlalchemy import create_engine, text
 import pymysql
 import datetime
 from library.cf import db_id, db_passwd, db_ip, db_port, imi1_db_name, v2_min_score
+from library.utils import get_latest_complete_date
 pymysql.install_as_MySQLdb()
 
 _url = f'mysql+mysqldb://{db_id}:{db_passwd}@{db_ip}:{db_port}'
@@ -9,6 +10,7 @@ engine = create_engine(f'{_url}/{imi1_db_name}', encoding='utf-8')
 engine_daily = create_engine(f'{_url}/daily_buy_list', encoding='utf-8')
 
 today = datetime.datetime.now().strftime("%Y%m%d")
+target_date = get_latest_complete_date()  # 장마감 여부에 따라 오늘 or 전 영업일
 
 # 1. 매수 후보 리스트 (커트라인 이상, 점수순)
 print("=" * 100)
@@ -49,21 +51,21 @@ stats = engine.execute("""
 if stats and stats[3] and stats[3] > 0:
     print(f"\n최저: {stats[0]:.2f} | 최고: {stats[1]:.2f} | 평균: {stats[2]:.2f} | 전체: {stats[3]}개")
 else:
-    today_exists = engine_daily.execute(f"""
+    target_exists = engine_daily.execute(f"""
         SELECT COUNT(*) FROM information_schema.TABLES
-        WHERE TABLE_SCHEMA = 'daily_buy_list' AND TABLE_NAME = '{today}'
+        WHERE TABLE_SCHEMA = 'daily_buy_list' AND TABLE_NAME = '{target_date}'
     """).fetchone()[0]
 
-    if today_exists:
-        print(f"\n✅ collector_v3.py 실행 완료")
-        print(f"❌ 오늘({today}) {v2_min_score}점 이상 종목이 없습니다.")
+    if target_exists:
+        print(f"\n✅ collector_v3.py 실행 완료 (기준: {target_date})")
+        print(f"❌ {v2_min_score}점 이상 종목이 없습니다.")
     else:
         latest = engine_daily.execute("""
             SELECT TABLE_NAME FROM information_schema.TABLES
             WHERE TABLE_SCHEMA = 'daily_buy_list' AND TABLE_NAME REGEXP '^[0-9]{8}$'
             ORDER BY TABLE_NAME DESC LIMIT 1
         """).fetchone()
-        print(f"\n❌ collector_v3.py가 실행되지 않았습니다. (오늘: {today})")
+        print(f"\n❌ collector_v3.py가 실행되지 않았습니다. (기준: {target_date})")
         if latest:
             print(f"📅 가장 최근 데이터: {latest[0]}")
         print("💡 collector_v3.py를 먼저 실행하세요.")

@@ -16,6 +16,7 @@ import pandas as pd
 from datetime import datetime
 import argparse
 from library.cf import *
+from library.utils import get_latest_complete_date
 
 
 def get_portfolio_status(db_name: str):
@@ -245,19 +246,20 @@ def get_portfolio_status(db_name: str):
                 )
                 cursor_daily = con_daily.cursor()
 
-                # daily_buy_list 데이터베이스에 오늘 날짜 테이블이 있는지 확인
+                # daily_buy_list 데이터베이스에 기준 날짜 테이블이 있는지 확인
+                target_date = get_latest_complete_date()
                 cursor_daily.execute(f"""
                     SELECT COUNT(*)
                     FROM information_schema.TABLES
                     WHERE TABLE_SCHEMA = 'daily_buy_list'
-                    AND TABLE_NAME = '{today}'
+                    AND TABLE_NAME = '{target_date}'
                 """)
-                today_table_exists = cursor_daily.fetchone()[0]
+                target_table_exists = cursor_daily.fetchone()[0]
 
-                if today_table_exists > 0:
+                if target_table_exists > 0:
                     # collector는 돌았지만 min_score 이상이 없는 경우
-                    print("  ✅ collector_v3.py 실행 완료")
-                    print(f"  ❌ 오늘({today}) {v2_min_score}점 이상 종목이 없습니다.")
+                    print(f"  ✅ collector_v3.py 실행 완료 (기준: {target_date})")
+                    print(f"  ❌ {v2_min_score}점 이상 종목이 없습니다.")
                     print("  💡 시장 상황이 좋지 않아 매수 조건을 만족하는 종목이 없습니다.")
                 else:
                     # collector가 안 돌아간 경우 - 최신 데이터 날짜 확인
@@ -271,7 +273,7 @@ def get_portfolio_status(db_name: str):
                     """)
                     latest_table = cursor_daily.fetchone()
 
-                    print(f"  ❌ collector_v3.py가 실행되지 않았습니다. (오늘 날짜: {today})")
+                    print(f"  ❌ collector_v3.py가 실행되지 않았습니다. (기준: {target_date})")
                     if latest_table and latest_table[0]:
                         print(f"  📅 가장 최근 데이터: {latest_table[0]}")
                     else:

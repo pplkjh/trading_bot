@@ -17,6 +17,8 @@ class DeduplicateFilter(logging.Filter):
     def filter(self, record):
         if record.levelno >= logging.WARNING:
             return True  # WARNING 이상 항상 통과
+        if getattr(record, 'no_dedup', False):
+            return True  # no_dedup 마커 있으면 항상 통과
         key = (record.filename, record.lineno)
         msg = record.getMessage()
         normalized = re.sub(r'\d+', '#', msg)  # 숫자 → '#' 정규화

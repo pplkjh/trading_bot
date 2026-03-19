@@ -8,6 +8,7 @@ from library import cf
 from pandas import DataFrame
 from .open_api import escape_percentage
 from library.logging_pack import logger
+from library.utils import get_latest_complete_date
 from library.technical_indicators import (
     calculate_rsi, calculate_bollinger_bands, calculate_atr,
     calculate_macd, calculate_adx, calculate_obv, calculate_mfi, calculate_cmf,
@@ -58,12 +59,21 @@ class daily_buy_list():
         self.date_rows_setting()
         self.get_stock_item_all()
 
+        latest_complete = get_latest_complete_date(self.date_rows)
+        logger.debug(f"daily_buy_list 기준날짜: {latest_complete} (장마감={'Y' if latest_complete == self.today else 'N'})")
+
         for k in range(len(self.date_rows)):
             # print("self.date_rows !!!!", self.date_rows)
             logger.debug(str(k) + " 번째 : " + datetime.datetime.today().strftime(" ******* %H : %M : %S *******"))
 
             current_date = self.date_rows[k][0]
-            is_today = (current_date == self.today)
+
+            # 장 미종료 날짜(오늘 데이터 불완전) → 스킵
+            if str(current_date) > latest_complete:
+                logger.debug(f"{current_date} 는 아직 완전하지 않은 날짜 (장전 실행) → 스킵")
+                continue
+
+            is_today = (current_date == latest_complete)
 
             # daily 테이블 존재하는지 확인
             if self.is_table_exist_daily_buy_list(current_date) == True:

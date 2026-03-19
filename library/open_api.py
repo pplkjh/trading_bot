@@ -778,7 +778,7 @@ class open_api(QAxWidget):
         if df.empty:
             return False
         try:
-            logger.debug("get_one_day_option_data df : {} ".format(df))
+            logger.debug("get_one_day_option_data df :\n{}".format(df.to_string()))
             logger.debug("code : {},type(code): {}, start: {}, option: {} ".format(code, type(code), start, option))
             logger.debug("df.iloc[0, 3] (close) : {} ".format(df.iloc[0, 3]))
         except Exception as e:
@@ -1071,7 +1071,9 @@ class open_api(QAxWidget):
                 "매수!!!!+-+-+-+-+-+-+-+-+-+-+-+-+-+-+- code :%s, 목표가: %s, 현재가: %s, 매수량: %s, min_buy_limit: %s, max_buy_limit: %s , invest_limit_rate: %s,예수금: %s , today : %s, today_min : %s, date_rows_yesterday : %s, invest_unit : %s, real_invest_unit : %s +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-",
                 self.get_today_buy_list_code, self.get_today_buy_list_close, current_price, buy_num, min_buy_limit,
                 max_buy_limit, self.sf.invest_limit_rate, self.d2_deposit_before_format, self.today, self.today_detail,
-                self.date_rows_yesterday, self.invest_unit, int(current_price) * int(buy_num))
+                self.date_rows_yesterday, self.invest_unit, int(current_price) * int(buy_num),
+                extra={'no_dedup': True}
+            )
 
             # 03 시장가 매수
             # 4번째 인자: 1: 신규매수 / 2: 신규매도 / 3:매수취소 / 4:매도취소 / 5: 매수정정 / 6:매도정정
@@ -1109,7 +1111,7 @@ class open_api(QAxWidget):
 
         logger.debug("self.sf.len_df_realtime_daily_buy_list 이제 사러간다!! ")
         logger.debug("매수 리스트!!!!")
-        logger.debug(self.sf.df_realtime_daily_buy_list)
+        logger.debug("\n" + self.sf.df_realtime_daily_buy_list.to_string())
         # 만약에 realtime_daily_buy_list 의 종목 수가 1개 이상이면 아래 로직을 들어간다
         for i in range(self.sf.len_df_realtime_daily_buy_list):
             # code를 가져온다
@@ -1161,21 +1163,23 @@ class open_api(QAxWidget):
         """
         # logger.debug("get_advanced_buy_list 함수 실행")
 
+        from library.utils import get_latest_complete_date
         today = datetime.datetime.now().strftime("%Y%m%d")
+        target_date = get_latest_complete_date()  # 장마감 여부에 따라 오늘 or 전 영업일
 
-        # collector 실행 여부: daily_buy_list.{today} 테이블 존재 여부로 판단
+        # collector 실행 여부: daily_buy_list.{target_date} 테이블 존재 여부로 판단
         # (realtime_daily_buy_list.date 는 키움 데이터 기준 전일 날짜라 today와 다름 — 사용 불가)
         try:
             collector_ran = self.sf.engine_daily_buy_list.execute(
                 f"SELECT COUNT(*) FROM information_schema.TABLES "
-                f"WHERE TABLE_SCHEMA='daily_buy_list' AND TABLE_NAME='{today}'"
+                f"WHERE TABLE_SCHEMA='daily_buy_list' AND TABLE_NAME='{target_date}'"
             ).fetchone()[0]
         except Exception as e:
-            logger.error(f"daily_buy_list.{today} 테이블 확인 중 오류: {e}")
+            logger.error(f"daily_buy_list.{target_date} 테이블 확인 중 오류: {e}")
             collector_ran = 0
 
         if not collector_ran:
-            logger.error(f"❌ 오늘({today}) collector가 실행되지 않았습니다 (daily_buy_list.{today} 테이블 없음)")
+            logger.error(f"❌ collector가 실행되지 않았습니다 (daily_buy_list.{target_date} 테이블 없음)")
             logger.error("💡 collector_v3.py를 먼저 실행하세요")
             return
 
@@ -1303,7 +1307,7 @@ class open_api(QAxWidget):
                 code = signal['code']
                 reason = signal['decision']['reason']
                 priority = signal['decision']['priority']
-                logger.info(f"  - {code}: {reason} (우선순위: {priority})")
+                logger.info(f"  - {code}: {reason} (우선순위: {priority})", extra={'no_dedup': True})
 
             return sell_signals
 
@@ -1364,11 +1368,11 @@ class open_api(QAxWidget):
                 if rate >= sell_point:
                     # 로그 출력 시 형식 고려 (모의투자는 이미 % 값, 실전은 100 기준)
                     display_rate = rate if self.mod_gubun == 1 else rate - 100
-                    logger.info(f"  📈 익절: {code_name}({code}) - 수익률 {display_rate:.2f}%")
+                    logger.info(f"  📈 익절: {code_name}({code}) - 수익률 {display_rate:.2f}%", extra={'no_dedup': True})
                     sell_list.append(holding)
                 elif rate <= losscut_point:
                     display_rate = rate if self.mod_gubun == 1 else rate - 100
-                    logger.info(f"  📉 손절: {code_name}({code}) - 수익률 {display_rate:.2f}%")
+                    logger.info(f"  📉 손절: {code_name}({code}) - 수익률 {display_rate:.2f}%", extra={'no_dedup': True})
                     sell_list.append(holding)
 
             logger.info(f"🎯 기본 매도 시그널: {len(sell_list)}개 종목")

@@ -16,8 +16,10 @@ simul_num=3 전용. 기존 hybrid_strategy.py (v1)는 수정하지 않음.
   F. 다중시간프레임 10점 ★감소 (주봉추세 10)
   합계            200점
   변동성 패널티   최대 -20점 (갭하락 위험 종목 사전 차단)
+  과매수 패널티   최대 -15점 (MFI 과열 종목 차단)
+  RSI추세 점수    -10 ~ +10점 (고점 소진 패널티 / 과매도 회복 보너스)
 """
-from library.technical_indicators import calculate_rs_vs_market
+from library.technical_indicators import calculate_rs_vs_market, calculate_rsi
 
 
 class HybridStrategyV2:
@@ -52,8 +54,10 @@ class HybridStrategyV2:
         e_score = self.score_market_context(row, df_120, market_data)
         f_score = self.score_multi_timeframe(row, df_120)
 
-        # 변동성 리스크 패널티 (갭하락 위험 종목 사전 차단)
-        penalty = self._volatility_penalty(row)
+        # 리스크 패널티
+        penalty = (self._volatility_penalty(row)
+                   + self._overbought_penalty(row)
+                   + self._rsi_slope_score(row, df_120))
 
         total = a_score + b_score + c_score + d_score + e_score + f_score + penalty
         return round(total, 2)
@@ -277,7 +281,7 @@ class HybridStrategyV2:
 
         return score
 
-    # === 변동성 리스크 패널티 ★ 신규 ===
+    # === 리스크 패널티 ===
     def _volatility_penalty(self, row: dict) -> float:
         """갭하락 위험이 높은 고변동성 종목에 패널티 적용"""
         try:
@@ -289,5 +293,80 @@ class HybridStrategyV2:
             elif atr_rate > 0.05:  # ATR > 5%
                 return -10
         except (TypeError, ZeroDivisionError):
+            pass
+        return 0.0
+
+    def _overbought_penalty(self, row: dict) -> float:
+        """MFI 과매수 패널티 — 단기 자금 과열로 반전 위험이 높은 종목 차단"""
+        try:
+            mfi = row.get('mfi14', 0) or 0
+            if mfi > 90:   # 극단적 과매수
+                return -15
+            elif mfi > 80: # 과매수
+                return -8
+        except TypeError:
+            pass
+        return 0.0
+
+    def _rsi_slope_score(self, row: dict, df_120) -> float:
+        """RSI 동적 꺽임 감지 — 실제 고점/저점 기준 일당 변화율로 판단
+
+        고점 꺽임 패널티 (RSI>60 고점 이후 하락 중):
+          일당 -3pt 이상  → -15pt
+          일당 -1.5pt 이상 → -8pt
+
+        저점 꺽임 보너스 (RSI<40 저점 이후 상승 중):
+          일당 +2pt 이상  → +10pt
+          일당 +1pt 이상  →  +5pt
+        """
+        try:
+            if df_120 is None or len(df_120) < 30:
+                return 0.0
+
+            # Wilder's EMA 방식으로 rolling RSI(14) 계산 — DB rsi14 와 동일
+            close = df_120['close'].reset_index(drop=True)
+            delta = close.diff()
+            gain = delta.where(delta > 0, 0.0)
+            loss = -delta.where(delta < 0, 0.0)
+            avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+            avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+            rs = avg_gain / avg_loss.replace(0, float('nan'))
+            rsi_series = (100 - (100 / (1 + rs))).fillna(50)
+
+            # 최근 16개 RSI (오늘 포함) — 고점/저점 탐색은 오늘 제외 15일치
+            if len(rsi_series) < 16:
+                return 0.0
+
+            recent = rsi_series.iloc[-16:].reset_index(drop=True)  # index 0~15
+            rsi_now = float(recent.iloc[-1])                        # index 15 = 오늘
+            search  = recent.iloc[:-1]                              # index 0~14 = 과거 15일
+
+            # 고점 꺽임: 최근 15일 내 RSI>60 고점 → 오늘까지 하락 중
+            peak_idx = int(search.idxmax())
+            peak_rsi = float(search.iloc[peak_idx])
+            days_since_peak = 15 - peak_idx          # 고점으로부터 오늘까지 거래일 수
+            fall_from_peak  = rsi_now - peak_rsi     # 음수 = 하락
+
+            if peak_rsi > 60 and fall_from_peak < 0 and days_since_peak > 0:
+                fall_rate = fall_from_peak / days_since_peak
+                if fall_rate <= -3.0:
+                    return -15
+                elif fall_rate <= -1.5:
+                    return -8
+
+            # 저점 꺽임 보너스: 최근 15일 내 RSI<40 저점 → 오늘까지 상승 중
+            trough_idx = int(search.idxmin())
+            trough_rsi = float(search.iloc[trough_idx])
+            days_since_trough = 15 - trough_idx
+            rise_from_trough  = rsi_now - trough_rsi  # 양수 = 상승
+
+            if trough_rsi < 40 and rise_from_trough > 0 and days_since_trough > 0:
+                rise_rate = rise_from_trough / days_since_trough
+                if rise_rate >= 2.0:
+                    return 10
+                elif rise_rate >= 1.0:
+                    return 5
+
+        except Exception:
             pass
         return 0.0

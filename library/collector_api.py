@@ -351,7 +351,9 @@ class collector_api():
             logger.debug("[collector] daily_buy_list_check 완료")
             # 결과 출력
             try:
-                buy_list_sql = f"SELECT COUNT(*) FROM daily_buy_list.`{self.open_api.today}`"
+                from library.utils import get_latest_complete_date
+                _target = get_latest_complete_date()
+                buy_list_sql = f"SELECT COUNT(*) FROM daily_buy_list.`{_target}`"
                 buy_list_count = self.open_api.engine_daily_buy_list.execute(buy_list_sql).fetchone()[0]
                 logger.debug(f"[collector] daily_buy_list 종목수: {buy_list_count}")
                 print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
@@ -537,11 +539,14 @@ class collector_api():
         # simul_num=3: HybridStrategyV2 Python 점수 기반 선정
         # (simulator_func_mysql.db_to_realtime_daily_buy_list_num=21 분기에서 처리)
         if self.open_api.simul_num == 3:
+            from library.utils import get_latest_complete_date
             self.open_api.sf.get_date_for_simul()
+            target_date = get_latest_complete_date(self.open_api.sf.date_rows)
+            logger.debug(f"[simul_num=3] 스코어링 기준날짜: {target_date}")
             self.open_api.sf.db_to_realtime_daily_buy_list(
-                self.open_api.today, self.open_api.today, len(self.open_api.sf.date_rows)
+                target_date, target_date, len(self.open_api.sf.date_rows)
             )
-            # check_collector_done.py가 확인하는 값 — simul_num=1,2와 동일하게 업데이트
+            # check_collector_done.py가 확인하는 값 — 오늘 날짜로 업데이트 (스코어링 완료 표시)
             sql = "UPDATE setting_data SET today_buy_list='%s' limit 1"
             self.engine_JB.execute(sql % (self.open_api.today))
             return
@@ -729,8 +734,10 @@ class collector_api():
                 traceback.print_exc()
                 print("\n⚠️  고급 전략 실행 실패. 기본 전략으로 폴백합니다.")
                 # 기본 전략 실행
+                from library.utils import get_latest_complete_date
                 self.open_api.sf.get_date_for_simul()
-                self.open_api.sf.db_to_realtime_daily_buy_list(self.open_api.today, self.open_api.today, len(self.open_api.sf.date_rows))
+                _fallback_date = get_latest_complete_date(self.open_api.sf.date_rows)
+                self.open_api.sf.db_to_realtime_daily_buy_list(_fallback_date, _fallback_date, len(self.open_api.sf.date_rows))
 
             # all_item_db에서 open, clo5~120, volume 등을 최근 영업일 데이터로 업데이트 한다.
             self.open_api.sf.update_all_db_by_date(latest_date)
