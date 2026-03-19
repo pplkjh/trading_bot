@@ -40,14 +40,22 @@ if target_date is None:
 
 print(f"기준 날짜: {target_date}  (오늘 실제 종가 기준 재계산)")
 
-# ── 후보 종목 목록 (stock_item_all 에서 수집 완료 종목) ────────
+# ── 후보 종목 목록 — daily_buy_list 사전필터로 200개로 압축 ───
 invest_unit = getattr(cf, 'invest_unit', 1_000_000)
-stock_rows = engine_dbl.execute(
-    "SELECT code, code_name FROM stock_item_all "
-    "WHERE check_daily_crawler IN ('1','3') "
-    "AND code NOT IN (SELECT code FROM stock_konex WHERE 1=1)"
-).fetchall()
-print(f"전체 후보 종목: {len(stock_rows)}개")
+try:
+    stock_rows = engine_dbl.execute(
+        f"SELECT code, code_name FROM `{target_date}` "
+        "WHERE close > 0 AND close < %(unit)s AND adx > 15 "
+        "ORDER BY (adx + rsi14 + cmf20*100) DESC LIMIT 200",
+        {'unit': invest_unit}
+    ).fetchall()
+    print(f"사전 필터 후보: {len(stock_rows)}개  (daily_buy_list.{target_date})")
+except Exception:
+    stock_rows = engine_dbl.execute(
+        "SELECT code, code_name FROM stock_item_all "
+        "WHERE check_daily_crawler IN ('1','3')"
+    ).fetchall()
+    print(f"전체 후보 종목: {len(stock_rows)}개 (사전필터 불가)")
 
 
 def compute_row_from_df(df):
@@ -190,7 +198,7 @@ for code, code_name in stock_rows:
     try:
         df_120 = pd.read_sql(
             f"SELECT date,open,high,low,close,volume FROM `{code_name}` "
-            f"WHERE code='{code}' AND date <= '{target_date}' "
+            f"WHERE date <= '{target_date}' "
             "ORDER BY date DESC LIMIT 120",
             engine_craw
         )

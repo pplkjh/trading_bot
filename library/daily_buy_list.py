@@ -86,17 +86,9 @@ class daily_buy_list():
 
                 if not empty:
                     if is_today:
-                        # 오늘 날짜: check_daily_crawler=4(주식분할/증자 등)로 인해
-                        # 일부 종목만 먼저 삽입된 부분 생성 테이블일 수 있으므로 행 수 확인
-                        row_count = self.engine_daily_buy_list.execute(
-                            f"SELECT COUNT(*) FROM `{current_date}`"
-                        ).fetchone()[0]
-                        if row_count < 100:
-                            logger.debug(f"{current_date} 테이블이 {row_count}행만 있어 (부분 생성) 재생성합니다.")
-                            self.engine_daily_buy_list.execute(f"DROP TABLE `{current_date}`")
-                        else:
-                            logger.debug(current_date + "테이블은 존재한다 !! continue!! ")
-                            continue
+                        # 오늘 날짜: 항상 드롭 후 재수집 (매일 아침 최신 Kiwoom 데이터로 갱신)
+                        logger.debug(f"{current_date} 오늘 날짜 테이블 재생성 (기존 데이터 삭제 후 재수집)")
+                        self.engine_daily_buy_list.execute(f"DROP TABLE `{current_date}`")
                     else:
                         # 과거 날짜: 이미 있으면 스킵
                         logger.debug(current_date + "테이블은 존재한다 !! continue!! ")
