@@ -668,7 +668,7 @@ class simulator_func_mysql:
         if self.op == 'real':
             # 실제 트레이더: composite_score로 정렬 (컬럼 없으면 code로 폴백)
             import pandas as pd
-            logger.debug("Using database engine: %s", self.engine_simulator.url)
+            logger.debug("Using database engine: %s", self.engine_simulator.url.database)
             try:
                 sql = "select * from realtime_daily_buy_list where check_item = '0' order by composite_score desc, code"
                 logger.debug("SQL query: %s", sql)
@@ -682,7 +682,7 @@ class simulator_func_mysql:
             # 시뮬레이터: rsi14, bb_upper, bb_middle, bb_lower, atr14 포함 (47개)
             sql = "select * from realtime_daily_buy_list where check_item = '%s' order by code"
             logger.debug("SQL query: %s", sql % (0))
-            logger.debug("Using database engine: %s", self.engine_simulator.url)
+            logger.debug("Using database engine: %s", self.engine_simulator.url.database)
             realtime_daily_buy_list = self.engine_simulator.execute(sql % (0)).fetchall()
             logger.debug("Query returned %d rows", len(realtime_daily_buy_list))
             self.df_realtime_daily_buy_list = DataFrame(realtime_daily_buy_list,

@@ -90,7 +90,7 @@ class open_api(QAxWidget):
         if not self.sf.is_simul_table_exist(self.db_name, "setting_data"):
             self.init_db_setting_data()
         else:
-            logger.debug("setting_data db 존재한다!!!")
+            pass
 
         # 여기서 invest_unit 설정함
         self.sf_variable_setting()
@@ -114,7 +114,6 @@ class open_api(QAxWidget):
         self.date_rows_yesterday = self.sf.get_recent_daily_buy_list_date()
 
         if not self.sf.is_simul_table_exist(self.db_name, "all_item_db"):
-            logger.debug("all_item_db 없어서 생성!! init !! ")
             self.invest_unit = 0
             self.db_to_all_item(0, 0, 0, 0, 0)
             self.delete_all_item("0")
@@ -173,20 +172,20 @@ class open_api(QAxWidget):
         # 아래 분기문은 실전 투자 인지, 모의 투자 인지 결정
         if self.account_number == cf.real_account:  # 실전
             self.simul_num = cf.real_simul_num
-            logger.debug("실전!@@@@@@@@@@@" + cf.real_account)
+            logger.info("실전 계좌 연결: %s", cf.real_account)
             self.db_name_setting(cf.real_db_name)
             # 실전과 모의투자가 다른 것은 아래 mod_gubun 이 다르다.
             # 금일 수익률 표시 하는게 달라서(중요X)
             self.mod_gubun = 100
 
         elif self.account_number == cf.imi1_accout:  # 모의1
-            logger.debug("모의투자 1!!")
+            logger.info("모의투자 계좌 연결")
             self.simul_num = cf.imi1_simul_num
             self.db_name_setting(cf.imi1_db_name)
             self.mod_gubun = 1
 
         else:
-            logger.debug("계정이 존재하지 않습니다!! library/cf.py 파일에 계좌번호를 입력해주세요!")
+            logger.critical("계좌번호를 찾을 수 없습니다. library/cf.py 파일에 계좌번호를 입력해주세요.")
             exit(1)
         # 여기에 이렇게 true로 고정해놔야 exit check 할때 false 인 경우에 들어갔을 때  today_buy_code is null 이런 에러 안생긴다.
         self.jango_is_null = True
@@ -196,7 +195,7 @@ class open_api(QAxWidget):
 
     # 봇 데이터 베이스를 만드는 함수
     def create_database(self, cursor):
-        logger.debug("create_database!!! {}".format(self.db_name))
+        logger.debug("create_database: %s", self.db_name)
         sql = 'CREATE DATABASE {}'
         cursor.execute(sql.format(self.db_name))
 
@@ -204,16 +203,14 @@ class open_api(QAxWidget):
     def is_database_exist(self, cursor):
         sql = "SELECT 1 FROM Information_schema.SCHEMATA WHERE SCHEMA_NAME = '{}'"
         if cursor.execute(sql.format(self.db_name)):
-            logger.debug("%s 데이터 베이스가 존재한다! ", self.db_name)
             return True
         else:
-            logger.debug("%s 데이터 베이스가 존재하지 않는다! ", self.db_name)
             return False
 
     # db 세팅 함수
     def db_name_setting(self, db_name):
         self.db_name = db_name
-        logger.debug("db name !!! : %s", self.db_name)
+        logger.debug("db: %s", self.db_name)
         conn = pymysql.connect(
             host=cf.db_ip,
             port=int(cf.db_port),
@@ -298,15 +295,7 @@ class open_api(QAxWidget):
             logger.critical(e)
 
     def _receive_msg(self, sScrNo, sRQName, sTrCode, sMsg):
-        # logger.debug("_receive_msg 함수에 들어왔습니다!")
-        # logger.debug("sScrNo!!!")
-        # logger.debug(sScrNo)
-        # logger.debug("sRQName!!!")
-        # logger.debug(sRQName)
-        # logger.debug("sTrCode!!!")
-        # logger.debug(sTrCode)
-        # logger.debug("sMsg!!!")
-        # logger.debug(sMsg)
+        pass
 
     def _event_connect(self, err_code):
         try:
@@ -423,7 +412,6 @@ class open_api(QAxWidget):
 
     # setting_data를 초기화 하는 함수
     def init_db_setting_data(self):
-        logger.debug("init_db_setting_data !! ")
 
         #  추가하면 여기에도 추가해야함
         df_setting_data_temp = {'loan_money': [], 'limit_money': [], 'invest_unit': [], 'max_invest_unit': [],
@@ -779,9 +767,7 @@ class open_api(QAxWidget):
         if df.empty:
             return False
         try:
-            logger.debug("get_one_day_option_data df :\n{}".format(df.to_string()))
-            logger.debug("code : {},type(code): {}, start: {}, option: {} ".format(code, type(code), start, option))
-            logger.debug("df.iloc[0, 3] (close) : {} ".format(df.iloc[0, 3]))
+            pass
         except Exception as e:
             logger.critical(e)
 
@@ -943,9 +929,6 @@ class open_api(QAxWidget):
         if len(rows) != 0:
             return rows[0][0]
 
-        logger.debug("code를 찾을 수 없다!! name이 긴놈이다!!!!")
-        logger.debug(codename)
-
         sql = f"select code from stock_item_all where code_name like '{codename}%'"
         rows = self.engine_daily_buy_list.execute(sql).fetchall()
 
@@ -979,15 +962,13 @@ class open_api(QAxWidget):
 
     # 잔액이 생겨서 다시 매수 할 수 있는 상황인 경우 setting_data의 today_buy_stop 옵션을 0으로 변경
     def buy_check_reset(self):
-        logger.debug("buy_check_reset!!!")
-
         sql = "UPDATE setting_data SET today_buy_stop='%s' WHERE id='%s'"
         self.engine_JB.execute(sql % (0, 1))
 
     # 투자 가능한 잔액이 부족한 경우이거나, 매수할 종목이 더이상 없는 경우
     # setting_data의 today_buy_stop 옵션을 1로 변경-> 더이상 매수 하지 않는다.
     def buy_check_stop(self):
-        logger.debug("buy_check_stop!!!")
+        logger.info("⛔ 당일 매수 중단 설정")
         sql = "UPDATE setting_data SET today_buy_stop='%s' limit 1"
         self.engine_JB.execute(sql % (self.today))
 
@@ -1000,7 +981,7 @@ class open_api(QAxWidget):
         max_positions = getattr(self.sf, 'max_positions', 10)  # 기본값 10개
 
         if current_positions >= max_positions:
-            logger.debug(f"보유 종목 수 한도 도달! 현재: {current_positions}개, 최대: {max_positions}개")
+            logger.info("보유 종목 수 한도 도달 (%d/%d)", current_positions, max_positions)
             self.jango_is_null = True
             return False
 
@@ -1012,11 +993,10 @@ class open_api(QAxWidget):
             if int(self.d2_deposit_before_format) > (int(self.sf.limit_money)):
                 # jango_is_null 역할은 trade 루프 돌다가 하나 샀더니 돈 부족해질때 그때 루프를 빠져나오는 용도
                 self.jango_is_null = False
-                logger.debug("돈안부족해 투자 가능!!!!!!!!")
                 return True
             else:
                 # self.open_api.buy_check_stop()
-                logger.debug("돈부족해서 invest 불가!!!!!!!!")
+                logger.info("💰 예수금 부족으로 매수 불가 (예수금: %s, 필요: %s)", self.d2_deposit_before_format, self.sf.limit_money)
                 self.jango_is_null = True
                 return False
         except Exception as e:
@@ -1045,14 +1025,14 @@ class open_api(QAxWidget):
     # 매수 함수
     def trade(self):
         # logger.debug("trade 함수에 들어왔다!")
-        logger.debug(f"매수 대상 종목 코드! {self.get_today_buy_list_code}")
+        logger.debug("매수 시도: %s(%s)", self.get_today_buy_list_code_name, self.get_today_buy_list_code)
 
         # 실시간 현재가(close) 가져오는 함수
         # close는 종가 이지만, 현재 시점의 종가를 가져오기 때문에 현재가를 가져온다.
         current_price = self.get_one_day_option_data(self.get_today_buy_list_code, self.today, 'close')
 
         if current_price == False:
-            logger.debug(f"{self.get_today_buy_list_code} 의 현재가가 비어있다 !!!")
+            logger.warning("⚠️ 현재가 조회 실패: %s(%s)", self.get_today_buy_list_code_name, self.get_today_buy_list_code)
             return False
 
         prev_close = int(self.get_today_buy_list_close)
@@ -1069,10 +1049,10 @@ class open_api(QAxWidget):
         if min_buy_limit < current_price < max_buy_limit:
             buy_num = self.buy_num_count(self.invest_unit, int(current_price))
             logger.debug(
-                "매수!!!!+-+-+-+-+-+-+-+-+-+-+-+-+-+-+- code :%s, 목표가: %s, 현재가: %s, 매수량: %s, min_buy_limit: %s, max_buy_limit: %s , invest_limit_rate: %s,예수금: %s , today : %s, today_min : %s, date_rows_yesterday : %s, invest_unit : %s, real_invest_unit : %s +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-",
-                self.get_today_buy_list_code, self.get_today_buy_list_close, current_price, buy_num, min_buy_limit,
-                max_buy_limit, self.sf.invest_limit_rate, self.d2_deposit_before_format, self.today, self.today_detail,
-                self.date_rows_yesterday, self.invest_unit, int(current_price) * int(buy_num),
+                "🛒 매수 주문: %s(%s) 현재가=%s 목표가=%s 수량=%s 금액=%s원",
+                self.get_today_buy_list_code_name, self.get_today_buy_list_code,
+                current_price, self.get_today_buy_list_close, buy_num,
+                format(int(current_price) * int(buy_num), ','),
                 extra={'no_dedup': True}
             )
 
@@ -1084,7 +1064,7 @@ class open_api(QAxWidget):
             # 만약 sf.only_nine_buy가 False 이면 즉, 한번 매수하고 금일 매수를 중단하는 것이 아니라면, 매도 후에 잔액이 생기면 다시 매수를 시작
             # sf.only_nine_buy가 True이면 1회만 매수, 1회 매수 시 잔액이 부족해지면 바로 매수 중단 
             if not self.jango_check() and self.sf.only_nine_buy:
-                logger.debug("하나 샀더니 잔고가 부족해진 구간!!!!!")
+                logger.info("💰 잔고 부족 — 당일 추가 매수 중단")
                 # setting_data에 today_buy_stop을 1 로 설정
                 self.buy_check_stop()
         else:
@@ -1097,22 +1077,14 @@ class open_api(QAxWidget):
     def get_today_buy_list(self):
         # logger.debug("get_today_buy_list 함수에 들어왔습니다!")
 
-        logger.debug("self.today : %s , self.date_rows_yesterday : %s !", self.today, self.date_rows_yesterday)
-
         if self.sf.is_simul_table_exist(self.db_name, "realtime_daily_buy_list"):
-            logger.debug("realtime_daily_buy_list 생겼다!!!!! ")
             self.sf.get_realtime_daily_buy_list()
             if self.sf.len_df_realtime_daily_buy_list == 0:
-                logger.debug("realtime_daily_buy_list 생겼지만 아직 data가 없다!!!!! ")
+                logger.debug("realtime_daily_buy_list: 테이블 있으나 데이터 없음")
                 return
         else:
-            logger.debug("realtime_daily_buy_list 없다 !! ")
+            logger.debug("realtime_daily_buy_list: 테이블 없음")
             return
-
-
-        logger.debug("self.sf.len_df_realtime_daily_buy_list 이제 사러간다!! ")
-        logger.debug("매수 리스트!!!!")
-        logger.debug("\n" + self.sf.df_realtime_daily_buy_list.to_string())
         # 만약에 realtime_daily_buy_list 의 종목 수가 1개 이상이면 아래 로직을 들어간다
         for i in range(self.sf.len_df_realtime_daily_buy_list):
             # code를 가져온다
@@ -1127,6 +1099,7 @@ class open_api(QAxWidget):
                 break
             # 이미 매수한 종목은 넘기고 다음 종목을 사라는 의미
             if check_item == True:
+                logger.debug("매수 스킵 (이미 처리됨): %s(%s)", code_name, code)
                 continue
             else:
                 # (추가) 매수 조건 함수(trade_check) ##########################################
@@ -1511,7 +1484,7 @@ class open_api(QAxWidget):
                 self.engine_JB.execute(update_sql)
 
             else:
-                logger.debug(f"아직 매수 혹은 매도 중인 종목 !!!! 미체결 수량: {self._data['미체결수량']}")
+                logger.debug(f"미체결 대기 중: {self._data['미체결수량']}주")
 
     # 하나의 종목이 체결이 됐는지 확인
     # 그래야 재매수든, 초기매수든 한번 샀는데 미체결량이 남아서 다시 사는건지 확인이 가능하다.
@@ -1557,25 +1530,17 @@ class open_api(QAxWidget):
             except Exception as e:
                 logger.warning(f"⚠️  realtime_position_monitor 삭제 실패: {e}")
 
-            logger.debug(f"delete {code}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         else:
-            logger.debug("possess가 없다!!!!!!!!!!!!!!!!!!!!!")
+            logger.debug("매도 체결 처리: possessed_item에 %s 없음", code)
 
     def delete_all_item(self, code):
-        logger.debug("delete_all_item!!!!!!!!")
-
         # 팔았으면 즉각 possess db에서 삭제한다. 왜냐하면 checgyul_check 들어가기 직전에 possess_db를 최신화 하긴 하지만 possess db 최신화와 chegyul_check 사이에 매도가 이뤄져서 receive로 가게 되면 sell_date를 찍어버리기 때문에 checgyul_check 입장에서는 possess에는 존재하고 all_db는 sell_date찍혀있다고 판단해서 새롭게 all_db추가해버린다.
         sql = "delete from all_item_db where code = '%s'"
-        # self.engine_JB.execute(sql % (code,))
-        # self.jackbot_db_con.commit()
         self.engine_JB.execute(sql % (code))
-
-        logger.debug("delete_all_item!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        logger.debug(code)
 
     #
     def sell_final_check2(self, code):
-        logger.debug(f"sell_final_check2 possessed_item에는 없는데 all_item_db에 sell_date 추가 안된 종목 처리 !!! {code}")
+        logger.debug(f"sell_final_check2: sell_date 미기록 종목 처리 {code}")
         sql = "UPDATE all_item_db SET chegyul_check='%s', sell_date ='%s' WHERE code='%s' and sell_date ='%s' ORDER BY buy_date desc LIMIT 1"
 
         self.engine_JB.execute(sql % (0, self.today_detail, code, 0))
@@ -1583,7 +1548,6 @@ class open_api(QAxWidget):
     # all_item_db 보유한 종목이 있는지 확인 (sell_date가 0이거나 비어있으면 아직 매도하지 않고 보유한 종목이다)
     # 보유한 경우 true 반환, 보유 하지 않았으면 False 반환
     def is_all_item_db_check(self, code):
-        logger.debug(f"is_all_item_db_check code!! {code}")
         sql = "select code from all_item_db where code='%s' and (sell_date ='%s' or sell_date='%s') ORDER BY buy_date desc LIMIT 1"
 
         rows = self.engine_JB.execute(sql % (code, 0, "")).fetchall()
@@ -1615,9 +1579,6 @@ class open_api(QAxWidget):
     # OnReceiveChejanData이벤트는 주문전용 이벤트로 주문접수, 체결, 잔고발생시 호출됩니다. 
     # 첫번째 매개변수 gubun 값으로 구분하며 체결구분 접수와 체결시 '0'값, 국내주식 잔고전달은 '1'값, 파생잔고 전달은 '4'가 됩니다. 
     def _receive_chejan_data(self, gubun, item_cnt, fid_list):
-        logger.debug("_receive_chejan_data 함수로 들어왔습니다!!!")
-        logger.debug("gubun !!! :" + gubun)
-
         account_num = self.get_chejan_data(9201)
 
         # 선택 계좌가 아닐 시 아무 행동도 하지 않는다
@@ -1627,7 +1588,6 @@ class open_api(QAxWidget):
 
         # 체결구분 접수와 체결
         if gubun == "0":
-            logger.debug("in 체결 data!!!!!")
             # 현재 체결 진행 중인 코드를 키움증권으로 부터 가져온다
             # 종목 코드
             code = code_pattern.search(self.get_chejan_data(9001)).group(0)  # 주식 코드가 숫자만오지 않아서 정규식으로 필터링
@@ -1667,38 +1627,33 @@ class open_api(QAxWidget):
             if code:
                 # 미체결 수량이 ""가 아닌 경우
                 if chegyul_fail_amount_temp != "":
-                    logger.debug("일단 체결은 된 경우!")
                     if self.is_all_item_db_check(code) == False:
-                        logger.debug("all_item_db에 매수한 종목이 없음 ! 즉 신규 매수하는 종목이다!!!!")
                         try:
                             if chegyul_fail_amount_temp == "0":
-                                logger.debug("완벽히 싹 다 체결됨!!!!!!!!!!!!!!!!!!!!!!!!!")
+                                logger.info("✅ 매수 체결 완료 (신규): %s", code)
                                 self.db_to_all_item(order_num, code, 0, purchase_price, 0)
                             else:
-                                logger.debug("체결 되었지만 덜 체결 됨!!!!!!!!!!!!!!!!!!")
+                                logger.debug("매수 부분 체결 (신규): %s", code)
                                 self.db_to_all_item(order_num, code, 1, purchase_price, 0)
                         except Exception as e:
                             logger.error(f"db_to_all_item 오류 ({code}): {e}")
 
                     elif order_gubun == "+매수":
                         if chegyul_fail_amount_temp != "0" and self.stock_chegyul_check(code) == True:
-                            logger.debug("아직 미체결 수량이 남아있다. 매수 진행 중!")
                             pass
                         elif chegyul_fail_amount_temp == "0" and self.stock_chegyul_check(code) == True:
-                            logger.debug("미체결 수량이 없다 / 즉, 매수 끝났다!!!!!!!")
+                            logger.info("✅ 매수 체결 완료: %s", code)
                             self.end_invest_count_check(code)
                         elif self.stock_chegyul_check(code) == False:
-                            logger.debug("현재 all_item_db에 존재하고 체결 체크가 0인 종목, 재매수 하는 경우!!!!!!!")
+                            logger.debug("매수 체결 (재매수): %s", code)
                             # self.reinvest_count_check(code)
                         else:
                             pass
 
                     elif order_gubun == "-매도":
                         if chegyul_fail_amount_temp == "0":
-                            logger.debug("all db에 존재하고 전량 매도하는 경우!!!!!")
                             self.sell_final_check(code)
                         else:
-                            logger.debug("all db에 존재하고 수량 남겨 놓고 매도하는 경우!!!!!")
                             self.sell_chegyul_fail_check(code)
 
                     else:
@@ -1710,7 +1665,6 @@ class open_api(QAxWidget):
 
         # 국내주식 잔고전달
         elif gubun == "1":
-            logger.debug("잔고데이터!!!!!")
             # logger.debug("item_cnt!!!")
             # logger.debug(item_cnt)
             # logger.debug("fid_list!!!")
@@ -1727,7 +1681,6 @@ class open_api(QAxWidget):
             #
             # logger.debug("미체결수량!!!")
             chegyul_fail_amount_temp = self.get_chejan_data(902)
-            logger.debug(chegyul_fail_amount_temp)
             # logger.debug("원주문번호!!!")
             # logger.debug(self.get_chejan_data(904))
             # logger.debug("주문구분!!!")
@@ -1743,8 +1696,7 @@ class open_api(QAxWidget):
             # logger.debug("현재가, 체결가, 실시간종가")
             # logger.debug(self.get_chejan_data(10))
         else:
-            logger.debug(
-                "_receive_chejan_data 에서 아무것도 해당 되지않음!")
+            pass
 
     # 예수금(계좌 잔액) 호출 함수
     def get_d2_deposit(self):
@@ -1831,7 +1783,6 @@ class open_api(QAxWidget):
 
     # 일별실현손익
     def _opt10074(self, rqname, trcode):
-        logger.debug("_opt10074!!!")
         try:
             rows = self._get_repeat_cnt(trcode, rqname)
             # total 실현손익
@@ -1857,7 +1808,6 @@ class open_api(QAxWidget):
             #     [name, quantity, purchase_price, current_price, eval_profit_loss_price, earning_rate])
 
     def _opw00015(self, rqname, trcode):
-        logger.debug("_opw00015!!!")
         try:
 
             rows = self._get_repeat_cnt(trcode, rqname)
@@ -1933,8 +1883,6 @@ class open_api(QAxWidget):
             logger.critical(e)
 
     def _opt10073(self, rqname, trcode):
-        logger.debug("_opt10073!!!")
-
         # multi data
         rows = self._get_repeat_cnt(trcode, rqname)
         for i in range(rows):
@@ -1953,8 +1901,6 @@ class open_api(QAxWidget):
             # logger.debug(type(item_total_purchase))
 
             self.opt10073_output['multi'].append([date, code, code_name, amount, today_profit, earning_rate])
-
-        logger.debug("_opt10073 end!!!")
 
     # 이번에는 opw00018 TR을 통해 얻어온 데이터를 인스턴스 변수에 저장해 보겠습니다. 먼저 open_api 클래스에 다음 메서드를 추가합니다.
     # 싱글 데이터는 1차원 리스트로 데이터를 저장하며, 멀티 데이터는 2차원 리스트로 데이터를 저장합니다.
@@ -2085,7 +2031,6 @@ class open_api(QAxWidget):
 
     #   일자별 종목별 실현손익
     def reset_opt10073_output(self):
-        logger.debug("reset_opt10073_output!!!")
         try:
             self.opt10073_output = {'single': [], 'multi': []}
         except Exception as e:
@@ -2093,7 +2038,6 @@ class open_api(QAxWidget):
 
     #   미체결 정보
     def _opt10076(self, rqname, trcode):
-        logger.debug("func in !!! _opt10076!!!!!!!!! ")
         output_keys = ['주문번호', '종목명', '주문구분', '주문가격', '주문수량', '체결가', '체결량', '미체결수량',
                        '당일매매수수료', '당일매매세금', '주문상태', '매매구분', '원주문번호', '주문시간', '종목코드']
         self._data = {}

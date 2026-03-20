@@ -55,7 +55,7 @@ class daily_buy_list():
             return False
 
     def daily_buy_list(self):
-        logger.debug("daily_buy_list!!!")
+        logger.debug("daily_buy_list 시작")
         self.date_rows_setting()
         self.get_stock_item_all()
 
@@ -100,7 +100,7 @@ class daily_buy_list():
                         DROP TABLE `{current_date}`
                     """)
 
-            logger.debug(self.date_rows[k][0] + "테이블은 존재하지 않는다 !!!!!!!!!!! table create !! ")
+            logger.debug(f"{current_date} 테이블 생성 시작")
 
             multi_list = list()
 
@@ -118,7 +118,7 @@ class daily_buy_list():
                 code = self.stock_item_all[i][1]
                 code_name = self.stock_item_all[i][0]
                 if self.is_table_exist_daily_craw(code, code_name) == False:
-                    print("daily_craw db에 " + str(code_name) + " 테이블이 존재하지 않는다 !!")
+                    logger.debug("daily_craw 테이블 없음 (스킵): %s", code_name)
                     continue
 
                 # 1. 오늘 날짜 데이터 가져오기 (원본 로직 유지)
@@ -251,7 +251,7 @@ class daily_buy_list():
                 logger.debug(f"{current_date} daily_buy_list 테이블 생성 완전 완료")
 
     def get_stock_item_all(self):
-        logger.debug("get_stock_item_all!!!!!!")
+        logger.debug("get_stock_item_all")
         sql = "select code_name,code from stock_item_all"
         self.stock_item_all = self.engine_daily_buy_list.execute(sql).fetchall()
 

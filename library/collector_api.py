@@ -138,8 +138,6 @@ class collector_api():
 
     # 콜렉팅을 실행하는 함수
     def code_update_check(self):
-        logger.debug("code_update_check 함수에 들어왔습니다.")
-
         print("\n" + "="*100)
         print("📊 데이터 수집 시작")
         print("="*100 + "\n")
@@ -377,7 +375,7 @@ class collector_api():
             print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
         # 내일 매수 종목 업데이트 (realtime_daily_buy_list)
-        if rows[0][6] != self.open_api.today:
+        if rows[0][6] != self.open_api.today or need_daily_buy_list:
             current_task += 1
             print(f"\n[{current_task}/{total_tasks}] 🚀 실시간 매수 리스트 생성 중...")
             logger.debug(f"[collector] realtime_daily_buy_list_check 시작")
@@ -426,7 +424,7 @@ class collector_api():
         print(f"✅ 모든 데이터 수집 완료! (총 소요 시간: {int(total_time//60)}분 {int(total_time%60)}초)")
         print("="*100)
 
-        logger.debug("collecting 작업을 모두 정상적으로 마쳤습니다.")
+        logger.info("collecting 완료")
 
         # cmd 콘솔창 종료 - 주석 처리 (collector_v3.py의 60초 대기를 방해함)
         # os.system("@taskkill /f /im cmd.exe")
@@ -557,7 +555,7 @@ class collector_api():
         latest_date = get_latest_date_table('daily_buy_list')
 
         if latest_date:
-            logger.debug("daily_buy_list DB에 {} 테이블이 있습니다. jackbot DB에 realtime_daily_buy_list 테이블을 생성합니다".format(latest_date))
+            logger.info("realtime_daily_buy_list 생성 시작 (기준: %s)", latest_date)
 
             try:
                 # 고급 전략으로 매수 후보 종목 스캔
@@ -746,13 +744,7 @@ class collector_api():
             sql = "UPDATE setting_data SET today_buy_list='%s' limit 1"
             self.engine_JB.execute(sql % (self.open_api.today))
         else:
-            logger.debug(
-                """daily_buy_list DB에 {} 테이블이 없습니다. jackbot DB에 realtime_daily_buy_list 테이블을 생성 할 수 없습니다.
-                realtime_daily_buy_list는 daily_buy_list DB 안에 오늘 날짜 테이블이 만들어져야 생성이 됩니다.
-                realtime_daily_buy_list 테이블을 생성할 수 없는 이유는 아래와 같습니다.
-                1. 장이 열리지 않은 날 혹은 15시 30분 ~ 23시 59분 사이에 콜렉터를 돌리지 않은 경우
-                2. 콜렉터를 오늘 날짜 까지 돌리지 않아 daily_buy_list의 오늘 날짜 테이블이 없는 경우
-                """.format(self.open_api.today))
+            logger.warning("realtime_daily_buy_list 생성 불가: daily_buy_list에 %s 테이블 없음", self.open_api.today)
 
     def _hybrid_strategy_sql(self, latest_date: str, min_score: float, top_n: int) -> pd.DataFrame:
         """

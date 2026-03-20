@@ -82,4 +82,18 @@ echo End time: %date% %time%
 echo ========================================
 
 echo %date% %time% - Trader exit (code=%TRADER_EXIT%) >> automation_log.txt
+
+if %TRADER_EXIT% NEQ 0 (
+    echo.
+    echo [ERROR] Trader exited abnormally (code=%TRADER_EXIT%)
+    echo --- Recent log (last 10 lines) ---
+    powershell -Command "Get-Content 'log\jackbot.log' -Tail 10" 2>NUL
+    echo ----------------------------------
+    echo.
+    echo Closing in 30 seconds... (Press Ctrl+C to cancel)
+    timeout /t 30
+) else (
+    echo Closing in 5 seconds...
+    timeout /t 5
+)
 exit /b

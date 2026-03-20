@@ -806,6 +806,14 @@ class TraderAdvanced(QMainWindow):
                             logger.info("=" * 80)
                             logger.info(f"🕐 장 마감 후 {self.exit_wait_minutes}분 경과 - 자동 종료")
                             logger.info(f"종료 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                            # 일일 매매 요약
+                            trades = self.trade_history
+                            sells = [t for t in trades if t.get('type') == '매도']
+                            wins = [t for t in sells if t.get('profit_rate', 0) > 0]
+                            losses = [t for t in sells if t.get('profit_rate', 0) <= 0]
+                            avg_profit = sum(t['profit_rate'] for t in wins) / len(wins) if wins else 0
+                            avg_loss = sum(t['profit_rate'] for t in losses) / len(losses) if losses else 0
+                            logger.info(f"📊 일일 요약: 매도 {len(sells)}건 (익절 {len(wins)} / 손절 {len(losses)}) | 평균익절 {avg_profit:.1f}% | 평균손절 {avg_loss:.1f}%")
                             logger.info("=" * 80)
                             break
 
