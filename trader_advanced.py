@@ -22,6 +22,8 @@ ver = "#version 2.0.0 - Advanced Strategy Integrated"
 print(f"Trader Advanced Version: {ver}")
 
 import traceback as _traceback
+import faulthandler as _faulthandler
+_faulthandler.enable(open('log/crash_dump.log', 'w'))
 
 def _global_exception_handler(exc_type, exc_value, exc_tb):
     tb_str = "".join(_traceback.format_exception(exc_type, exc_value, exc_tb))

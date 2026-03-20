@@ -166,6 +166,7 @@ class open_api(QAxWidget):
     def variable_setting(self):
         # logger.debug("variable_setting 함수에 들어왔다.")
         self.get_today_buy_list_code = 0
+        self.get_today_buy_list_code_name = ''
         self.get_today_buy_list_atr14 = 0
         self.cf = cf
         self.reset_opw00018_output()
@@ -305,7 +306,7 @@ class open_api(QAxWidget):
         # logger.debug("sTrCode!!!")
         # logger.debug(sTrCode)
         # logger.debug("sMsg!!!")
-        logger.debug(sMsg)
+        # logger.debug(sMsg)
 
     def _event_connect(self, err_code):
         try:
@@ -1087,10 +1088,10 @@ class open_api(QAxWidget):
                 # setting_data에 today_buy_stop을 1 로 설정
                 self.buy_check_stop()
         else:
-            logger.debug(
-                "invest_limit_rate 만큼 급등 or invest_min_limit_rate 만큼 급락 해서 매수 안함 !!! code :%s, 목표가: %s , 현재가: %s, min_buy_limit: %s, max_buy_limit: %s, atr14: %s, invest_limit_rate: %s , invest_min_limit_rate : %s, today : %s, today_min : %s, date_rows_yesterday : %s",
-                self.get_today_buy_list_code, self.get_today_buy_list_close, current_price, min_buy_limit, max_buy_limit,
-                atr14, self.sf.invest_limit_rate, self.sf.invest_min_limit_rate, self.today, self.today_detail, self.date_rows_yesterday)
+            logger.info(
+                "⛔ 매수 스킵 (가격 범위 초과): %s(%s) 목표가=%s 현재가=%s 허용범위=[%s~%s]",
+                self.get_today_buy_list_code_name, self.get_today_buy_list_code,
+                self.get_today_buy_list_close, current_price, min_buy_limit, max_buy_limit)
 
     # 오늘 매수 할 종목들을 가져오는 함수
     def get_today_buy_list(self):
@@ -1116,6 +1117,7 @@ class open_api(QAxWidget):
         for i in range(self.sf.len_df_realtime_daily_buy_list):
             # code를 가져온다
             code = self.sf.df_realtime_daily_buy_list.loc[i, 'code']
+            code_name = self.sf.df_realtime_daily_buy_list.loc[i, 'code_name']
             # 종가를 가져온다
             close = self.sf.df_realtime_daily_buy_list.loc[i, 'close']
             # 이미 오늘 매수 한 종목이면 check_item은 1 / 아직 매수 안했으면 0
@@ -1140,6 +1142,7 @@ class open_api(QAxWidget):
                 ###################################################################################
 
                 self.get_today_buy_list_code = code
+                self.get_today_buy_list_code_name = code_name
                 self.get_today_buy_list_close = close
                 try:
                     self.get_today_buy_list_atr14 = float(self.sf.df_realtime_daily_buy_list.loc[i, 'atr14'] or 0)

@@ -104,7 +104,7 @@ timeout /t 15 /nobreak >NUL
 
 REM Start Trader after Collector completes
 echo [INFO] Starting Trader...
-call "%SCRIPT_DIR%start_trader.bat"
+start /wait cmd /c "%SCRIPT_DIR%start_trader.bat"
 
 echo.
 echo ========================================
