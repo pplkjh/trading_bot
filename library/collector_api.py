@@ -505,11 +505,18 @@ class collector_api():
             "SELECT code_name, code FROM stock_item_all"
         ).fetchall()
 
-        logger.debug(f"펀더멘털 수집 시작 - {len(stocks)}개 종목 (약 {len(stocks)*cf.TR_REQ_TIME_INTERVAL/60:.0f}분 소요 예상)")
+        total = len(stocks)
+        eta_min = total * cf.TR_REQ_TIME_INTERVAL / 60
+        logger.info(f"펀더멘털 수집 시작 - {total}개 종목 (약 {eta_min:.0f}분 소요 예상)")
+        print(f"[펀더멘털] 수집 시작 - {total}개 종목 (약 {eta_min:.0f}분)", flush=True)
         records = []
         for i, (code_name, code) in enumerate(stocks):
-            if i % 500 == 0:
-                logger.debug(f"펀더멘털 수집 진행 중... {i}/{len(stocks)}")
+            if i % 100 == 0 and i > 0:
+                pct = i / total * 100
+                elapsed_min = i * cf.TR_REQ_TIME_INTERVAL / 60
+                remain_min = (total - i) * cf.TR_REQ_TIME_INTERVAL / 60
+                logger.info(f"펀더멘털 수집 {i}/{total} ({pct:.0f}%) - 남은시간 약 {remain_min:.0f}분")
+                print(f"[펀더멘털] {i}/{total} ({pct:.0f}%) 완료 — 남은시간 약 {remain_min:.0f}분", flush=True)
             try:
                 self.open_api.fundamental_data = {}
                 self.open_api.set_input_value("종목코드", code)
@@ -529,7 +536,8 @@ class collector_api():
             import pandas as pd
             df = pd.DataFrame(records)
             df.to_sql('stock_fundamental', engine_buy, if_exists='replace', index=False)
-            logger.debug(f"stock_fundamental 저장 완료: {len(records)}개")
+            logger.info(f"stock_fundamental 저장 완료: {len(records)}개")
+            print(f"[펀더멘털] 저장 완료 - {len(records)}개 종목", flush=True)
 
     # 실전 봇, 모의 봇 매수 종목 세팅 + all_item_db 업데이트 함수
     # 고급 전략 통합 버전 (date_based_strategy 사용)

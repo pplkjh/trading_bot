@@ -265,3 +265,4 @@
 [DEBUG] DONE_CHECK=0, EXIT=-1073741819 
 2026-03-20 12:27:54.62 trader exit code=1 attempt=1 
 2026-03-20 12:28:00.66 trader exit code=1 attempt=1 
+2026-03-22  9:07:19.35 - 자동 종료 확인 시작 
