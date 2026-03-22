@@ -62,8 +62,9 @@ class daily_buy_list():
         latest_complete = get_latest_complete_date(self.date_rows)
         logger.debug(f"daily_buy_list 기준날짜: {latest_complete} (장마감={'Y' if latest_complete == self.today else 'N'})")
 
-        for k in range(len(self.date_rows)):
-            # print("self.date_rows !!!!", self.date_rows)
+        total_dates = len(self.date_rows)
+        created_count = 0
+        for k in range(total_dates):
             logger.debug(str(k) + " 번째 : " + datetime.datetime.today().strftime(" ******* %H : %M : %S *******"))
 
             current_date = self.date_rows[k][0]
@@ -100,7 +101,9 @@ class daily_buy_list():
                         DROP TABLE `{current_date}`
                     """)
 
+            created_count += 1
             logger.debug(f"{current_date} 테이블 생성 시작")
+            print(f"  📅 daily_buy_list 생성 중: {current_date} ({k+1}/{total_dates})", flush=True)
 
             multi_list = list()
 

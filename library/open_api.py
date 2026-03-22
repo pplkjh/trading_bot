@@ -1417,7 +1417,7 @@ class open_api(QAxWidget):
     def chegyul_sync(self):
         # 먼저 possessd_item 테이블에는 있는데 all_item_db에 없는 종목들 추가해준다
         sql = """select code, code_name, rate from possessed_item p
-            where p.code not in (select a.code from all_item_db a
+            where p.code COLLATE utf8mb4_unicode_ci not in (select a.code COLLATE utf8mb4_unicode_ci from all_item_db a
                                  where a.sell_date = '0' group by a.code)
             group by p.code"""
 

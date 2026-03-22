@@ -135,6 +135,10 @@ CREATE TABLE IF NOT EXISTS all_item_db (
     ma60 INT DEFAULT 0 COMMENT '60일 이동평균',
     ma120 INT DEFAULT 0 COMMENT '120일 이동평균',
 
+    -- 투자금액 추적
+    item_total_purchase BIGINT DEFAULT 0 COMMENT '총 매수금액',
+    valuation_price BIGINT DEFAULT 0 COMMENT '평가금액',
+
     INDEX idx_code (code),
     INDEX idx_buy_date (buy_date),
     INDEX idx_sell_date (sell_date),
@@ -215,6 +219,21 @@ CREATE TABLE IF NOT EXISTS realtime_daily_buy_list (
     INDEX idx_score (composite_score)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='내일 매수할 종목 리스트 (collector가 생성, 하이브리드 전략 지원)';
+
+-- ================================================
+-- 6. realtime_position_monitor: 보유 종목 실시간 가격 추적 (트레일링 스톱용)
+-- ================================================
+CREATE TABLE IF NOT EXISTS realtime_position_monitor (
+    code VARCHAR(10) NOT NULL,
+    code_name VARCHAR(50),
+    entry_price INT DEFAULT 0,
+    entry_date VARCHAR(10),
+    current_price INT DEFAULT 0,
+    highest_price INT DEFAULT 0,
+    last_update DATETIME,
+    PRIMARY KEY (code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='보유 종목 실시간 최고가 추적 (트레일링 스톱용, trader 시작 시 초기화)';
 
 -- ================================================
 -- 완료 메시지
