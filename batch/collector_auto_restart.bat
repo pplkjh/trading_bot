@@ -24,7 +24,7 @@ REM Move to project root directory
 cd /d %SCRIPT_DIR%..
 
 REM Activate Anaconda py37_32 environment
-call C:\Users\USER\anaconda3\Scripts\activate.bat py37_32
+call C:\Users\%USERNAME%\anaconda3\Scripts\activate.bat py37_32
 
 REM 재시작 횟수 초기화 (최대 5회)
 set RESTART_COUNT=0

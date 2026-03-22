@@ -7,7 +7,7 @@ REM ===================================================
 
 set SCRIPT_DIR=%~dp0
 cd /d %SCRIPT_DIR%..
-call C:\Users\USER\anaconda3\Scripts\activate.bat py37_32
+call C:\Users\%USERNAME%\anaconda3\Scripts\activate.bat py37_32
 
 echo ========================================
 echo Auto Trader Starting

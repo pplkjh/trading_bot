@@ -30,7 +30,7 @@ echo.
 cd /d "%~dp0.."
 
 REM Anaconda 환경 활성화
-call C:\Users\USER\anaconda3\Scripts\activate.bat py37_32
+call C:\Users\%USERNAME%\anaconda3\Scripts\activate.bat py37_32
 
 REM Python 스크립트 실행
 python test_buy_strategy.py
