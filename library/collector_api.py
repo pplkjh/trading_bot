@@ -1566,8 +1566,13 @@ class collector_api():
         return check_item_gubun
 
     def set_daily_crawler_table(self, code, code_name):
+        # 기준일자: 장전이면 전 영업일(어제 종가까지), 장후면 오늘(오늘 종가 포함)
+        # today를 그대로 넘기면 Kiwoom이 pre-market junk row(open=high=low=close=전일종가)를 반환해
+        # daily_craw의 last_date를 오늘로 앞당겨 버려 실제 오늘 OHLCV가 영구 누락됨
+        from library.utils import get_latest_complete_date
+        ref_date = get_latest_complete_date()
         self.update_status("데이터 조회 중...")
-        df = self.open_api.get_total_data(code, code_name, self.open_api.today)
+        df = self.open_api.get_total_data(code, code_name, ref_date)
         if len(df) == 0:
             self.update_status("데이터 없음 - 스킵")
             return 1
@@ -1638,7 +1643,7 @@ class collector_api():
             for com in commands:
                 self.open_api.engine_daily_buy_list.execute(com)
             logger.info('삭제 완료')
-            df = self.open_api.get_total_data(code, code_name, self.open_api.today)
+            df = self.open_api.get_total_data(code, code_name, ref_date)
             self.engine_JB.execute(check_daily_crawler_sql.format(code))
             deleted = True
 
@@ -1717,20 +1722,21 @@ class collector_api():
         if self.open_api.engine_daily_craw.dialect.has_table(self.open_api.engine_daily_craw, code_name):
             last_date = self.open_api.get_daily_craw_db_last_date(code_name)
 
-            # 오늘 날짜 체크: 장중에 수집된 데이터를 장 마감 후 종가로 업데이트하기 위해
-            if last_date == self.open_api.today:
-                logger.debug(f"{code_name}: 오늘 날짜({self.open_api.today}) 데이터 발견. 종가 업데이트를 위해 삭제 후 재수집.")
+            # ref_date 날짜 체크: 이전에 수집된 stale 데이터를 최신 종가로 업데이트하기 위해
+            # (장전 수집 후 장후 재수집 시, ref_date=오늘이므로 stale row 삭제 후 실제 종가 재삽입)
+            if last_date == ref_date:
+                logger.debug(f"{code_name}: ref_date({ref_date}) 데이터 발견. 종가 업데이트를 위해 삭제 후 재수집.")
                 try:
                     self.open_api.engine_daily_craw.execute(f"""
-                        DELETE FROM `{code_name}` WHERE date = '{self.open_api.today}'
+                        DELETE FROM `{code_name}` WHERE date = '{ref_date}'
                     """)
                 except Exception as e:
-                    logger.error(f"{code_name}: 오늘 날짜 데이터 삭제 실패: {e}")
+                    logger.error(f"{code_name}: ref_date 데이터 삭제 실패: {e}")
 
-                # 오늘 날짜 이후만 필터링 (오늘은 이미 삭제했으므로 포함됨)
-                df_temp = df_temp[df_temp.date >= last_date]
+                # ref_date 이후만 필터링 (ref_date는 이미 삭제했으므로 포함됨)
+                df_temp = df_temp[df_temp.date >= ref_date]
             else:
-                # 과거 날짜는 기존 로직대로 last_date 이후만 추가
+                # ref_date 이후만 추가 (last_date 초과 ~ ref_date 이하)
                 df_temp = df_temp[df_temp.date > last_date]
 
         if len(df_temp) == 0 and check_daily_crawler != '4':

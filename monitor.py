@@ -11,12 +11,44 @@
     python monitor.py --db JackBot1_imi1
 """
 
+import re
+import os
 import pymysql
 import pandas as pd
 from datetime import datetime
 import argparse
 from library.cf import *
 from library.utils import get_latest_complete_date
+
+
+def parse_today_skips(log_path: str = 'log/jackbot.log') -> dict:
+    """
+    오늘 날짜 jackbot.log에서 매수 스킵 로그를 파싱해 {code: reason_str} 반환
+    """
+    skips = {}
+    today_prefix = datetime.today().strftime('%Y-%m-%d')
+    # 가격 범위 초과 패턴: 에스씨디(042110) 목표가=1430 현재가=1451 허용범위=[...]
+    pattern_price = re.compile(
+        r'매수 스킵 \(가격 범위 초과\): .+?\((\d+)\) 목표가=(\S+) 현재가=(\S+) 허용범위=(\S+)'
+    )
+    # 이미 처리됨 패턴
+    pattern_done = re.compile(r'매수 스킵 \(이미 처리됨\): .+?\((\d+)\)')
+    try:
+        with open(log_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if today_prefix not in line or '매수 스킵' not in line:
+                    continue
+                m = pattern_price.search(line)
+                if m:
+                    code, target, cur, rng = m.group(1), m.group(2), m.group(3), m.group(4)
+                    skips[code] = f"⛔ 가격 범위 초과  목표가={target}  현재가={cur}  허용={rng}"
+                    continue
+                m = pattern_done.search(line)
+                if m:
+                    skips[m.group(1)] = "⛔ 이미 처리됨"
+    except Exception:
+        pass
+    return skips
 
 
 def get_portfolio_status(db_name: str):
@@ -189,51 +221,87 @@ def get_portfolio_status(db_name: str):
             print("-"*100)
 
             if not df_candidates.empty:
-                # 사용 가능한 컬럼 확인
                 cols = df_candidates.columns.tolist()
 
-                # D1 기준 정렬 (있는 경우)
-                if 'd1' in cols:
+                # composite_score 기준 정렬
+                if 'composite_score' in cols:
+                    df_candidates = df_candidates.sort_values('composite_score', ascending=False)
+                elif 'd1' in cols:
                     df_candidates = df_candidates.sort_values('d1', ascending=False)
 
-                for idx, row in df_candidates.iterrows():
-                    code = row.get('code', 'N/A')
-                    code_name = row.get('code_name', 'N/A')
-                    print(f"\n[{idx+1}] {code} - {code_name}")
+                # 오늘 실제 매수된 코드 목록
+                today_str = datetime.today().strftime("%Y%m%d")
+                bought_today = set()
+                try:
+                    df_bought = pd.read_sql(
+                        f"SELECT code FROM all_item_db WHERE LEFT(buy_date, 8) = '{today_str}'",
+                        con
+                    )
+                    bought_today = set(df_bought['code'].astype(str).tolist())
+                except Exception:
+                    pass
 
-                    # 있는 컬럼만 표시
-                    if 'close' in cols and pd.notna(row.get('close')):
-                        print(f"  현재가:       {int(row['close']):>12,}원")
+                # 오늘 스킵된 종목 (로그 파싱)
+                skip_reasons = parse_today_skips()
 
-                    # 고급 전략 정보 표시
-                    if 'strategy_type' in cols and pd.notna(row.get('strategy_type')):
-                        strategy_names = {
-                            'hybrid': '하이브리드 (모멘텀 60% + 평균회귀 40%)',
-                            'momentum_breakout': '모멘텀 돌파',
-                            'mean_reversion': '평균회귀',
-                            'strong_uptrend': '강한 상승',
-                            'neutral': '중립',
-                            'basic': '기본전략'
-                        }
-                        strategy = row['strategy_type']
-                        strategy_kr = strategy_names.get(strategy, strategy)
-                        print(f"  전략:         {strategy_kr}")
+                def _v(row, col, default=None):
+                    return row[col] if col in cols and pd.notna(row.get(col)) else default
 
-                    if 'composite_score' in cols and pd.notna(row.get('composite_score')):
-                        score = row['composite_score']
-                        print(f"  종합 스코어:  {score:>12.1f}/200")
+                for rank, (_, row) in enumerate(df_candidates.iterrows(), 1):
+                    code = str(_v(row, 'code', 'N/A'))
+                    code_name = str(_v(row, 'code_name', 'N/A'))
+                    if code in bought_today:
+                        status = '✅ 매수완료'
+                    elif code in skip_reasons:
+                        status = skip_reasons[code]
+                    else:
+                        status = '⏳ 미매수'
+                    print(f"\n[{rank}] {code} - {code_name}  {status}")
 
-                    if 'volume_ratio' in cols and pd.notna(row.get('volume_ratio')):
-                        vol_ratio = row['volume_ratio']
-                        print(f"  거래량 비율:  {vol_ratio:>12.2f}x")
+                    close = _v(row, 'close')
+                    if close is not None:
+                        print(f"  현재가:       {int(close):>10,}원")
 
-                    # 기존 지표들
-                    if 'd1' in cols and pd.notna(row.get('d1')):
-                        print(f"  D1:           {row['d1']:>12.2f}")
-                    if 'd2' in cols and pd.notna(row.get('d2')):
-                        print(f"  D2:           {row['d2']:>12.2f}")
-                    if 'check_item' in cols and pd.notna(row.get('check_item')) and 'strategy_type' not in cols:
-                        print(f"  전략 ID:      {row['check_item']}")
+                    score = _v(row, 'composite_score')
+                    if score is not None:
+                        print(f"  종합 스코어:  {score:>10.1f}/200")
+
+                    # 추세 지표
+                    rsi  = _v(row, 'rsi14')
+                    adx  = _v(row, 'adx')
+                    pdi  = _v(row, 'plus_di')
+                    mdi  = _v(row, 'minus_di')
+                    if any(x is not None for x in [rsi, adx, pdi, mdi]):
+                        parts = []
+                        if rsi  is not None: parts.append(f"RSI={rsi:.1f}")
+                        if adx  is not None: parts.append(f"ADX={adx:.1f}")
+                        if pdi  is not None: parts.append(f"+DI={pdi:.1f}")
+                        if mdi  is not None: parts.append(f"-DI={mdi:.1f}")
+                        print(f"  추세:         {'  '.join(parts)}")
+
+                    # 모멘텀/거래량
+                    cmf  = _v(row, 'cmf20')
+                    mfi  = _v(row, 'mfi14')
+                    macd = _v(row, 'macd')
+                    msig = _v(row, 'macd_signal')
+                    if any(x is not None for x in [cmf, mfi, macd]):
+                        parts = []
+                        if cmf  is not None: parts.append(f"CMF={cmf:.3f}")
+                        if mfi  is not None: parts.append(f"MFI={mfi:.1f}")
+                        if macd is not None and msig is not None:
+                            parts.append(f"MACD={'↑' if macd > msig else '↓'}({macd:.1f}/{msig:.1f})")
+                        print(f"  모멘텀:       {'  '.join(parts)}")
+
+                    # 변동성
+                    atr  = _v(row, 'atr14')
+                    bbw  = _v(row, 'bb_bandwidth')
+                    if any(x is not None for x in [atr, bbw]):
+                        parts = []
+                        if atr is not None and close:
+                            parts.append(f"ATR%={atr/close*100:.1f}%")
+                        if bbw is not None:
+                            parts.append(f"BB폭={bbw:.3f}")
+                        print(f"  변동성:       {'  '.join(parts)}")
             else:
                 # collector 실행 여부는 daily_buy_list의 오늘 날짜 테이블로 확인
                 con_daily = pymysql.connect(

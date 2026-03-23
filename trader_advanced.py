@@ -722,6 +722,7 @@ class TraderAdvanced(QMainWindow):
         last_date = None
         last_dashboard_update = 0  # 첫 업데이트를 즉시 실행하도록 0으로 설정
         dashboard_update_interval = 1.0  # 1초마다 대시보드 업데이트
+        last_heartbeat = 0  # 30분마다 heartbeat 로그
 
         # 초기 계좌 정보 로드
         try:
@@ -784,6 +785,18 @@ class TraderAdvanced(QMainWindow):
                     if current_time - last_dashboard_update >= dashboard_update_interval:
                         self.update_dashboard_display()
                         last_dashboard_update = current_time
+
+                    # 30분마다 heartbeat 로그 (DeduplicateFilter 우회)
+                    if current_time - last_heartbeat >= 1800:
+                        heartbeat_record = logger.makeRecord(
+                            logger.name, logging.INFO,
+                            '(trader_loop)', 0,
+                            f"💓 Heartbeat - 보유:{len(self.open_api.opw00018_output.get('multi', []))}종목 | 매수후보:{self.buy_candidates_available} | 루프정상",
+                            (), None
+                        )
+                        heartbeat_record.no_dedup = True
+                        logger.handle(heartbeat_record)
+                        last_heartbeat = current_time
 
                     # 종료 플래그 체크
                     if self.should_exit:

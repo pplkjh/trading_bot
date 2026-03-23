@@ -1038,9 +1038,12 @@ class open_api(QAxWidget):
         prev_close = int(self.get_today_buy_list_close)
         atr14 = self.get_today_buy_list_atr14
         if atr14 and atr14 > 0:
-            # ATR 기반 동적 범위: 상단 0.5×ATR, 하단 1.0×ATR
-            max_buy_limit = prev_close + atr14 * 0.5
-            min_buy_limit = prev_close - atr14 * 1.0
+            # ATR 기반 동적 범위
+            # 상한 1.0×ATR: 갭상은 모멘텀 확인 신호 → 1 ATR까지 허용
+            # 하한 losscut_point%: 갭하 -3% 이상이면 사자마자 손절 위험 → losscut과 연동
+            losscut_pct = self.sf.losscut_point / 100  # e.g. -3 → -0.03
+            max_buy_limit = prev_close + atr14 * 1.0
+            min_buy_limit = prev_close * (1 + losscut_pct)
         else:
             # ATR 없는 경우 기존 고정 비율로 폴백
             min_buy_limit = prev_close * self.sf.invest_min_limit_rate

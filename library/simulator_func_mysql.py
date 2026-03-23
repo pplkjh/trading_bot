@@ -1392,9 +1392,16 @@ class simulator_func_mysql:
                 else:
                     df_realtime_daily_buy_list.to_sql('realtime_daily_buy_list', self.engine_simulator, if_exists='replace', index=False)
 
-                # 현재 보유 중인 종목들은 삭제
+                # 현재 보유 중인 종목 삭제
                 sql = "delete from realtime_daily_buy_list where code in (select code from possessed_item)"
                 self.engine_simulator.execute(sql)
+
+                # 오늘 이미 매수한 종목 삭제 (장중 재수집 시 중복 매수 방지)
+                # possessed_item은 매도 후 사라지므로, all_item_db의 오늘 매수 이력까지 체크
+                import datetime as _dt
+                _today = _dt.datetime.now().strftime('%Y%m%d')
+                sql_bought = f"delete from realtime_daily_buy_list where code in (select code from all_item_db where LEFT(buy_date, 8) = '{_today}')"
+                self.engine_simulator.execute(sql_bought)
 
 
         # 매수할 종목이 없으면, df_realtime_daily_buy_list라는 데이터프레임의 길이를 저장하는

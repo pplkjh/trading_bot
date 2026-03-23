@@ -57,15 +57,17 @@ set TRADER_EXIT=0
         goto END
     )
 
-    for /f "tokens=1-2 delims=:." %%a in ("%TIME: =0%") do (
-        set /a CURRENT_HHMM=%%a*100+%%b
-    )
+    set CURRENT_HHMM=1200
+    for /f %%t in ('powershell -NoProfile -Command "(Get-Date).ToString(\"HHmm\")"') do set CURRENT_HHMM=%%t
+    echo [%date% %time%] [BAT] time check: CURRENT_HHMM=%CURRENT_HHMM% >> log\jackbot.log
     if %CURRENT_HHMM% LSS 900 (
-        echo [INFO] Before market open. No restart.
+        echo [INFO] Before market open (%CURRENT_HHMM%). No restart.
+        echo [%date% %time%] [BAT] no restart - before market open (%CURRENT_HHMM%) >> log\jackbot.log
         goto END
     )
     if %CURRENT_HHMM% GEQ 1530 (
-        echo [INFO] After market close. No restart.
+        echo [INFO] After market close (%CURRENT_HHMM%). No restart.
+        echo [%date% %time%] [BAT] no restart - after market close (%CURRENT_HHMM%) >> log\jackbot.log
         goto END
     )
 
