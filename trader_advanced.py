@@ -819,14 +819,27 @@ class TraderAdvanced(QMainWindow):
                             logger.info("=" * 80)
                             logger.info(f"🕐 장 마감 후 {self.exit_wait_minutes}분 경과 - 자동 종료")
                             logger.info(f"종료 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                            # 일일 매매 요약
-                            trades = self.trade_history
-                            sells = [t for t in trades if t.get('type') == '매도']
-                            wins = [t for t in sells if t.get('profit_rate', 0) > 0]
-                            losses = [t for t in sells if t.get('profit_rate', 0) <= 0]
-                            avg_profit = sum(t['profit_rate'] for t in wins) / len(wins) if wins else 0
-                            avg_loss = sum(t['profit_rate'] for t in losses) / len(losses) if losses else 0
-                            logger.info(f"📊 일일 요약: 매도 {len(sells)}건 (익절 {len(wins)} / 손절 {len(losses)}) | 평균익절 {avg_profit:.1f}% | 평균손절 {avg_loss:.1f}%")
+                            # 일일 매매 요약 (DB 기준 - 재시작해도 전체 매매 반영)
+                            try:
+                                today_str = datetime.now().strftime('%Y%m%d')
+                                rows = self.open_api.engine_JB.execute(
+                                    f"SELECT sell_rate FROM all_item_db WHERE LEFT(sell_date, 8) = '{today_str}'"
+                                ).fetchall()
+                                sell_rates = [float(r[0]) for r in rows]
+                                wins_db = [r for r in sell_rates if r > 0]
+                                losses_db = [r for r in sell_rates if r <= 0]
+                                avg_profit = sum(wins_db) / len(wins_db) if wins_db else 0
+                                avg_loss = sum(losses_db) / len(losses_db) if losses_db else 0
+                                logger.info(f"📊 일일 요약 (전체): 매도 {len(sell_rates)}건 (익절 {len(wins_db)} / 손절 {len(losses_db)}) | 평균익절 {avg_profit:.1f}% | 평균손절 {avg_loss:.1f}%")
+                            except Exception as _e:
+                                logger.warning(f"일일 요약 DB 조회 실패: {_e}")
+                                trades = self.trade_history
+                                sells = [t for t in trades if t.get('type') == '매도']
+                                wins = [t for t in sells if t.get('profit_rate', 0) > 0]
+                                losses = [t for t in sells if t.get('profit_rate', 0) <= 0]
+                                avg_profit = sum(t['profit_rate'] for t in wins) / len(wins) if wins else 0
+                                avg_loss = sum(t['profit_rate'] for t in losses) / len(losses) if losses else 0
+                                logger.info(f"📊 일일 요약 (세션): 매도 {len(sells)}건 (익절 {len(wins)} / 손절 {len(losses)}) | 평균익절 {avg_profit:.1f}% | 평균손절 {avg_loss:.1f}%")
                             logger.info("=" * 80)
                             break
 

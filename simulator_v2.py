@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import os
+os.environ.setdefault('JACKBOT_LOG_NAME', 'simulator')  # import 전에 설정해야 적용됨
 
 from library.simulator_func_mysql import *
 

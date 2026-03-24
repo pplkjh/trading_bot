@@ -34,7 +34,9 @@ class ExitStrategy:
         max_holding_days: int = 15,
         time_stop_loss_pct: float = -0.02,
         factor_score_threshold: float = 40.0,
-        fixed_stop_loss_pct: float = -0.05
+        fixed_stop_loss_pct: float = -0.03,
+        breakeven_activation: float = 0.03,
+        breakeven_buffer: float = -0.005
     ):
         """
         Parameters:
@@ -52,7 +54,11 @@ class ExitStrategy:
         factor_score_threshold : float
             팩터 스코어 청산 임계값 (default: 40)
         fixed_stop_loss_pct : float
-            고정 손절률 (default: -5%)
+            고정 손절률 (default: -3%)
+        breakeven_activation : float
+            본전 보장 활성화 수익률 (default: +3% 도달 시 손절선 → 매수가)
+        breakeven_buffer : float
+            본전 보장 발동 버퍼 (default: -0.5%, 장중 noise 방지)
         """
         self.atr_stop_multiplier = atr_stop_multiplier
         self.trailing_stop_activation = trailing_stop_activation
@@ -61,6 +67,8 @@ class ExitStrategy:
         self.time_stop_loss_pct = time_stop_loss_pct
         self.factor_score_threshold = factor_score_threshold
         self.fixed_stop_loss_pct = fixed_stop_loss_pct
+        self.breakeven_activation = breakeven_activation
+        self.breakeven_buffer = breakeven_buffer
 
 
     def check_atr_stop_loss(
@@ -387,7 +395,7 @@ class ExitStrategy:
             current_data['close']
         )
 
-        # 0. 고정 손절률 체크 (최우선 - 무조건 -5%에서 손절)
+        # 0. 고정 손절률 체크 (최우선 - 무조건 -3%에서 손절)
         current_return = (current_price / entry_price - 1)
         if current_return <= self.fixed_stop_loss_pct:
             loss_pct = current_return * 100
@@ -395,6 +403,19 @@ class ExitStrategy:
             result['reason'] = f"고정 손절 도달 ({loss_pct:.2f}%)"
             result['priority'] = 110  # 최우선
             result['stop_loss_price'] = entry_price * (1 + self.fixed_stop_loss_pct)
+            return result
+
+        # 0.5. 본전 보장 손절 (+3% 도달 후 매수가 -0.5% 이하로 하락 시)
+        # 한 번이라도 +3% 수익을 봤다면 손절선이 매수가로 상승
+        # breakeven_buffer(-0.5%): 매수가를 딱 터치하는 장중 noise 방지
+        highest_gain = (highest_price / entry_price - 1)
+        if highest_gain >= self.breakeven_activation and current_return <= self.breakeven_buffer:
+            result['should_exit'] = True
+            result['reason'] = (
+                f"본전 보장 손절 (최고 +{highest_gain*100:.1f}% → 현재 {current_return*100:.2f}%)"
+            )
+            result['priority'] = 105
+            result['stop_loss_price'] = entry_price
             return result
 
         # 1. ATR 손절 체크

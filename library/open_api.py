@@ -495,6 +495,15 @@ class open_api(QAxWidget):
                     self.sf.df_all_item.loc[0, 'ma60'] = df.loc[0, 'clo60'] if 'clo60' in df.columns else 0
                     self.sf.df_all_item.loc[0, 'ma120'] = df.loc[0, 'clo120'] if 'clo120' in df.columns else 0
 
+        # composite_score: realtime_daily_buy_list에서 해당 종목 스코어 읽어서 저장
+        try:
+            score_row = self.engine_JB.execute(
+                "SELECT composite_score FROM realtime_daily_buy_list WHERE code = '%s' LIMIT 1" % str(code)
+            ).fetchone()
+            self.sf.df_all_item.loc[0, 'composite_score'] = int(score_row[0]) if score_row and score_row[0] else 0
+        except Exception:
+            self.sf.df_all_item.loc[0, 'composite_score'] = 0
+
         # 컬럼 중에 nan 값이 있는 경우 0으로 변경 -> 이렇게 안하면 아래 데이터베이스에 넣을 때
         # AttributeError: 'numpy.int64' object has no attribute 'translate' 에러 발생
         self.sf.df_all_item = self.sf.df_all_item.fillna(0)

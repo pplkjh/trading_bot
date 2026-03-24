@@ -31,8 +31,10 @@ class DeduplicateFilter(logging.Filter):
 # 콜렉터, 시뮬레이터, 봇 모두 logging_pack.py를 import 하고있다.
 # jackbot.log 라는 이름으로 로그파일이 만들어진다.
 
-# log파일 위치와 로그 이름을 설정한다. (촬영 후 아래 수정 하였습니다.)
-file_path = pathlib.Path(__file__).parent.parent.absolute() / 'log' / 'jackbot.log'
+# log파일 위치와 로그 이름을 설정한다.
+# JACKBOT_LOG_NAME 환경변수로 로그 파일명 지정 가능 (시뮬레이터는 'simulator' 사용)
+_log_name = os.environ.get('JACKBOT_LOG_NAME', 'jackbot')
+file_path = pathlib.Path(__file__).parent.parent.absolute() / 'log' / f'{_log_name}.log'
 
 os.makedirs(file_path.parents[0], exist_ok=True)  # 로그 폴더가 존재하는지 확인 후 없으면 생성
 
@@ -71,7 +73,7 @@ logger.addHandler(stream_handler)
 logger.addHandler(file_handler)
 
 
-logger.debug('debug 모드!')
+# logger.debug('debug 모드!')
 # logger.info('info 모드!')
 # logger.warning('warning 모드!')
 # logger.error('error 모드!')
