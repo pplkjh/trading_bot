@@ -60,7 +60,16 @@ class HybridStrategyV2:
                    + self._rsi_slope_score(row, df_120))
 
         total = a_score + b_score + c_score + d_score + e_score + f_score + penalty
-        return round(total, 2)
+        return {
+            'total':           round(total, 2),
+            'score_a':         round(a_score, 2),
+            'score_b':         round(b_score, 2),
+            'score_c':         round(c_score, 2),
+            'score_d':         round(d_score, 2),
+            'score_e':         round(e_score, 2),
+            'score_f':         round(f_score, 2),
+            'score_penalty':   round(penalty, 2),
+        }
 
     # === A. 모멘텀 (50점) ===
     def score_momentum(self, row: dict, df_120) -> float:

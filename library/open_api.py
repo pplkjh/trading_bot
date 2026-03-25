@@ -495,14 +495,25 @@ class open_api(QAxWidget):
                     self.sf.df_all_item.loc[0, 'ma60'] = df.loc[0, 'clo60'] if 'clo60' in df.columns else 0
                     self.sf.df_all_item.loc[0, 'ma120'] = df.loc[0, 'clo120'] if 'clo120' in df.columns else 0
 
-        # composite_score: realtime_daily_buy_list에서 해당 종목 스코어 읽어서 저장
+        # 스코어 컬럼: realtime_daily_buy_list에서 읽어서 저장
         try:
             score_row = self.engine_JB.execute(
-                "SELECT composite_score FROM realtime_daily_buy_list WHERE code = '%s' LIMIT 1" % str(code)
+                "SELECT composite_score, score_a, score_b, score_c, score_d, score_e, score_f, score_penalty "
+                "FROM realtime_daily_buy_list WHERE code = '%s' LIMIT 1" % str(code)
             ).fetchone()
-            self.sf.df_all_item.loc[0, 'composite_score'] = int(score_row[0]) if score_row and score_row[0] else 0
+            if score_row:
+                for _col, _val in zip(
+                    ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty'],
+                    score_row
+                ):
+                    self.sf.df_all_item.loc[0, _col] = float(_val) if _val else 0
+            else:
+                for _col in ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']:
+                    self.sf.df_all_item.loc[0, _col] = 0
         except Exception:
-            self.sf.df_all_item.loc[0, 'composite_score'] = 0
+            for _col in ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']:
+                self.sf.df_all_item.loc[0, _col] = 0
+        self.sf.df_all_item.loc[0, 'simul_num'] = self.sf.simul_num
 
         # 컬럼 중에 nan 값이 있는 경우 0으로 변경 -> 이렇게 안하면 아래 데이터베이스에 넣을 때
         # AttributeError: 'numpy.int64' object has no attribute 'translate' 에러 발생
@@ -1182,7 +1193,7 @@ class open_api(QAxWidget):
                 self.sf.get_realtime_daily_buy_list()
             else:
                 # collector 완료됐지만 v2_min_score 이상 종목 없음 → 매수 없이 매도 대기
-                logger.warning(f"⚠️ 오늘({today}) {self.sf.min_factor_score}점 이상 매수 후보가 없습니다 (collector 실행 확인됨)")
+                logger.warning(f"⚠️ 오늘({today}) {cf.v2_min_score}점 이상 매수 후보가 없습니다 (collector 실행 확인됨)")
                 logger.warning("💡 보유 종목 매도 감시는 계속 진행합니다.")
         else:
             # realtime_daily_buy_list 테이블 자체가 없음 (collector가 scoring 전에 종료된 경우)

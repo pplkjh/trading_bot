@@ -225,7 +225,8 @@ for code, code_name in stock_rows:
         row_dict['code']      = code
         row_dict['code_name'] = code_name
 
-        total_score = strategy_v2.calculate_total_score(row_dict, df_120, None, market_data)
+        score_result = strategy_v2.calculate_total_score(row_dict, df_120, None, market_data)
+        total_score = score_result['total']
 
         fd = fundamental_dict.get(code)
         if fd and total_score >= 0:

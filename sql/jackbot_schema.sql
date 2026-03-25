@@ -199,7 +199,15 @@ CREATE TABLE IF NOT EXISTS realtime_daily_buy_list (
 
     -- 하이브리드 전략 (v1.5.0+)
     strategy_type VARCHAR(50) DEFAULT 'basic' COMMENT '전략 타입 (date_based, momentum_breakout, mean_reversion, hybrid)',
-    composite_score DECIMAL(10,2) DEFAULT 0 COMMENT '종합 스코어 (0-100)',
+    composite_score INT DEFAULT 0 COMMENT '매수 시점 hybrid_strategy_v2 총점 (0-200)',
+    score_a       DECIMAL(6,2) DEFAULT 0 COMMENT 'A. 모멘텀 (50pt)',
+    score_b       DECIMAL(6,2) DEFAULT 0 COMMENT 'B. 평균회귀 (20pt)',
+    score_c       DECIMAL(6,2) DEFAULT 0 COMMENT 'C. 추세강도 (50pt)',
+    score_d       DECIMAL(6,2) DEFAULT 0 COMMENT 'D. 거래량 (40pt)',
+    score_e       DECIMAL(6,2) DEFAULT 0 COMMENT 'E. 시장상대강도 (30pt)',
+    score_f       DECIMAL(6,2) DEFAULT 0 COMMENT 'F. 다중시간프레임 (10pt)',
+    score_penalty DECIMAL(6,2) DEFAULT 0 COMMENT '변동성 패널티',
+    simul_num     INT DEFAULT 0 COMMENT '알고리즘 번호 (simul_num)',
     volume_ratio DECIMAL(10,2) DEFAULT 1.0 COMMENT '거래량 비율 (현재/평균)',
 
     -- 기술적 지표 (v1.5.0+)

@@ -57,6 +57,13 @@ use_min_crawler = False
 dart_api_key = 'cc3e62c424689322f224f18b4f5ab5f6bfdb5497'
 
 # ===== v2 확장 Scoring 설정 (simul_num=3 전용) =====
+# 종목당 1회 투자 금액
+# - invest_unit_pct > 0 이면 초기 자본의 퍼센트로 계산 (고정값 무시)
+#   예) invest_unit_pct = 0.1 → 초기자본 10M × 10% = 1M
+# - invest_unit_pct = 0.0 이면 invest_unit 고정값 사용
+invest_unit     = 1_000_000   # 고정 금액 모드 (원)
+invest_unit_pct = 0.0         # 퍼센트 모드 (0.0 = 고정 금액 사용)
+
 # 250점 만점 중 최소 매수 기준점
 v2_min_score = 140
 

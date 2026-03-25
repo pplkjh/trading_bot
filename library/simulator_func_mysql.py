@@ -85,6 +85,15 @@ class simulator_func_mysql:
         sql = "update realtime_daily_buy_list set check_item = '%s' where code = '%s'"
         self.engine_simulator.execute(sql % (min_date, code))
 
+    # cf.invest_unit / invest_unit_pct 기반으로 invest_unit 계산
+    @staticmethod
+    def _resolve_invest_unit(base_balance):
+        """초기 자본(base_balance) 기준으로 실제 invest_unit 반환.
+        cf.invest_unit_pct > 0 이면 퍼센트 모드, 0 이면 고정금액 모드."""
+        if cf.invest_unit_pct > 0:
+            return max(10_000, int(base_balance * cf.invest_unit_pct))
+        return cf.invest_unit
+
     # 시뮬레이션 옵션 설정 함수
     def variable_setting(self):
         # 아래 if문으로 들어가기 전까지의 변수들은 모든 알고리즘에 공통적으로 적용 되는 설정
@@ -192,7 +201,7 @@ class simulator_func_mysql:
             self.db_to_realtime_daily_buy_list_num = 21  # HybridStrategyV2 Python 점수 기반
             self.sell_list_num = 20                       # 스윙 익절/손절 + MA 데드크로스
             self.start_invest_price = 10000000
-            self.invest_unit = 1000000   # 1M씩 분산
+            self.invest_unit = self._resolve_invest_unit(self.start_invest_price)
             self.limit_money = 300000
             self.sell_point = 6          # 빠른 익절 6% (자동매매 장점 활용)
             self.losscut_point = -3      # 타이트 손절 -3% (갭하락 피해 최소화)
@@ -562,8 +571,14 @@ class simulator_func_mysql:
         # print("invest_send_order!!!")
         # 시작가가 투자하려는 금액 보다 작아야 매수가 가능하기 때문에 아래 조건
         if price < self.invest_unit:
-            score = int(self.df_realtime_daily_buy_list.loc[j, 'composite_score']) if 'composite_score' in self.df_realtime_daily_buy_list.columns else 0
-            print(f"  ✅ 매수: {code_name} ({code}) | 스코어: {score}점")
+            _df = self.df_realtime_daily_buy_list
+            _score = int(_df.loc[j, 'composite_score']) if 'composite_score' in _df.columns else 0
+            _sa = int(_df.loc[j, 'score_a']) if 'score_a' in _df.columns else 0
+            _sb = int(_df.loc[j, 'score_b']) if 'score_b' in _df.columns else 0
+            _sc = int(_df.loc[j, 'score_c']) if 'score_c' in _df.columns else 0
+            _sd = int(_df.loc[j, 'score_d']) if 'score_d' in _df.columns else 0
+            _se = int(_df.loc[j, 'score_e']) if 'score_e' in _df.columns else 0
+            print(f"  ✅ 매수: {code_name} ({code}) | 총{_score}pt [A모멘텀:{_sa} B평균회귀:{_sb} C추세:{_sc} D거래량:{_sd} E시장:{_se}]")
 
             # 매수를 하게 되면 all_item_db 테이블에 반영을 한다.
             self.db_to_all_item(date, self.df_realtime_daily_buy_list, j,
@@ -700,7 +715,9 @@ class simulator_func_mysql:
                                                                  'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
                                                                  'vol100', 'vol120',
                                                                  'rsi14', 'bb_upper', 'bb_middle', 'bb_lower', 'atr14',
-                                                                 'composite_score'])
+                                                                 'composite_score',
+                                                                 'score_a', 'score_b', 'score_c', 'score_d',
+                                                                 'score_e', 'score_f', 'score_penalty'])
 
         self.len_df_realtime_daily_buy_list = len(self.df_realtime_daily_buy_list)
 
@@ -1233,7 +1250,8 @@ class simulator_func_mysql:
                 row_dict = dict(row)  # RowProxy → dict (.get() 사용 가능)
                 # fundamental_data=None으로 넘겨 PER/PBR 기반 필터 우회
                 # (dart 데이터는 roe/sales만 있어 PER/PBR 필터 통과 불가)
-                total_score = strategy_v2.calculate_total_score(row_dict, df_120, None, market_data)
+                score_result = strategy_v2.calculate_total_score(row_dict, df_120, None, market_data)
+                total_score = score_result['total']
                 # dart ROE 보너스 별도 계산 (펀더멘털 가산점)
                 if fd and total_score >= 0:
                     roe = fd.get('roe', 0) or 0
@@ -1244,6 +1262,13 @@ class simulator_func_mysql:
 
                 if total_score >= cf.v2_min_score:
                     row_dict['composite_score'] = total_score
+                    row_dict['score_a']       = score_result['score_a']
+                    row_dict['score_b']       = score_result['score_b']
+                    row_dict['score_c']       = score_result['score_c']
+                    row_dict['score_d']       = score_result['score_d']
+                    row_dict['score_e']       = score_result['score_e']
+                    row_dict['score_f']       = score_result['score_f']
+                    row_dict['score_penalty'] = score_result['score_penalty']
                     scored_list.append((row_dict, total_score))
                     logger.debug(f"[num=21] ✅ 합격: {code_name} {total_score}pt")
 
@@ -1351,6 +1376,15 @@ class simulator_func_mysql:
 
             # 종목코드를 6자리 문자열로 변환 (우선주 코드 'xxxRx' 형태도 처리)
             df_realtime_daily_buy_list['code'] = df_realtime_daily_buy_list['code'].astype(str).str.zfill(6)
+
+            # 섹션별 스코어 컬럼 주입 (num=21: row_dict에 이미 저장됨, 나머지: 0)
+            score_cols = ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']
+            if self.db_to_realtime_daily_buy_list_num == 21 and isinstance(realtime_daily_buy_list[0], dict):
+                for col in score_cols:
+                    df_realtime_daily_buy_list[col] = [row.get(col, 0) for row in realtime_daily_buy_list]
+            else:
+                for col in score_cols:
+                    df_realtime_daily_buy_list[col] = 0
 
             # composite_score: num=21(dict 기반)이면 dict에서 추출, 나머지 전략은 0
             if self.db_to_realtime_daily_buy_list_num == 21 and isinstance(realtime_daily_buy_list[0], dict):
@@ -1497,7 +1531,11 @@ class simulator_func_mysql:
                                               'valuation_profit', 'sell_date', 'sell_time', 'sell_price',
                                               'sell_rate', 'realized_profit', 'd1_diff_rate', 'yes_close',
                                               'volume', 'today_percent', 'ma5', 'ma10', 'ma20', 'ma60', 'ma120',
-                                              'item_total_purchase', 'valuation_price', 'composite_score'])
+                                              'item_total_purchase', 'valuation_price',
+                                              'composite_score',
+                                              'score_a', 'score_b', 'score_c', 'score_d',
+                                              'score_e', 'score_f', 'score_penalty',
+                                              'simul_num'])
 
     # 가장 초기에 매수 했을 때 all_item_db 에 추가하는 함수
     def db_to_all_item(self, min_date, df, index, code, code_name, purchase_price, yesterday_close):
@@ -1543,7 +1581,9 @@ class simulator_func_mysql:
         self.df_all_item.loc[0, 'ma120'] = df.loc[index, 'clo120'] if 'clo120' in df.columns else 0
 
         self.df_all_item.loc[0, 'valuation_profit'] = int(0)
-        self.df_all_item.loc[0, 'composite_score'] = df.loc[index, 'composite_score'] if 'composite_score' in df.columns else 0
+        for _col in ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']:
+            self.df_all_item.loc[0, _col] = df.loc[index, _col] if _col in df.columns else 0
+        self.df_all_item.loc[0, 'simul_num'] = self.simul_num
 
         # 컬럼 중에 nan 값이 있는 경우 0으로 변경 -> 이렇게 안하면 아래 데이터베이스에 넣을 때
         # AttributeError: 'numpy.int64' object has no attribute 'translate' 에러 발생
@@ -1873,12 +1913,16 @@ class simulator_func_mysql:
         # 스윙 매도: 익절/손절 OR 5/20 데드크로스 (simul_num=3 전용)
         # all_item_db 컬럼은 ma5, ma20 (clo5/clo20 아님)
         elif self.sell_list_num == 20:
-            sql = "SELECT code, code_name, rate, present_price, valuation_profit FROM all_item_db " \
-                  "WHERE (sell_date = '0') " \
-                  "AND ((rate >= '%s') OR (rate <= '%s') OR (ma5 < ma20)) GROUP BY code"
-            sell_list = self.engine_simulator.execute(
-                sql % (self.sell_point, self.losscut_point)
-            ).fetchall()
+            sql = (
+                "SELECT code, code_name, rate, present_price, valuation_profit, "
+                "CASE WHEN rate >= {sp} THEN '익절(+{sp:.0f}%%)' "
+                "     WHEN rate <= {lc} THEN '손절({lc:.0f}%%)' "
+                "     ELSE 'MA데드크로스' END AS sell_reason "
+                "FROM all_item_db "
+                "WHERE sell_date = '0' "
+                "AND ((rate >= {sp}) OR (rate <= {lc}) OR (ma5 < ma20)) GROUP BY code"
+            ).format(sp=self.sell_point, lc=self.losscut_point)
+            sell_list = self.engine_simulator.execute(sql).fetchall()
 
         # 🚀 고급 통합 전략: exit_strategy.py 사용 (ATR 기반 동적 손절/익절)
         elif self.sell_list_num == 100:
@@ -1994,10 +2038,10 @@ class simulator_func_mysql:
             # 수익(손실) 금액 (종목의 순수익, 순손실 금액)
             valuation_profit = sell_list[i][4]
 
-            if get_sell_rate < 0:
-                print(f"  💔 손절: {get_sell_code_name}({get_sell_code}) | 수익률: {get_sell_rate:.1f}% | 손실: {valuation_profit:,}원")
-            else:
-                print(f"  💰 익절: {get_sell_code_name}({get_sell_code}) | 수익률: {get_sell_rate:.1f}% | 수익: {valuation_profit:,}원")
+            sell_reason = sell_list[i][5] if len(sell_list[i]) > 5 else ('손절' if get_sell_rate < 0 else '익절')
+            emoji = '💔' if get_sell_rate < 0 else '💰'
+            profit_label = '손실' if get_sell_rate < 0 else '수익'
+            print(f"  {emoji} {sell_reason}: {get_sell_code_name}({get_sell_code}) | 수익률: {get_sell_rate:.1f}% | {profit_label}: {valuation_profit:,}원")
 
             # 실제로 매도를 하는 함수 (매도 한 결과를 all_item_db에 반영)
             self.sell_send_order(date, get_present_price, get_sell_rate, get_sell_code)
@@ -2661,7 +2705,14 @@ class simulator_func_mysql:
                     STR_TO_DATE(sell_date, '%Y%m%d'),
                     STR_TO_DATE(buy_date, '%Y%m%d')
                 ) as holding_days,
-                IFNULL(composite_score, 0) as composite_score
+                IFNULL(composite_score, 0) as composite_score,
+                IFNULL(score_a, 0) as score_a,
+                IFNULL(score_b, 0) as score_b,
+                IFNULL(score_c, 0) as score_c,
+                IFNULL(score_d, 0) as score_d,
+                IFNULL(score_e, 0) as score_e,
+                IFNULL(score_f, 0) as score_f,
+                IFNULL(score_penalty, 0) as score_penalty
             FROM all_item_db
             WHERE sell_date != 0 AND sell_date != ''
             ORDER BY sell_rate DESC
@@ -2702,7 +2753,8 @@ class simulator_func_mysql:
             df_trades = pd.DataFrame(trades, columns=[
                 'code', 'code_name', 'buy_date', 'sell_date',
                 'purchase_price', 'sell_price', 'sell_rate',
-                'holding_amount', 'holding_days', 'composite_score'
+                'holding_amount', 'holding_days', 'composite_score',
+                'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty'
             ])
             df_trades.to_csv(csv_path, index=False, encoding='utf-8-sig')
 
@@ -2819,20 +2871,39 @@ class simulator_func_mysql:
         avg_profit = sum([t[6] for t in trades if t[6] >= 0]) / win_trades if win_trades > 0 else 0
         avg_loss = sum([t[6] for t in trades if t[6] < 0]) / loss_trades if loss_trades > 0 else 0
 
-        # 스코어 통계 (composite_score = index 9)
+        # 매도 이유 분류 (sell_rate vs sell_point / losscut_point)
+        sp = getattr(self, 'sell_point', 6)
+        lc = getattr(self, 'losscut_point', -3)
+        profit_cut_list = [t for t in trades if float(t[6]) >= sp]
+        loss_cut_list   = [t for t in trades if float(t[6]) <= lc]
+        ma_cross_list   = [t for t in trades if lc < float(t[6]) < sp]
+        sell_reason_section = f"""
+## 📤 매도 근거 분포
+
+| 매도 유형 | 건수 | 비율 | 평균 수익률 |
+|----------|------|------|------------|
+| 익절(+{sp:.0f}% 이상) | {len(profit_cut_list)}건 | {len(profit_cut_list)/max(1,total_trades)*100:.1f}% | {sum(float(t[6]) for t in profit_cut_list)/max(1,len(profit_cut_list)):.2f}% |
+| 손절({lc:.0f}% 이하) | {len(loss_cut_list)}건 | {len(loss_cut_list)/max(1,total_trades)*100:.1f}% | {sum(float(t[6]) for t in loss_cut_list)/max(1,len(loss_cut_list)):.2f}% |
+| MA데드크로스 | {len(ma_cross_list)}건 | {len(ma_cross_list)/max(1,total_trades)*100:.1f}% | {sum(float(t[6]) for t in ma_cross_list)/max(1,len(ma_cross_list)):.2f}% |
+
+---
+"""
+
+        # 스코어 통계 (composite_score = index 9, score_a~f = indices 10-15)
         scores = [t[9] for t in trades if t[9] and t[9] > 0]
+        min_score = getattr(cf, 'v2_min_score', 120)
         if scores:
             score_avg = sum(scores) / len(scores)
             score_min = min(scores)
             score_max = max(scores)
-            win_scores = [t[9] for t in trades if t[6] >= 0 and t[9] and t[9] > 0]
-            loss_scores = [t[9] for t in trades if t[6] < 0 and t[9] and t[9] > 0]
-            score_win_avg = sum(win_scores) / len(win_scores) if win_scores else 0
+            win_scores  = [t[9] for t in trades if t[6] >= 0 and t[9] and t[9] > 0]
+            loss_scores = [t[9] for t in trades if t[6] <  0 and t[9] and t[9] > 0]
+            score_win_avg  = sum(win_scores)  / len(win_scores)  if win_scores  else 0
             score_loss_avg = sum(loss_scores) / len(loss_scores) if loss_scores else 0
-            # 구간별 승률
-            high_score_trades = [t for t in trades if t[9] and t[9] >= 150]
-            mid_score_trades = [t for t in trades if t[9] and 130 <= t[9] < 150]
-            low_score_trades = [t for t in trades if t[9] and t[9] < 130]
+            # 구간별 승률 (min_score 기준 동적)
+            high_score_trades = [t for t in trades if t[9] and t[9] >= min_score + 30]
+            mid_score_trades  = [t for t in trades if t[9] and min_score + 10 <= t[9] < min_score + 30]
+            low_score_trades  = [t for t in trades if t[9] and t[9] < min_score + 10]
             def win_rate_of(group):
                 if not group: return 0, 0
                 wins = len([t for t in group if t[6] >= 0])
@@ -2840,6 +2911,22 @@ class simulator_func_mysql:
             hs_wr, hs_cnt = win_rate_of(high_score_trades)
             ms_wr, ms_cnt = win_rate_of(mid_score_trades)
             ls_wr, ls_cnt = win_rate_of(low_score_trades)
+            # 섹션별 스코어 분석 (score_a~f = indices 10-15)
+            score_labels = [
+                ('A.모멘텀(50pt)',   10),
+                ('B.평균회귀(20pt)', 11),
+                ('C.추세강도(50pt)', 12),
+                ('D.거래량(40pt)',   13),
+                ('E.시장강도(30pt)', 14),
+                ('F.다중시간(10pt)', 15),
+            ]
+            section_rows = ""
+            for label, idx in score_labels:
+                w_vals = [float(t[idx]) for t in trades if t[6] >= 0 and len(t) > idx and t[idx]]
+                l_vals = [float(t[idx]) for t in trades if t[6] <  0 and len(t) > idx and t[idx]]
+                w_avg = sum(w_vals) / len(w_vals) if w_vals else 0
+                l_avg = sum(l_vals) / len(l_vals) if l_vals else 0
+                section_rows += f"| {label} | {w_avg:.1f} | {l_avg:.1f} | {w_avg - l_avg:+.1f} |\n"
             score_section = f"""
 ## 🏆 스코어 분석
 
@@ -2855,14 +2942,20 @@ class simulator_func_mysql:
 
 | 구간 | 거래수 | 승률 |
 |------|--------|------|
-| 150점 이상 | {hs_cnt}건 | {hs_wr:.1f}% |
-| 130~149점 | {ms_cnt}건 | {ms_wr:.1f}% |
-| 120~129점 | {ls_cnt}건 | {ls_wr:.1f}% |
+| {min_score + 30}점 이상 | {hs_cnt}건 | {hs_wr:.1f}% |
+| {min_score + 10}~{min_score + 29}점 | {ms_cnt}건 | {ms_wr:.1f}% |
+| {min_score}~{min_score + 9}점 | {ls_cnt}건 | {ls_wr:.1f}% |
 
+### 섹션별 스코어 — 수익 vs 손실 거래 평균
+
+| 카테고리 | 수익 평균 | 손실 평균 | 차이 |
+|---------|---------|---------|------|
+{section_rows}
 ---
 """
         else:
             score_section = ""
+            sell_reason_section = ""
 
         report = f"""# 백테스팅 상세 분석 레포트
 
@@ -2894,6 +2987,7 @@ class simulator_func_mysql:
 - **손익비 (R)**: {abs(avg_profit / avg_loss) if avg_loss != 0 else 0:.2f}
 
 ---
+{sell_reason_section}
 {score_section}
 ## 🎯 최고 수익 거래 Top 10
 
