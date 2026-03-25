@@ -2597,7 +2597,7 @@ class simulator_func_mysql:
                     # 누적 수익률 그래프 생성
                     try:
                         # log/report 폴더 생성
-                        report_dir = os.path.join(os.getcwd(), 'log', 'reports')
+                        report_dir = os.path.join(os.getcwd(), 'log', 'report')
                         os.makedirs(report_dir, exist_ok=True)
 
                         # 수익률 계산
@@ -2724,6 +2724,67 @@ class simulator_func_mysql:
                 print("⚠️  분석할 거래 데이터가 없습니다.")
                 return None, None
 
+            # 1.5. summary_stats 계산 (CMD 출력과 동일한 데이터)
+            summary_stats = {}
+            try:
+                daily_rows = self.engine_simulator.execute(
+                    "SELECT total_asset FROM jango_data ORDER BY date ASC"
+                ).fetchall()
+                final_res = self.engine_simulator.execute(
+                    "SELECT * FROM jango_data ORDER BY date DESC LIMIT 1"
+                )
+                final_data = final_res.fetchone()
+                col_names  = list(final_res.keys())
+                fd = dict(zip(col_names, final_data)) if final_data else {}
+                def _sf(k, d=0):
+                    v = fd.get(k, d)
+                    try: return float(v) if v is not None else d
+                    except: return d
+                d2_dep   = _sf('d2_deposit')
+                total_val = _sf('total_evaluation')
+                init_cap  = float(self.start_invest_price or 10_000_000)
+                final_cap = d2_dep + total_val
+                st2 = self.engine_simulator.execute("""
+                    SELECT AVG(DATEDIFF(STR_TO_DATE(sell_date,'%%Y%%m%%d'),
+                                       STR_TO_DATE(buy_date,'%%Y%%m%%d'))),
+                           MAX(sell_rate), MIN(sell_rate)
+                    FROM all_item_db WHERE sell_date != 0 AND sell_date != ''
+                """).fetchone()
+                assets = [float(r[0]) for r in daily_rows if r[0] and float(r[0]) > 0]
+                mdd_pct = mdd_amt = sh_d = sh_a = avg_dr = std_dr = 0.0
+                if len(assets) > 1:
+                    peak = assets[0]
+                    for a in assets:
+                        if a > peak: peak = a
+                        dd = (peak - a) / peak * 100 if peak > 0 else 0
+                        if dd > mdd_pct:
+                            mdd_pct = dd
+                            mdd_amt = peak - a
+                    drets = [(assets[i] / assets[i-1] - 1) * 100 for i in range(1, len(assets))]
+                    avg_dr = sum(drets) / len(drets)
+                    std_dr = float(np.std(drets, ddof=1)) if len(drets) > 1 else 0
+                    sh_d = avg_dr / std_dr if std_dr > 0 else 0
+                    sh_a = sh_d * np.sqrt(252)
+                summary_stats = {
+                    'initial_capital':  int(init_cap),
+                    'final_capital':    int(final_cap),
+                    'd2_deposit':       int(d2_dep),
+                    'total_valuation':  int(total_val),
+                    'actual_profit':    int(final_cap - init_cap),
+                    'total_return':     (final_cap / init_cap - 1) * 100 if init_cap > 0 else 0,
+                    'avg_holding_days': float(st2[0]) if st2 and st2[0] else 0,
+                    'max_profit_rate':  float(st2[1]) if st2 and st2[1] else 0,
+                    'max_loss_rate':    float(st2[2]) if st2 and st2[2] else 0,
+                    'mdd_pct':          mdd_pct,
+                    'mdd_amt':          int(mdd_amt),
+                    'sharpe_daily':     sh_d,
+                    'sharpe_annual':    sh_a,
+                    'avg_daily_return': avg_dr,
+                    'std_daily_return': std_dr,
+                }
+            except Exception as _e:
+                print(f"⚠️  summary_stats 계산 오류: {_e}")
+
             # 2. Best/Worst 거래 분석
             best_trades, worst_trades = self.analyze_best_worst_trades(trades)
 
@@ -2735,7 +2796,7 @@ class simulator_func_mysql:
 
             # 5. 마크다운 레포트 생성
             report_content = self.create_markdown_report(
-                trades, best_trades, worst_trades, loss_patterns, suggestions
+                trades, best_trades, worst_trades, loss_patterns, suggestions, summary_stats
             )
 
             # 6. 파일 저장
@@ -2859,7 +2920,7 @@ class simulator_func_mysql:
 
         return suggestions
 
-    def create_markdown_report(self, trades, best_trades, worst_trades, loss_patterns, suggestions):
+    def create_markdown_report(self, trades, best_trades, worst_trades, loss_patterns, suggestions, summary_stats=None):
         """마크다운 레포트 생성"""
 
         # 기본 통계
@@ -2870,6 +2931,47 @@ class simulator_func_mysql:
 
         avg_profit = sum([t[6] for t in trades if t[6] >= 0]) / win_trades if win_trades > 0 else 0
         avg_loss = sum([t[6] for t in trades if t[6] < 0]) / loss_trades if loss_trades > 0 else 0
+
+        # 수익 현황 + 리스크 지표 섹션
+        if summary_stats:
+            ss = summary_stats
+            mdd_eval = ('✅ 우수 (10% 미만)'   if ss['mdd_pct'] < 10 else
+                        '✔️  양호 (20% 미만)'  if ss['mdd_pct'] < 20 else
+                        '⚠️  주의 (30% 미만)'  if ss['mdd_pct'] < 30 else
+                        '❌ 높음 — 리스크 관리 필요')
+            sharpe_eval = ('✅ 우수 (2.0+)'  if ss['sharpe_annual'] > 2.0 else
+                           '✔️  양호 (1.0+)' if ss['sharpe_annual'] > 1.0 else
+                           '⚠️  보통 (0+)'   if ss['sharpe_annual'] > 0 else
+                           '❌ 낮음')
+            summary_section = f"""
+## 💰 수익 현황
+
+| 항목 | 값 |
+|------|----|
+| 초기 자본 | {ss['initial_capital']:,}원 |
+| 최종 자본 | {ss['final_capital']:,}원 |
+| **총 수익률** | **{ss['total_return']:.2f}%** |
+| 총 손익 | {ss['actual_profit']:,}원 |
+| 예수금 (최종) | {ss['d2_deposit']:,}원 |
+| 보유주식 평가액 | {ss['total_valuation']:,}원 |
+
+---
+
+## 📉 리스크 지표
+
+| 항목 | 값 | 평가 |
+|------|----|----|
+| MDD (최대 낙폭) | {ss['mdd_pct']:.2f}% | {mdd_eval} |
+| MDD 금액 | {ss['mdd_amt']:,}원 | |
+| Sharpe Ratio (연) | {ss['sharpe_annual']:.2f} | {sharpe_eval} |
+| Sharpe Ratio (일) | {ss['sharpe_daily']:.4f} | |
+| 일평균 수익률 | {ss['avg_daily_return']:.4f}% | |
+| 일수익률 표준편차 | {ss['std_daily_return']:.4f}% | |
+
+---
+"""
+        else:
+            summary_section = ""
 
         # 매도 이유 분류 (sell_rate vs sell_point / losscut_point)
         sp = getattr(self, 'sell_point', 6)
@@ -2976,15 +3078,20 @@ class simulator_func_mysql:
 | 매도 전략 번호 (sell_list_num) | {getattr(self, 'sell_list_num', '-')} |
 
 ---
-
+{summary_section}
 ## 📊 기본 통계
 
-- **총 거래 횟수**: {total_trades}회
-- **수익 거래**: {win_trades}회 ({win_rate:.1f}%)
-- **손실 거래**: {loss_trades}회 ({100-win_rate:.1f}%)
-- **평균 수익률**: {avg_profit:.2f}%
-- **평균 손실률**: {avg_loss:.2f}%
-- **손익비 (R)**: {abs(avg_profit / avg_loss) if avg_loss != 0 else 0:.2f}
+| 항목 | 값 |
+|------|----|
+| 총 거래 횟수 | {total_trades}회 |
+| 수익 거래 | {win_trades}회 ({win_rate:.1f}%) |
+| 손실 거래 | {loss_trades}회 ({100-win_rate:.1f}%) |
+| 평균 익절률 | {avg_profit:.2f}% |
+| 평균 손절률 | {avg_loss:.2f}% |
+| 최대 익절률 | {summary_stats.get('max_profit_rate', 0) if summary_stats else 0:.2f}% |
+| 최대 손절률 | {summary_stats.get('max_loss_rate', 0) if summary_stats else 0:.2f}% |
+| 평균 보유일 | {summary_stats.get('avg_holding_days', 0) if summary_stats else 0:.1f}일 |
+| 손익비 (R) | {abs(avg_profit / avg_loss) if avg_loss != 0 else 0:.2f} |
 
 ---
 {sell_reason_section}

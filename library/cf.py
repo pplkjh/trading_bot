@@ -65,7 +65,7 @@ invest_unit     = 1_000_000   # 고정 금액 모드 (원)
 invest_unit_pct = 0.0         # 퍼센트 모드 (0.0 = 고정 금액 사용)
 
 # 250점 만점 중 최소 매수 기준점
-v2_min_score = 140
+v2_min_score = 120
 
 # 펀더멘털 사전 필터 사용 여부
 v2_fundamental_filter = True

@@ -57,8 +57,9 @@ set TRADER_EXIT=0
         goto END
     )
 
-    set CURRENT_HHMM=1200
-    for /f %%t in ('powershell -NoProfile -Command "(Get-Date).ToString(\"HHmm\")"') do set CURRENT_HHMM=%%t
+    set CURRENT_H=%TIME:~0,2%
+    set CURRENT_M=%TIME:~3,2%
+    set /a CURRENT_HHMM=CURRENT_H*100+CURRENT_M
     echo [%date% %time%] [BAT] time check: CURRENT_HHMM=%CURRENT_HHMM% >> log\jackbot.log
     if %CURRENT_HHMM% LSS 900 (
         echo [INFO] Before market open (%CURRENT_HHMM%). No restart.
