@@ -401,15 +401,22 @@ class TraderAdvanced(QMainWindow):
                 sell_signals = self.open_api.get_advanced_sell_list()
 
                 # 고급 매도 리스트를 기존 형식으로 변환
+                # 형식: [code, code_name, rate, present_price, valuation_profit]
+                # rate: 모의투자=직접 % 값, 실전=100 기준 값 (auto_trade_sell_stock 규약)
                 self.sell_list = []
                 for signal in sell_signals:
                     if signal['decision']['should_exit']:
-                        # (code, rate, present_price, valuation_profit) 형식
+                        profit_pct = signal.get('profit_pct', 0)  # % 단위 (e.g. -5.51)
+                        if self.open_api.mod_gubun != 1:  # 실전: 100 기준으로 변환
+                            rate_value = 100 + profit_pct
+                        else:  # 모의투자: 그대로
+                            rate_value = profit_pct
                         self.sell_list.append([
                             signal['code'],
-                            signal.get('pnl_pct', 0),
-                            signal.get('current_price', 0),
-                            0  # valuation_profit (미사용)
+                            signal.get('code_name', signal['code']),  # 종목명
+                            rate_value,
+                            int(signal.get('current_price', 0)),      # present_price
+                            0                                         # valuation_profit (미사용)
                         ])
 
                 logger.info(f"고급 청산: {len(self.sell_list)}개 매도 시그널")
@@ -434,7 +441,9 @@ class TraderAdvanced(QMainWindow):
             logger.debug(f"매도 리스트: {self.sell_list}")
 
         except Exception as e:
-            logger.error(f"❌ 매도 리스트 생성 오류: {e}")
+            import traceback
+            logger.error(f"❌ 매도 리스트 생성 오류: {e}", extra={'no_dedup': True})
+            logger.error(traceback.format_exc(), extra={'no_dedup': True})
             logger.warning("기본 방식으로 재시도합니다")
             # 실전 전용 기본 매도 로직 사용 (simulator 코드 사용 안함)
             self.sell_list = self.open_api.get_basic_sell_list()

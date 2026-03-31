@@ -36,7 +36,8 @@ class ExitStrategy:
         factor_score_threshold: float = 40.0,
         fixed_stop_loss_pct: float = -0.03,
         breakeven_activation: float = 0.03,
-        breakeven_buffer: float = -0.005
+        breakeven_buffer: float = -0.005,
+        losscut_delay_minutes: int = 30
     ):
         """
         Parameters:
@@ -59,6 +60,8 @@ class ExitStrategy:
             본전 보장 활성화 수익률 (default: +3% 도달 시 손절선 → 매수가)
         breakeven_buffer : float
             본전 보장 발동 버퍼 (default: -0.5%, 장중 noise 방지)
+        losscut_delay_minutes : int
+            매수 후 N분간 고정 손절 비활성화 (default: 30분, 시초가 노이즈 방지)
         """
         self.atr_stop_multiplier = atr_stop_multiplier
         self.trailing_stop_activation = trailing_stop_activation
@@ -69,6 +72,7 @@ class ExitStrategy:
         self.fixed_stop_loss_pct = fixed_stop_loss_pct
         self.breakeven_activation = breakeven_activation
         self.breakeven_buffer = breakeven_buffer
+        self.losscut_delay_minutes = losscut_delay_minutes
 
 
     def check_atr_stop_loss(
@@ -221,9 +225,9 @@ class ExitStrategy:
         if holding_days >= self.max_holding_days:
             return True, f"최대 보유기간 초과 ({holding_days}일)"
 
-        # 일정 기간(10일) 후 손실 상태면 청산 (5일 → 10일로 완화)
-        if holding_days >= 10 and current_return <= self.time_stop_loss_pct:
-            return True, f"시간 경과 손절 ({holding_days}일, {current_return*100:.2f}%)"
+        # 6일 이상 보유 + 수익 중 → 모멘텀 소진으로 판단, 익절
+        if holding_days >= 6 and current_return > 0:
+            return True, f"시간 기반 익절 ({holding_days}일, {current_return*100:.2f}%)"
 
         return False, ""
 
@@ -395,28 +399,23 @@ class ExitStrategy:
             current_data['close']
         )
 
-        # 0. 고정 손절률 체크 (최우선 - 무조건 -3%에서 손절)
+        # 0. 고정 손절률 체크 (최우선) — 매수 후 N분간 유예
         current_return = (current_price / entry_price - 1)
         if current_return <= self.fixed_stop_loss_pct:
-            loss_pct = current_return * 100
-            result['should_exit'] = True
-            result['reason'] = f"고정 손절 도달 ({loss_pct:.2f}%)"
-            result['priority'] = 110  # 최우선
-            result['stop_loss_price'] = entry_price * (1 + self.fixed_stop_loss_pct)
-            return result
-
-        # 0.5. 본전 보장 손절 (+3% 도달 후 매수가 -0.5% 이하로 하락 시)
-        # 한 번이라도 +3% 수익을 봤다면 손절선이 매수가로 상승
-        # breakeven_buffer(-0.5%): 매수가를 딱 터치하는 장중 noise 방지
-        highest_gain = (highest_price / entry_price - 1)
-        if highest_gain >= self.breakeven_activation and current_return <= self.breakeven_buffer:
-            result['should_exit'] = True
-            result['reason'] = (
-                f"본전 보장 손절 (최고 +{highest_gain*100:.1f}% → 현재 {current_return*100:.2f}%)"
-            )
-            result['priority'] = 105
-            result['stop_loss_price'] = entry_price
-            return result
+            losscut_active = True
+            try:
+                elapsed_min = (datetime.now() - entry_date).total_seconds() / 60
+                if elapsed_min < self.losscut_delay_minutes:
+                    losscut_active = False
+            except Exception:
+                pass
+            if losscut_active:
+                loss_pct = current_return * 100
+                result['should_exit'] = True
+                result['reason'] = f"고정 손절 도달 ({loss_pct:.2f}%)"
+                result['priority'] = 110  # 최우선
+                result['stop_loss_price'] = entry_price * (1 + self.fixed_stop_loss_pct)
+                return result
 
         # 1. ATR 손절 체크
         should_stop, stop_price, reason = self.check_atr_stop_loss(
@@ -547,7 +546,8 @@ def get_exit_signals(
         fixed_stop_loss_pct=-0.05,  # 고정 손절 -5% (최우선)
         atr_stop_multiplier=2.0,  # ATR 손절 (약 5-8% 손실에서 손절)
         max_holding_days=15,  # 최대 보유 15일
-        time_stop_loss_pct=-0.05  # 시간 손절 (10일 후 -5%)
+        time_stop_loss_pct=-0.05,  # 시간 손절 (10일 후 -5%)
+        losscut_delay_minutes=30  # 매수 후 30분간 고정 손절 유예
     )
 
     # 에러 추적
@@ -622,12 +622,14 @@ def get_exit_signals(
             exit_decision = exit_strategy.get_exit_decision(position, df, current_date=current_date)
 
             if exit_decision['should_exit']:
+                realtime_price = position['current_price']
                 exit_signals.append({
                     'code': code,
+                    'code_name': code_name,
                     'decision': exit_decision,
-                    'current_price': df['close'].iloc[-1],
+                    'current_price': realtime_price,
                     'entry_price': position['entry_price'],
-                    'profit_pct': (df['close'].iloc[-1] / position['entry_price'] - 1) * 100
+                    'profit_pct': (realtime_price / position['entry_price'] - 1) * 100
                 })
 
         except Exception as e:

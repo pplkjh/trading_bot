@@ -107,7 +107,7 @@ if latest_table:
     # kospi 시장 데이터 로드
     market_data = None
     try:
-        mdf = pd.read_sql("SELECT close FROM kospi_index ORDER BY date DESC LIMIT 20", engine_daily)
+        mdf = pd.read_sql("SELECT close FROM kospi_index ORDER BY date DESC LIMIT 20", engine_craw)
         if not mdf.empty:
             market_data = mdf['close'].iloc[::-1].reset_index(drop=True)
     except Exception:

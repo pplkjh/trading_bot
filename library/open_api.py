@@ -1250,9 +1250,9 @@ class open_api(QAxWidget):
                 entry_price = result[2]
                 shares = result[3]
 
-                # 날짜 변환 (YYYYMMDD -> datetime)
+                # 날짜+시간 변환 (YYYYMMDDHHMI -> datetime)
                 try:
-                    entry_date = datetime.datetime.strptime(str(buy_date_str), '%Y%m%d')
+                    entry_date = datetime.datetime.strptime(str(buy_date_str)[:12], '%Y%m%d%H%M')
                 except:
                     entry_date = datetime.datetime.now()
 
@@ -1306,7 +1306,7 @@ class open_api(QAxWidget):
                 code = signal['code']
                 reason = signal['decision']['reason']
                 priority = signal['decision']['priority']
-                logger.info(f"  - {code}: {reason} (우선순위: {priority})", extra={'no_dedup': True})
+                logger.debug(f"  - {code}: {reason} (우선순위: {priority})")
 
             return sell_signals
 
@@ -1329,7 +1329,7 @@ class open_api(QAxWidget):
         try:
             # all_item_db에서 보유 종목 조회
             sql = """
-            SELECT code, code_name, rate, present_price, valuation_profit
+            SELECT code, code_name, rate, present_price, valuation_profit, buy_date
             FROM all_item_db
             WHERE sell_date = '0'
             GROUP BY code
@@ -1346,14 +1346,14 @@ class open_api(QAxWidget):
             # 모의투자: rate가 직접 % 값 (-10.53 형식)
             # 실전: rate가 100 기준 값 (89.47 형식)
             if self.mod_gubun == 1:  # 모의투자
-                sell_point = 6.0  # 익절 기준 6% (simul_num=3 최적화 기준)
                 losscut_point = -3.0  # 손절 기준 -3%
-                logger.debug(f"모의투자 모드: 익절 {sell_point}%, 손절 {losscut_point}%")
+                logger.debug(f"모의투자 모드: 손절 {losscut_point}% (익절은 트레일링 스톱으로 처리)")
             else:  # 실전
-                sell_point = 106  # 익절 기준 6% (100 + 6)
                 losscut_point = 97  # 손절 기준 -3% (100 - 3)
-                logger.debug(f"실전 모드: 익절 {sell_point}, 손절 {losscut_point}")
+                logger.debug(f"실전 모드: 손절 {losscut_point} (익절은 트레일링 스톱으로 처리)")
 
+            LOSSCUT_DELAY_MINUTES = 30  # 매수 후 N분간 손절 비활성화
+            now = datetime.datetime.now()
             sell_list = []
 
             for holding in holdings:
@@ -1362,15 +1362,29 @@ class open_api(QAxWidget):
                 rate = holding[2]  # 수익률 (100 기준)
                 present_price = holding[3]
                 valuation_profit = holding[4]
+                buy_date_str = holding[5]  # "YYYYMMDDHHMI" 형식
+
+                # 매수 후 경과 시간 계산 (손절 유예)
+                losscut_active = True
+                try:
+                    if buy_date_str and len(str(buy_date_str)) >= 12:
+                        buy_dt = datetime.datetime.strptime(str(buy_date_str)[:12], "%Y%m%d%H%M")
+                        elapsed = (now - buy_dt).total_seconds() / 60
+                        if elapsed < LOSSCUT_DELAY_MINUTES:
+                            losscut_active = False
+                            logger.info(f"  ⏰ 손절 유예: {code_name}({code}) - 매수 후 {elapsed:.0f}분 ({LOSSCUT_DELAY_MINUTES}분 유예중)", extra={'no_dedup': True})
+                except Exception:
+                    pass
+
+                display_rate = rate if self.mod_gubun == 1 else rate - 100
 
                 # 익절 또는 손절 조건 체크
-                if rate >= sell_point:
-                    # 로그 출력 시 형식 고려 (모의투자는 이미 % 값, 실전은 100 기준)
-                    display_rate = rate if self.mod_gubun == 1 else rate - 100
-                    logger.info(f"  📈 익절: {code_name}({code}) - 수익률 {display_rate:.2f}%", extra={'no_dedup': True})
-                    sell_list.append(holding)
-                elif rate <= losscut_point:
-                    display_rate = rate if self.mod_gubun == 1 else rate - 100
+                # 익절은 advanced(트레일링)에서 처리 — basic fallback에서는 손절만
+                # if rate >= sell_point:
+                #     logger.info(f"  📈 익절: {code_name}({code}) - 수익률 {display_rate:.2f}%", extra={'no_dedup': True})
+                #     sell_list.append(holding)
+                # elif losscut_active and rate <= losscut_point:
+                if losscut_active and rate <= losscut_point:
                     logger.info(f"  📉 손절: {code_name}({code}) - 수익률 {display_rate:.2f}%", extra={'no_dedup': True})
                     sell_list.append(holding)
 
