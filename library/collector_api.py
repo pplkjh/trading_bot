@@ -478,28 +478,33 @@ class collector_api():
 
     def collect_stock_fundamental(self):
         """OPT10001 (주식기본정보요청)으로 전 종목 펀더멘털 수집
-        → daily_buy_list DB의 stock_fundamental 테이블에 저장
+        → daily_buy_list DB의 sf_YYYYMMDD 날짜별 테이블에 저장
         cf.v2_fundamental_collect_interval일 미경과 시 스킵.
         """
         import datetime as _dt
+        import pandas as pd
         today = self.open_api.today
+        table_name = f'sf_{today}'  # e.g. sf_20260406
         engine_buy = self.open_api.engine_daily_buy_list
 
-        # updated_date 체크 (주기 미경과 + 오늘 완전 수집 완료 시 스킵)
+        # 주기 미경과 + 오늘 완전 수집 완료 시 스킵
         try:
-            row = engine_buy.execute(
-                "SELECT updated_date FROM stock_fundamental ORDER BY updated_date DESC LIMIT 1"
+            # 가장 최근 sf_YYYYMMDD 테이블 찾기
+            rows = engine_buy.execute(
+                "SELECT TABLE_NAME FROM information_schema.tables "
+                "WHERE table_schema = 'daily_buy_list' AND TABLE_NAME LIKE 'sf_______' "
+                "ORDER BY TABLE_NAME DESC LIMIT 1"
             ).fetchone()
-            if row:
-                last_date = str(row[0]).replace('-', '')[:8]
+            if rows:
+                last_date = rows[0].replace('sf_', '')  # 'sf_20260406' → '20260406'
                 today_dt = _dt.datetime.strptime(today, "%Y%m%d")
                 last_dt = _dt.datetime.strptime(last_date, "%Y%m%d")
                 days_since = (today_dt - last_dt).days
                 if days_since < cf.v2_fundamental_collect_interval:
                     if last_date == today:
-                        # 오늘 데이터 있음 — 건수 검증 (체크포인트 부분 저장이면 재수집)
+                        # 오늘 테이블 있음 — 건수 검증 (체크포인트 부분 저장이면 재수집)
                         today_count = engine_buy.execute(
-                            f"SELECT COUNT(*) FROM stock_fundamental WHERE updated_date = '{today}'"
+                            f"SELECT COUNT(*) FROM `{table_name}`"
                         ).scalar()
                         total_count = engine_buy.execute(
                             "SELECT COUNT(*) FROM stock_item_all"
@@ -509,7 +514,7 @@ class collector_api():
                             return
                         logger.info(f"펀더멘털 수집 재개 (오늘 저장 {today_count}/{total_count}, 미완료)")
                     else:
-                        logger.debug("펀더멘털 수집 스킵 (주기 미경과)")
+                        logger.debug(f"펀더멘털 수집 스킵 (주기 미경과, 마지막: {last_date})")
                         return
         except Exception:
             pass  # 테이블 없으면 진행
@@ -518,34 +523,22 @@ class collector_api():
         stocks = engine_buy.execute(
             "SELECT code_name, code FROM stock_item_all"
         ).fetchall()
-
         total = len(stocks)
-        import pandas as pd
 
-        # 재시작 재개: 오늘 이미 수집된 코드 조회 → 건너뜀
+        # 재시작 재개: 오늘 테이블에 이미 수집된 코드 조회 → 건너뜀
         already_done = set()
         try:
-            rows = engine_buy.execute(
-                f"SELECT code FROM stock_fundamental WHERE updated_date = '{today}'"
-            ).fetchall()
+            rows = engine_buy.execute(f"SELECT code FROM `{table_name}`").fetchall()
             already_done = {r[0] for r in rows}
         except Exception:
-            pass
-
-        if not already_done:
-            # 신규 수집 시작: 이전 날짜 데이터 모두 삭제 (누적 방지)
-            try:
-                engine_buy.execute("DELETE FROM stock_fundamental")
-                logger.info("stock_fundamental 기존 데이터 삭제 (신규 수집 시작)")
-            except Exception:
-                pass  # 테이블 없으면 무시
+            pass  # 오늘 테이블 없으면 처음부터
 
         if already_done:
             logger.info(f"펀더멘털 재개 모드: {len(already_done)}/{total} 이미 수집 → 나머지 {total - len(already_done)}개 수집")
             print(f"[펀더멘털] 재개: {len(already_done)}개 완료, 나머지 {total - len(already_done)}개 수집", flush=True)
         else:
             eta_min = total * cf.TR_REQ_TIME_INTERVAL / 60
-            logger.info(f"펀더멘털 수집 시작 - {total}개 종목 (약 {eta_min:.0f}분 소요 예상)")
+            logger.info(f"펀더멘털 수집 시작 - {total}개 종목 (약 {eta_min:.0f}분 소요 예상) → {table_name}")
             print(f"[펀더멘털] 수집 시작 - {total}개 종목 (약 {eta_min:.0f}분)", flush=True)
 
         done_count = len(already_done)
@@ -561,11 +554,11 @@ class collector_api():
                 remain_min = (total - collected) * cf.TR_REQ_TIME_INTERVAL / 60
                 logger.info(f"펀더멘털 수집 {collected}/{total} ({pct:.0f}%) - 남은시간 약 {remain_min:.0f}분")
                 print(f"[펀더멘털] {collected}/{total} ({pct:.0f}%) 완료 — 남은시간 약 {remain_min:.0f}분", flush=True)
-                # 100건마다 중간 저장 (크래시 대비 체크포인트) — append로 기존 데이터 보존
+                # 100건마다 체크포인트 저장 (append — 기존 데이터 보존)
                 df_partial = pd.DataFrame(records)
-                df_partial.to_sql('stock_fundamental', engine_buy, if_exists='append', index=False)
-                done_count += len(records)  # done_count 업데이트 (진행률 표시 정확도)
-                records = []  # 저장된 분은 비워서 중복 append 방지
+                df_partial.to_sql(table_name, engine_buy, if_exists='append', index=False)
+                done_count += len(records)
+                records = []
 
             fd = {}
             for retry in range(3):  # 최대 3회 시도 (서버 스로틀 대응)
@@ -579,7 +572,6 @@ class collector_api():
                         empty_streak = 0
                         break
                     else:
-                        # 빈 응답 → 서버 스로틀 가능성, 잠시 대기 후 재시도
                         empty_streak += 1
                         if empty_streak >= 5:
                             logger.warning(f"[펀더멘털] 빈 응답 {empty_streak}연속 — 5초 대기 후 재시도")
@@ -594,23 +586,18 @@ class collector_api():
             if fd:
                 fd['code'] = code
                 fd['code_name'] = code_name
-                fd['updated_date'] = today
                 records.append(fd)
 
         if records:
             df = pd.DataFrame(records)
-            df.to_sql('stock_fundamental', engine_buy, if_exists='append', index=False)
+            df.to_sql(table_name, engine_buy, if_exists='append', index=False)
 
-        final_count = done_count + len(records)  # already_done + 이번에 새로 수집한 것
-        # 실제 DB 건수로 확인
         try:
-            final_count = engine_buy.execute(
-                f"SELECT COUNT(*) FROM stock_fundamental WHERE updated_date = '{today}'"
-            ).scalar()
+            final_count = engine_buy.execute(f"SELECT COUNT(*) FROM `{table_name}`").scalar()
         except Exception:
-            pass
-        logger.info(f"stock_fundamental 저장 완료: {final_count}개")
-        print(f"[펀더멘털] 저장 완료 - {final_count}개 종목", flush=True)
+            final_count = done_count + len(records)
+        logger.info(f"펀더멘털 저장 완료: {table_name} {final_count}개")
+        print(f"[펀더멘털] 저장 완료 - {final_count}개 종목 ({table_name})", flush=True)
 
     # 실전 봇, 모의 봇 매수 종목 세팅 + all_item_db 업데이트 함수
     # 고급 전략 통합 버전 (date_based_strategy 사용)
