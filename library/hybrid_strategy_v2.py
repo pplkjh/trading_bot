@@ -11,13 +11,14 @@ simul_num=3 전용. 기존 hybrid_strategy.py (v1)는 수정하지 않음.
   A. 모멘텀        50점 (거래량급증 20 + MA정배열 15 + MACD 5 + ATR돌파 10)
   B. 평균회귀      20점 ★감소 (RSI 10 + 볼린저하단 10)
   C. 추세강도      50점 ★증가 (ADX 25 + BB수렴 15 + DI방향 10)
-  D. 거래량/수급   40점 ★증가 (OBV 15 + CMF 15 + 거래량-가격동조 10)
-  E. 시장상대강도  30점 (RS 15 + BB스퀴즈 10 + 캔들패턴 5)
+  D. 거래량/수급   50점 (OBV 15 + CMF 15 + 거래량-가격동조 10 + 외인소진률 10)
+  E. 시장상대강도  40점 (RS 15 + BB스퀴즈 10 + 캔들패턴 5 + 52주신고가 10)
   F. 다중시간프레임 10점 ★감소 (주봉추세 10)
-  합계            200점
+  합계            220점
   변동성 패널티   최대 -20점 (갭하락 위험 종목 사전 차단)
   과매수 패널티   최대 -15점 (MFI 과열 종목 차단)
   RSI추세 점수    -10 ~ +10점 (고점 소진 패널티 / 과매도 회복 보너스)
+  신용비율 패널티  최대 -10점 (강제청산 위험 종목 차단)
 """
 from library.technical_indicators import calculate_rs_vs_market, calculate_rsi
 
@@ -57,6 +58,7 @@ class HybridStrategyV2:
         # 리스크 패널티
         penalty = (self._volatility_penalty(row)
                    + self._overbought_penalty(row)
+                   + self._credit_penalty(row)
                    + self._rsi_slope_score(row, df_120))
 
         total = a_score + b_score + c_score + d_score + e_score + f_score + penalty
@@ -226,6 +228,18 @@ class HybridStrategyV2:
         except (KeyError, TypeError):
             pass
 
+        # D4. 외인소진률 (10점) — 외국인 수급 집중 = 모멘텀 지속성 높음
+        try:
+            fr_raw = row.get('foreign_rate')
+            if fr_raw is not None and str(fr_raw).strip():
+                fr = float(str(fr_raw).replace('%', '').strip())
+                if fr >= 30:
+                    score += 10
+                elif fr >= 15:
+                    score += 10 * (fr - 15) / 15
+        except (TypeError, ValueError):
+            pass
+
         return score
 
     # === E. 시장 상대강도 (30점) — 재배분 ===
@@ -266,6 +280,21 @@ class HybridStrategyV2:
         try:
             score += min(5, row.get('candle_pattern_score', 0) or 0)
         except TypeError:
+            pass
+
+        # E4. 52주 신고가 근접 (10점) — 250일 최고가 대비율이 -10% 이내 = 돌파 임박 모멘텀
+        try:
+            h250_raw = row.get('high_250_rate')
+            if h250_raw is not None and str(h250_raw).strip():
+                h250 = float(str(h250_raw).replace('%', '').strip())
+                # high_250_rate: 현재가 / 250일 최고가 × 100 - 100 (음수 = 최고가 미달)
+                if h250 >= 0:
+                    score += 10   # 신고가 갱신 중
+                elif h250 >= -5:
+                    score += 10 * (h250 + 10) / 10   # -5%~0% 구간 선형
+                elif h250 >= -10:
+                    score += 10 * (h250 + 10) / 10   # -10%~-5% 구간 선형
+        except (TypeError, ValueError):
             pass
 
         return score
@@ -314,6 +343,20 @@ class HybridStrategyV2:
             elif mfi > 80: # 과매수
                 return -8
         except TypeError:
+            pass
+        return 0.0
+
+    def _credit_penalty(self, row: dict) -> float:
+        """신용비율 패널티 — 신용잔고 과다 = 강제청산 위험"""
+        try:
+            cr_raw = row.get('credit_rate')
+            if cr_raw is not None and str(cr_raw).strip():
+                cr = float(str(cr_raw).replace('%', '').strip())
+                if cr >= 10:   # 신용비율 10% 이상: 강제청산 위험 높음
+                    return -10
+                elif cr >= 5:  # 5~10%: 주의
+                    return -5
+        except (TypeError, ValueError):
             pass
         return 0.0
 

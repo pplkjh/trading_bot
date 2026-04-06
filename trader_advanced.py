@@ -619,6 +619,19 @@ class TraderAdvanced(QMainWindow):
                             except Exception as e:
                                 logger.debug(f"highest_price 조회 오류: {e}")
 
+                        # 손절 유예 체크 (매수 후 30분 이내)
+                        losscut_delay_active = False
+                        if code:
+                            try:
+                                sql_buy = f"SELECT buy_date FROM all_item_db WHERE code='{code}' AND sell_date='0' ORDER BY buy_date DESC LIMIT 1"
+                                buy_result = self.open_api.engine_JB.execute(sql_buy).fetchone()
+                                if buy_result and buy_result[0]:
+                                    buy_dt = datetime.strptime(str(buy_result[0])[:12], '%Y%m%d%H%M')
+                                    elapsed = (datetime.now() - buy_dt).total_seconds() / 60
+                                    losscut_delay_active = elapsed < 30
+                            except Exception:
+                                pass
+
                         position_data = {
                             'code': code,
                             'name': item[0] if len(item) > 0 else '',
@@ -626,7 +639,8 @@ class TraderAdvanced(QMainWindow):
                             'buy_price': int(item[2]) if len(item) > 2 else 0,
                             'current_price': current_price,
                             'profit_rate': profit_rate,
-                            'profit': int(item[4]) if len(item) > 4 else 0
+                            'profit': int(item[4]) if len(item) > 4 else 0,
+                            'losscut_delay': losscut_delay_active
                         }
 
                         # highest_price 추가 (있으면)

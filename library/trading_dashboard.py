@@ -179,31 +179,37 @@ class TradingDashboard:
 
             if has_highest_price:
                 # 고급 정보 포함 헤더
-                print(f"  {'종목코드':<8} {'종목명':<12} {'보유수량':>8} {'매입가':>10} {'현재가':>10} {'최고가':>10} {'수익률':>8} {'트레일링':>8}")
-                print("  " + "-" * 95)
+                print(f"  {'종목코드':<8} {'종목명':<12} {'보유수량':>8} {'매입가':>10} {'현재가':>10} {'최고가':>10} {'수익률':>8} {'상태':>12}")
+                print("  " + "-" * 100)
                 for pos in positions[:10]:  # 최대 10개만 표시
                     profit_rate = pos.get('profit_rate', 0)
                     profit_color = "[+]" if profit_rate > 0 else "[-]" if profit_rate < 0 else "[=]"
 
                     # 트레일링 스톱 활성화 체크 (수익률 5% 이상)
-                    trailing_status = "🟢 ON" if profit_rate >= 5.0 else "⚪ OFF"
+                    trailing_status = "🟢 트레일링" if profit_rate >= 5.0 else "⚪ 대기"
+
+                    # 손절 유예 표시
+                    if pos.get('losscut_delay', False):
+                        trailing_status = "⏰ 손절유예"
 
                     highest_price = pos.get('highest_price', pos.get('current_price', 0))
 
                     print(f"  {pos.get('code', ''):<8} {pos.get('name', ''):<12} "
                           f"{pos.get('quantity', 0):>8} {pos.get('buy_price', 0):>10,}원 "
                           f"{pos.get('current_price', 0):>10,}원 {highest_price:>10,}원 "
-                          f"{profit_color} {profit_rate:>6.2f}% {trailing_status:>8}")
+                          f"{profit_color} {profit_rate:>6.2f}% {trailing_status:>12}")
             else:
                 # 기본 헤더
-                print(f"  {'종목코드':<10} {'종목명':<15} {'보유수량':>10} {'매입가':>12} {'현재가':>12} {'수익률':>10} {'평가손익':>12}")
-                print("  " + "-" * 95)
+                print(f"  {'종목코드':<10} {'종목명':<15} {'보유수량':>10} {'매입가':>12} {'현재가':>12} {'수익률':>10} {'평가손익':>12} {'상태':>12}")
+                print("  " + "-" * 100)
                 for pos in positions[:10]:  # 최대 10개만 표시
-                    profit_color = "[+]" if pos.get('profit_rate', 0) > 0 else "[-]" if pos.get('profit_rate', 0) < 0 else "[=]"
+                    profit_rate = pos.get('profit_rate', 0)
+                    profit_color = "[+]" if profit_rate > 0 else "[-]" if profit_rate < 0 else "[=]"
+                    delay_mark = " ⏰" if pos.get('losscut_delay', False) else ""
                     print(f"  {pos.get('code', ''):<10} {pos.get('name', ''):<15} "
                           f"{pos.get('quantity', 0):>10} {pos.get('buy_price', 0):>12,}원 "
                           f"{pos.get('current_price', 0):>12,}원 "
-                          f"{profit_color} {pos.get('profit_rate', 0):>7.2f}% {pos.get('profit', 0):>12,}원")
+                          f"{profit_color} {profit_rate:>7.2f}% {pos.get('profit', 0):>12,}원{delay_mark}")
 
             if len(positions) > 10:
                 print(f"  ... 외 {len(positions) - 10}개 종목")

@@ -1213,6 +1213,23 @@ class simulator_func_mysql:
 
             logger.debug(f"[num=21] DART 재무데이터 로드 완료 - {len(fundamental_dict)}개 종목")
 
+            # stock_fundamental에서 수급지표 로드 (외인소진률, 신용비율, 250일 고가비율)
+            fundamental_extra = {}
+            try:
+                fund_df = pd.read_sql(
+                    "SELECT code, foreign_rate, credit_rate, high_250_rate FROM stock_fundamental",
+                    self.engine_daily_buy_list
+                )
+                for _, fr in fund_df.iterrows():
+                    fundamental_extra[str(fr['code']).zfill(6)] = {
+                        'foreign_rate': fr['foreign_rate'],
+                        'credit_rate': fr['credit_rate'],
+                        'high_250_rate': fr['high_250_rate'],
+                    }
+                logger.debug(f"[num=21] stock_fundamental 수급지표 로드 완료 - {len(fundamental_extra)}개")
+            except Exception as e:
+                logger.debug(f"[num=21] stock_fundamental 수급지표 로드 실패: {e}")
+
             # kospi_index 최근 20일 close 로드 (없으면 None)
             market_data = None
             try:
@@ -1248,6 +1265,10 @@ class simulator_func_mysql:
 
                 fd = fundamental_dict.get(code)
                 row_dict = dict(row)  # RowProxy → dict (.get() 사용 가능)
+                # stock_fundamental 수급지표 머지 (foreign_rate, credit_rate, high_250_rate)
+                extra = fundamental_extra.get(code, {})
+                if extra:
+                    row_dict.update(extra)
                 # fundamental_data=None으로 넘겨 PER/PBR 기반 필터 우회
                 # (dart 데이터는 roe/sales만 있어 PER/PBR 필터 통과 불가)
                 score_result = strategy_v2.calculate_total_score(row_dict, df_120, None, market_data)

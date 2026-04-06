@@ -1372,7 +1372,6 @@ class open_api(QAxWidget):
                         elapsed = (now - buy_dt).total_seconds() / 60
                         if elapsed < LOSSCUT_DELAY_MINUTES:
                             losscut_active = False
-                            logger.info(f"  ⏰ 손절 유예: {code_name}({code}) - 매수 후 {elapsed:.0f}분 ({LOSSCUT_DELAY_MINUTES}분 유예중)", extra={'no_dedup': True})
                 except Exception:
                     pass
 
@@ -1627,7 +1626,11 @@ class open_api(QAxWidget):
         if gubun == "0":
             # 현재 체결 진행 중인 코드를 키움증권으로 부터 가져온다
             # 종목 코드
-            code = code_pattern.search(self.get_chejan_data(9001)).group(0)  # 주식 코드가 숫자만오지 않아서 정규식으로 필터링
+            code_raw = self.get_chejan_data(9001)
+            code_match = code_pattern.search(code_raw) if code_raw else None
+            if not code_match:
+                return
+            code = code_match.group(0)  # 주식 코드가 숫자만오지 않아서 정규식으로 필터링
             # 주문 번호
             order_num = self.get_chejan_data(9203)
             if not order_num:
@@ -1987,7 +1990,11 @@ class open_api(QAxWidget):
         rows = self._get_repeat_cnt(trcode, rqname)
 
         for i in range(rows):
-            code = code_pattern.search(self._get_comm_data(trcode, rqname, i, "종목번호")).group(0)
+            code_raw = self._get_comm_data(trcode, rqname, i, "종목번호")
+            code_match = code_pattern.search(code_raw) if code_raw else None
+            if not code_match:
+                continue
+            code = code_match.group(0)
             name = self._get_comm_data(trcode, rqname, i, "종목명")
             quantity = self._get_comm_data(trcode, rqname, i, "보유수량")
             purchase_price = self._get_comm_data(trcode, rqname, i, "매입가")
