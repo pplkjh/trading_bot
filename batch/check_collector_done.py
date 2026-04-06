@@ -48,7 +48,7 @@ try:
         # 가장 최근 sf_YYYYMMDD 테이블 조회
         cursor2.execute(
             "SELECT TABLE_NAME FROM information_schema.tables "
-            "WHERE table_schema = 'daily_buy_list' AND TABLE_NAME LIKE 'sf_______' "
+            "WHERE table_schema = 'daily_buy_list' AND TABLE_NAME LIKE 'sf_2%' "
             "ORDER BY TABLE_NAME DESC LIMIT 1"
         )
         fund_row = cursor2.fetchone()

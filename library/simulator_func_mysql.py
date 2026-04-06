@@ -1219,7 +1219,7 @@ class simulator_func_mysql:
             try:
                 sf_row = self.engine_daily_buy_list.execute(
                     "SELECT TABLE_NAME FROM information_schema.tables "
-                    "WHERE table_schema = 'daily_buy_list' AND TABLE_NAME LIKE 'sf_______' "
+                    "WHERE table_schema = 'daily_buy_list' AND TABLE_NAME LIKE 'sf_2%' "
                     f"AND TABLE_NAME <= 'sf_{date_rows_today}' "
                     "ORDER BY TABLE_NAME DESC LIMIT 1"
                 ).fetchone()
