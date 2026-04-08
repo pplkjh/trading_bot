@@ -137,10 +137,51 @@ class collector_api():
             print(f"\033[1A\033[K{status_info}")
 
     # 콜렉팅을 실행하는 함수
-    def code_update_check(self):
-        print("\n" + "="*100)
-        print("📊 데이터 수집 시작")
-        print("="*100 + "\n")
+    def code_update_check(self, phase=None):
+        # Phase 2 전용: 펀더멘탈 수집만 실행 (rq_count 리셋 활용)
+        if phase == 2:
+            print("\n" + "="*100)
+            print("📊 [Phase 2] 펀더멘탈 수집")
+            print("="*100 + "\n")
+            overall_start = time.time()
+            try:
+                self.collect_market_index()
+                self.collect_stock_fundamental()
+            except Exception as e:
+                logger.warning(f"펀더멘탈 수집 실패: {e}")
+            total_time = time.time() - overall_start
+            print("\n" + "="*100)
+            print(f"✅ Phase 2 완료! ({int(total_time//60)}분 {int(total_time%60)}초)")
+            print("="*100)
+            logger.info("collecting 완료")
+            return
+
+        # Phase 3 전용: 스코어링만 실행 (rq_count 리셋 활용)
+        if phase == 3:
+            print("\n" + "="*100)
+            print("📊 [Phase 3] 스코어링 (realtime_daily_buy_list)")
+            print("="*100 + "\n")
+            overall_start = time.time()
+            try:
+                self.realtime_daily_buy_list_check()
+            except Exception as e:
+                logger.warning(f"스코어링 실패: {e}")
+            total_time = time.time() - overall_start
+            print("\n" + "="*100)
+            print(f"✅ Phase 3 완료! ({int(total_time//60)}분 {int(total_time%60)}초)")
+            print("="*100)
+            logger.info("collecting 완료")
+            return
+
+        # Phase 1 또는 전체 실행 (기본)
+        if phase == 1:
+            print("\n" + "="*100)
+            print("📊 [Phase 1] 종가 수집 + 기술지표")
+            print("="*100 + "\n")
+        else:
+            print("\n" + "="*100)
+            print("📊 데이터 수집 시작")
+            print("="*100 + "\n")
 
         overall_start = time.time()
 
@@ -319,6 +360,14 @@ class collector_api():
             current_task += 1
             if rows[0][7] and len(rows[0][7]) >= 8 and rows[0][7][:8] == self.open_api.today:
                 print(f"\n[{current_task}/{total_tasks}] 📈 일봉 데이터 재수집 중 (종가 업데이트)...")
+                # 오늘 이미 수집했지만 재수집이 필요한 경우(장후 종가 반영 등) check_daily_crawler 리셋
+                try:
+                    self.open_api.engine_daily_buy_list.execute(
+                        "UPDATE stock_item_all SET check_daily_crawler='0' WHERE check_daily_crawler='1'"
+                    )
+                    logger.debug("check_daily_crawler 리셋 완료 (1→0) for 종가 재수집")
+                except Exception as e:
+                    logger.warning(f"check_daily_crawler 리셋 실패: {e}")
             else:
                 print(f"\n[{current_task}/{total_tasks}] 📈 일봉 데이터 수집 중...")
             task_start = time.time()
@@ -374,8 +423,10 @@ class collector_api():
             logger.debug("[collector] final_chegyul_check 완료")
             print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
-        # 내일 매수 종목 업데이트 (realtime_daily_buy_list)
-        if rows[0][6] != self.open_api.today or need_daily_buy_list:
+        # 내일 매수 종목 업데이트 (realtime_daily_buy_list) — phase=1이면 스킵 (phase 3에서 처리)
+        if phase == 1:
+            logger.debug("[Phase 1] 스코어링 스킵 → Phase 3에서 처리")
+        elif rows[0][6] != self.open_api.today or need_daily_buy_list:
             current_task += 1
             print(f"\n[{current_task}/{total_tasks}] 🚀 실시간 매수 리스트 생성 중...")
             logger.debug(f"[collector] realtime_daily_buy_list_check 시작")
@@ -411,12 +462,15 @@ class collector_api():
             print(f"    사유: {str(e)[:100]}")
             logger.warning(f"KIND 크롤링 실패: {e}")
 
-        # v2 확장 데이터 수집 (simul_num과 무관하게 항상 수집, 실패해도 기존 수집 영향 없음)
-        try:
-            self.collect_market_index()
-            self.collect_stock_fundamental()
-        except Exception as e:
-            logger.warning(f"v2 확장 데이터 수집 실패 (무시하고 계속): {e}")
+        # v2 확장 데이터 수집 — phase 없는 레거시 전체 실행 모드에서만 수행
+        # phase=1: 종가 수집 전용 (펀더멘탈은 phase 2에서 처리)
+        # phase=2,3: 각자 early return으로 이미 처리됨
+        if phase is None:
+            try:
+                self.collect_market_index()
+                self.collect_stock_fundamental()
+            except Exception as e:
+                logger.warning(f"v2 확장 데이터 수집 실패 (무시하고 계속): {e}")
 
         # 전체 완료
         total_time = time.time() - overall_start
@@ -1782,10 +1836,21 @@ class collector_api():
         if self.open_api.engine_daily_craw.dialect.has_table(self.open_api.engine_daily_craw, code_name):
             last_date = self.open_api.get_daily_craw_db_last_date(code_name)
 
-            # ref_date 날짜 체크: 이전에 수집된 stale 데이터를 최신 종가로 업데이트하기 위해
-            # (장전 수집 후 장후 재수집 시, ref_date=오늘이므로 stale row 삭제 후 실제 종가 재삽입)
-            if last_date == ref_date:
-                logger.debug(f"{code_name}: ref_date({ref_date}) 데이터 발견. 종가 업데이트를 위해 삭제 후 재수집.")
+            # 시간대별 재수집 여부 판단:
+            #   08:00~09:00 (장전): ref_date(전 영업일) 데이터가 있어도 오늘 첫 수집이므로 강제 재수집
+            #   09:00~16:00 (장중): ref_date = 전 영업일 → 이미 확정된 과거 데이터, 재수집 불필요
+            #   16:00~24:00 (장후): ref_date = 오늘 → 오늘 장중 stale row 삭제 후 종가로 재수집
+            #   00:00~08:00 (야간): 재수집 불필요
+            import datetime as _dt
+            _now = _dt.datetime.now()
+            _h = _now.hour
+            _should_recollect = (
+                (8 <= _h < 9) or                                          # 장전: 무조건
+                (_h >= 16 and last_date == ref_date and ref_date == self.open_api.today)  # 장후: 오늘 데이터만
+            )
+            if last_date == ref_date and _should_recollect:
+                _reason = "장전 첫 수집" if 8 <= _h < 9 else "장후 종가 업데이트"
+                logger.debug(f"{code_name}: {_reason} → {ref_date} 데이터 삭제 후 재수집.")
                 try:
                     self.open_api.engine_daily_craw.execute(f"""
                         DELETE FROM `{code_name}` WHERE date = '{ref_date}'

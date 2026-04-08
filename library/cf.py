@@ -74,7 +74,7 @@ v2_fundamental_filter = True
 v2_fundamental_min_score = 15
 
 # 펀더멘털 수집 주기 (일)
-v2_fundamental_collect_interval = 7
+v2_fundamental_collect_interval = 1
 
 # 동적 가중치 (ADX 기반)
 v2_dynamic_weights = True

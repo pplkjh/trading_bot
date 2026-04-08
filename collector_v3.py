@@ -27,16 +27,29 @@ class Collector:
         self.collector_api = collector_api()
         print("✅ 연결 완료")
 
-    def collecting(self):
-        self.collector_api.code_update_check()
+    def collecting(self, phase=None):
+        self.collector_api.code_update_check(phase=phase)
 
 if __name__ == "__main__":
+    # --phase 1|2|3 인자 파싱 (없으면 전체 실행)
+    phase = None
+    for arg in sys.argv[1:]:
+        if arg.startswith('--phase='):
+            phase = int(arg.split('=')[1])
+        elif arg in ('1', '2', '3') and sys.argv.index(arg) > 0 and sys.argv[sys.argv.index(arg)-1] == '--phase':
+            phase = int(arg)
+    # '--phase 1' 형식 (공백 구분)
+    if '--phase' in sys.argv:
+        idx = sys.argv.index('--phase')
+        if idx + 1 < len(sys.argv):
+            phase = int(sys.argv[idx + 1])
+
     try:
         # 아래는 키움증권 openapi를 사용하기 위해 사용하는 한 줄! 이해 할 필요 X
         app = QApplication(sys.argv)
         c = Collector()
         # 데이터 수집 시작 -> 주식 종목, 종목별 금융 데이터 모두 데이터베이스에 저장.
-        c.collecting()
+        c.collecting(phase=phase)
 
         # 완료 메시지 및 대기
         print("\n" + "="*100)

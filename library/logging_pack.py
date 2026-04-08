@@ -2,6 +2,7 @@ import os
 import re
 import logging
 import pathlib
+from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 
 
@@ -38,6 +39,17 @@ file_path = pathlib.Path(__file__).parent.parent.absolute() / 'log' / f'{_log_na
 
 os.makedirs(file_path.parents[0], exist_ok=True)  # 로그 폴더가 존재하는지 확인 후 없으면 생성
 
+# 프로세스 시작 시점에 jackbot.log가 오늘 이전 날짜 파일이면 YYYYMMDD_jackbot.log로 rename
+_today = datetime.now().strftime("%Y%m%d")
+if file_path.exists():
+    _mtime = datetime.fromtimestamp(file_path.stat().st_mtime).strftime("%Y%m%d")
+    if _mtime < _today:
+        _archive = file_path.parent / f"{_mtime}_{_log_name}.log"
+        try:
+            file_path.rename(_archive)
+        except Exception:
+            pass
+
 # 로그 파일 더블클릭 -> 연결 프로그램 -> 메모장
 
 # logger instance 생성
@@ -61,6 +73,17 @@ stream_handler.setLevel(logging.INFO)  # 콘솔에는 INFO 이상만 출력
 file_handler = TimedRotatingFileHandler(file_path, when="midnight", encoding='utf-8')
 file_handler.setLevel(logging.DEBUG)  # 파일에는 DEBUG 모두 기록
 file_handler.addFilter(DeduplicateFilter())
+
+# 자정 rotate 시 jackbot.log.20260407 → 20260407_jackbot.log 형식으로 변환
+def _log_namer(default_name):
+    # default_name 예: /path/log/jackbot.log.20260407
+    base = pathlib.Path(default_name)
+    parts = base.name.rsplit('.', 1)  # ['jackbot.log', '20260407']
+    if len(parts) == 2 and parts[1].isdigit() and len(parts[1]) == 8:
+        return str(base.parent / f"{parts[1]}_{_log_name}.log")
+    return default_name
+
+file_handler.namer = _log_namer
 
 # formatter 생성
 formatter = logging.Formatter('[%(levelname)s|%(filename)s:%(lineno)s] %(asctime)s > %(message)s')

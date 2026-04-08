@@ -1,18 +1,173 @@
 """
 collector_v3.py 완료 여부 확인 스크립트
-배치파일에서 호출: python batch/check_collector_done.py
+배치파일에서 호출: python batch/check_collector_done.py [--phase 1|2|3]
 exit code: 0 = 완료, 1 = 미완료
+
+--phase 1: 종가 수집 완료 여부 (daily_buy_list 날짜 테이블 오늘 건수 확인)
+--phase 2: 펀더멘탈 수집 완료 여부 (sf_YYYYMMDD 건수 확인)
+--phase 3: 스코어링 완료 여부 (setting_data.today_buy_list 확인)
+(없음): 전체 확인 (기존 동작 — phase 3 + 펀더멘탈 체크)
 """
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from library.cf import db_id, db_passwd, db_ip, db_port, imi1_db_name, v2_fundamental_collect_interval
+from library.utils import get_latest_complete_date
 import pymysql
 from datetime import datetime, timedelta
 
 today = datetime.now().strftime("%Y%m%d")
+ref_date = get_latest_complete_date()  # 장전이면 전 영업일, 장후면 오늘
 
+# --phase 인자 파싱
+phase = None
+if '--phase' in sys.argv:
+    idx = sys.argv.index('--phase')
+    if idx + 1 < len(sys.argv):
+        phase = int(sys.argv[idx + 1])
+
+# ─────────────────────────────────────────────
+# Phase 1: 종가 수집 완료 여부 (시간대별 판단)
+#
+#  00:00~08:00 : 야간 → 스킵 (exit 0)
+#  08:00~09:00 : 장전 → 오늘 08:00 이후에 수집 완료됐으면 OK
+#  09:00~16:00 : 장중 → 마지막 수집이 1시간 이내면 OK, 초과면 재수집
+#  16:00~24:00 : 장후 → 오늘 16:00 이후에 수집 완료됐으면 최종 OK
+#
+# "마지막 수집 시각"은 information_schema.tables.UPDATE_TIME 으로 판단
+# ─────────────────────────────────────────────
+if phase == 1:
+    now = datetime.now()
+    hour = now.hour
+
+    # 00:00~08:00: 야간 — 수집 불필요, 바로 스킵
+    if 0 <= hour < 8:
+        print(f"[OK] Phase 1: night time (00:00-08:00), skip")
+        sys.exit(0)
+
+    print(f"[INFO] Phase 1 check: {now.strftime('%H:%M')} ref_date={ref_date}")
+
+    try:
+        con = pymysql.connect(
+            user=db_id, passwd=db_passwd, host=db_ip,
+            port=int(db_port), db='daily_buy_list', charset='utf8'
+        )
+        cursor = con.cursor()
+
+        # daily_buy_list.{ref_date} 테이블의 마지막 수정 시각 조회
+        cursor.execute(
+            "SELECT UPDATE_TIME, TABLE_ROWS FROM information_schema.tables "
+            "WHERE table_schema = 'daily_buy_list' AND table_name = %s",
+            (ref_date,)
+        )
+        tbl_row = cursor.fetchone()
+
+        # 종목 전체 수
+        cursor.execute("SELECT COUNT(*) FROM stock_item_all")
+        total_count = cursor.fetchone()[0]
+        con.close()
+
+        update_time = tbl_row[0] if tbl_row else None  # datetime or None
+
+        # 테이블 없거나 UPDATE_TIME 없으면 무조건 재수집
+        if not tbl_row or not update_time:
+            print(f"[FAIL] Phase 1: daily_buy_list.{ref_date} 없음 or UPDATE_TIME null")
+            sys.exit(1)
+
+        today_8am  = now.replace(hour=8,  minute=0, second=0, microsecond=0)
+        today_4pm  = now.replace(hour=16, minute=0, second=0, microsecond=0)
+        elapsed_min = (now - update_time).total_seconds() / 60
+
+        if 8 <= hour < 9:
+            # 장전: 오늘 08:00 이후에 수집 완료됐으면 OK
+            if update_time >= today_8am:
+                print(f"[OK] Phase 1: morning run done (updated {update_time.strftime('%H:%M')})")
+                sys.exit(0)
+            else:
+                print(f"[FAIL] Phase 1: morning run needed (last update {update_time.strftime('%Y-%m-%d %H:%M')})")
+                sys.exit(1)
+
+        elif 9 <= hour < 16:
+            # 장중: 1시간 이내 수집 완료면 스킵, 초과면 재수집
+            if elapsed_min < 60:
+                print(f"[OK] Phase 1: market hours, collected {elapsed_min:.0f}min ago (< 60min)")
+                sys.exit(0)
+            else:
+                print(f"[FAIL] Phase 1: market hours, {elapsed_min:.0f}min ago (> 60min), re-collect")
+                sys.exit(1)
+
+        else:  # hour >= 16
+            # 장후: 오늘 16:00 이후에 최종 수집 완료됐으면 OK
+            if update_time >= today_4pm:
+                print(f"[OK] Phase 1: post-market final done (updated {update_time.strftime('%H:%M')})")
+                sys.exit(0)
+            else:
+                print(f"[FAIL] Phase 1: post-market final needed (last {update_time.strftime('%Y-%m-%d %H:%M')})")
+                sys.exit(1)
+
+    except Exception as e:
+        print(f"[ERROR] Phase 1 check failed: {e}")
+        sys.exit(1)
+
+# ─────────────────────────────────────────────
+# Phase 2: 펀더멘탈 수집 완료 여부
+# ─────────────────────────────────────────────
+if phase == 2:
+    try:
+        con = pymysql.connect(
+            user=db_id, passwd=db_passwd, host=db_ip,
+            port=int(db_port), db='daily_buy_list', charset='utf8'
+        )
+        cursor = con.cursor()
+
+        cursor.execute(
+            "SELECT TABLE_NAME FROM information_schema.tables "
+            "WHERE table_schema = 'daily_buy_list' AND TABLE_NAME LIKE 'sf_2%' "
+            "ORDER BY TABLE_NAME DESC LIMIT 1"
+        )
+        fund_row = cursor.fetchone()
+
+        if not fund_row:
+            con.close()
+            print(f"[FAIL] Phase 2 미완료: sf_YYYYMMDD 테이블 없음")
+            sys.exit(1)
+
+        last_table = fund_row[0]
+        last_date_str = last_table[3:]
+        last_dt = datetime.strptime(last_date_str, "%Y%m%d")
+        today_dt = datetime.strptime(today, "%Y%m%d")
+        days_since = (today_dt - last_dt).days
+
+        if days_since >= v2_fundamental_collect_interval:
+            con.close()
+            print(f"[FAIL] Phase 2 미완료: 펀더멘탈 갱신 필요 (마지막: {last_date_str}, {days_since}일 경과)")
+            sys.exit(1)
+
+        if last_date_str == today:
+            # 오늘 테이블 — 건수 검증
+            cursor.execute(f"SELECT COUNT(*) FROM `sf_{today}`")
+            today_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM stock_item_all")
+            total_count = cursor.fetchone()[0]
+            con.close()
+            if total_count > 0 and today_count < total_count * 0.95:
+                print(f"[FAIL] Phase 2 미완료: 펀더멘탈 {today_count}/{total_count} ({today_count/total_count*100:.1f}%)")
+                sys.exit(1)
+            print(f"[OK] Phase 2 완료: 펀더멘탈 {today_count}/{total_count} ({last_table})")
+        else:
+            con.close()
+            print(f"[OK] Phase 2 완료: 펀더멘탈 갱신 불필요 (마지막: {last_date_str}, {days_since}일 경과 < {v2_fundamental_collect_interval}일)")
+
+        sys.exit(0)
+
+    except Exception as e:
+        print(f"[ERROR] Phase 2 체크 실패: {e}")
+        sys.exit(1)
+
+# ─────────────────────────────────────────────
+# Phase 3 또는 전체: 스코어링 완료 여부
+# ─────────────────────────────────────────────
 try:
     con = pymysql.connect(
         user=db_id,
@@ -24,7 +179,7 @@ try:
     )
     cursor = con.cursor()
 
-    # 1. 스코어링 완료 여부 확인
+    # 스코어링 완료 여부 확인
     cursor.execute("SELECT today_buy_list FROM setting_data LIMIT 1")
     row = cursor.fetchone()
     con.close()
@@ -36,16 +191,19 @@ try:
 
     print(f"[OK] 스코어링 완료 (today_buy_list={row[0]})")
 
-    # 2. 펀더멘탈 수집 완료 여부 확인 (sf_YYYYMMDD 날짜별 테이블 기준)
+    if phase == 3:
+        # Phase 3 전용: 스코어링만 확인
+        print(f"[OK] Phase 3 완료")
+        sys.exit(0)
+
+    # 전체 모드 (phase=None): 펀더멘탈도 함께 확인
     try:
-        import pymysql as _pm
-        con2 = _pm.connect(
+        con2 = pymysql.connect(
             user=db_id, passwd=db_passwd, host=db_ip,
             port=int(db_port), db='daily_buy_list', charset='utf8'
         )
         cursor2 = con2.cursor()
 
-        # 가장 최근 sf_YYYYMMDD 테이블 조회
         cursor2.execute(
             "SELECT TABLE_NAME FROM information_schema.tables "
             "WHERE table_schema = 'daily_buy_list' AND TABLE_NAME LIKE 'sf_2%' "
@@ -54,8 +212,8 @@ try:
         fund_row = cursor2.fetchone()
 
         if fund_row:
-            last_table = fund_row[0]              # e.g. 'sf_20260406'
-            last_date_str = last_table[3:]        # '20260406'
+            last_table = fund_row[0]
+            last_date_str = last_table[3:]
             last_dt = datetime.strptime(last_date_str, "%Y%m%d")
             today_dt = datetime.strptime(today, "%Y%m%d")
             days_since = (today_dt - last_dt).days
@@ -65,7 +223,6 @@ try:
                 print(f"[FAIL] 펀더멘탈 수집 필요 (마지막: {last_date_str}, {days_since}일 경과)")
                 sys.exit(1)
             elif last_date_str == today:
-                # 오늘 테이블 있음 — 건수 검증
                 cursor2.execute(f"SELECT COUNT(*) FROM `sf_{today}`")
                 today_count = cursor2.fetchone()[0]
                 cursor2.execute("SELECT COUNT(*) FROM stock_item_all")

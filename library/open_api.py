@@ -1407,7 +1407,7 @@ class open_api(QAxWidget):
         self.rq_count += 1
         # openapi 조회 count 출력
         # logger.debug(self.rq_count)
-        if self.rq_count == cf.max_api_call:
+        if self.rq_count == cf.max_api_call and self.py_gubun != "trader":
             sys.exit(1)
 
     # 매도 했는데 bot이 꺼져있을때 매도해서 possessed_item 테이블에는 없는데 all_item_db에 sell_date 안찍힌 종목들 처리해준다.
