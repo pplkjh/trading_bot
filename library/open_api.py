@@ -1407,8 +1407,11 @@ class open_api(QAxWidget):
         self.rq_count += 1
         # openapi 조회 count 출력
         # logger.debug(self.rq_count)
-        if self.rq_count == cf.max_api_call and self.py_gubun not in ("trader", "trader_advanced"):
-            sys.exit(1)
+        if self.rq_count == cf.max_api_call:
+            if self.py_gubun not in ("trader", "trader_advanced"):
+                sys.exit(1)
+            else:
+                logger.warning(f"[exit_check] API 호출 {cf.max_api_call}회 도달 — {self.py_gubun}은 계속 실행")
 
     # 매도 했는데 bot이 꺼져있을때 매도해서 possessed_item 테이블에는 없는데 all_item_db에 sell_date 안찍힌 종목들 처리해준다.
     def final_chegyul_check(self):
