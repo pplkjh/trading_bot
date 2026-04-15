@@ -138,7 +138,7 @@ class TradingDashboard:
         # realtime_position_monitor 상태 표시
         if config.get('use_advanced_sell'):
             print(f"  ⭐ highest_price 추적: 활성화 (10초마다 업데이트)")
-            print(f"  ⭐ 트레일링 스톱: 수익 5% 이상 시 자동 활성화")
+            print(f"  ⭐ 트레일링 스톱: ADX 기반 동적 활성화 (추세장 +3% / 횡보장 +5%)")
         print()
 
     def _render_account_info(self):
@@ -165,7 +165,7 @@ class TradingDashboard:
 
         # 트레일링 스톱 활성화 종목 수
         if portfolio.get('trailing_active_count') is not None:
-            print(f"  🟢 트레일링 스톱 활성화: {portfolio.get('trailing_active_count', 0)}개 종목 (수익 5% 이상)")
+            print(f"  🟢 트레일링 스톱 활성화: {portfolio.get('trailing_active_count', 0)}개 종목")
         print()
 
     def _render_positions(self):
@@ -185,8 +185,8 @@ class TradingDashboard:
                     profit_rate = pos.get('profit_rate', 0)
                     profit_color = "[+]" if profit_rate > 0 else "[-]" if profit_rate < 0 else "[=]"
 
-                    # 트레일링 스톱 활성화 체크 (수익률 5% 이상)
-                    trailing_status = "🟢 트레일링" if profit_rate >= 5.0 else "⚪ 대기"
+                    # 트레일링 스톱 활성화 체크 (추세장 +3% / 횡보장 +5% — 임시 3% 기준)
+                    trailing_status = "🟢 트레일링" if profit_rate >= 3.0 else "⚪ 대기"
 
                     # 손절 유예 표시
                     if pos.get('losscut_delay', False):

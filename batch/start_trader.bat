@@ -29,53 +29,17 @@ if "%ERRORLEVEL%"=="0" (
     timeout /t 3 /nobreak >NUL
 )
 
-set MAX_RESTART=5
-set RESTART_COUNT=0
 set TRADER_EXIT=0
 
-:TRADER_LOOP
-    set /a RESTART_COUNT+=1
-    echo.
-    echo [%date% %time%] Starting trader (attempt %RESTART_COUNT%/%MAX_RESTART%)
-    echo [%date% %time%] [BAT] trader start attempt %RESTART_COUNT%/%MAX_RESTART% >> log\jackbot.log
+REM 1회 실행만 담당 - 재시작 루프는 collector_auto_restart.bat 에서 관리
+echo [%date% %time%] [BAT] trader start >> automation_log.txt
 
-    python trader_advanced.py
-    set TRADER_EXIT=%ERRORLEVEL%
+python trader_advanced.py
+set TRADER_EXIT=%ERRORLEVEL%
 
-    echo [%date% %time%] Trader exited (code: %TRADER_EXIT%)
-    echo [%date% %time%] [BAT] trader exit code=%TRADER_EXIT% attempt=%RESTART_COUNT% >> log\jackbot.log
-    echo %date% %time% trader exit code=%TRADER_EXIT% attempt=%RESTART_COUNT% >> automation_log.txt
-
-    if %TRADER_EXIT% EQU 0 (
-        echo [INFO] Normal exit. No restart.
-        goto END
-    )
-
-    if %RESTART_COUNT% GEQ %MAX_RESTART% (
-        echo [WARN] Max restarts (%MAX_RESTART%) reached. Giving up.
-        echo [%date% %time%] [BAT] max restarts reached >> log\jackbot.log
-        goto END
-    )
-
-    set CURRENT_H=%TIME:~0,2%
-    set CURRENT_M=%TIME:~3,2%
-    set /a CURRENT_HHMM=CURRENT_H*100+CURRENT_M
-    echo [%date% %time%] [BAT] time check: CURRENT_HHMM=%CURRENT_HHMM% >> log\jackbot.log
-    if %CURRENT_HHMM% LSS 900 (
-        echo [INFO] Before market open (%CURRENT_HHMM%). No restart.
-        echo [%date% %time%] [BAT] no restart - before market open (%CURRENT_HHMM%) >> log\jackbot.log
-        goto END
-    )
-    if %CURRENT_HHMM% GEQ 1530 (
-        echo [INFO] After market close (%CURRENT_HHMM%). No restart.
-        echo [%date% %time%] [BAT] no restart - after market close (%CURRENT_HHMM%) >> log\jackbot.log
-        goto END
-    )
-
-    echo [WARN] Crash detected. Restarting in 30s...
-    echo [%date% %time%] [BAT] crash restart in 30s >> log\jackbot.log
-    timeout /t 30 /nobreak
-    goto TRADER_LOOP
+echo [%date% %time%] Trader exited (code: %TRADER_EXIT%)
+echo [%date% %time%] [BAT] trader exit code=%TRADER_EXIT% >> automation_log.txt
+echo %date% %time% trader exit code=%TRADER_EXIT% >> automation_log.txt
 
 :END
 echo.

@@ -1366,9 +1366,16 @@ class collector_api():
 
     def daily_crawler_check(self):
         # 종가 업데이트를 위해 check_daily_crawler를 0으로 리셋
-        # (1: 금일 완료 → 0: 재수집 대기 상태로 변경)
-        logger.debug("daily_crawler_check 시작 - check_daily_crawler 리셋")
-        sql_reset = "UPDATE stock_item_all SET check_daily_crawler = 0 WHERE check_daily_crawler = 1"
+        # 장후(16시 이후): '3'(과거 완료) 포함 리셋 — 장전 수집 시 '3'으로 저장된 종목도 오늘 종가 없으므로 재수집 필요
+        # 장전/장중: '1'(오늘 완료)만 리셋
+        import datetime as _dt
+        _is_post_market = _dt.datetime.now().hour >= 16
+        if _is_post_market:
+            sql_reset = "UPDATE stock_item_all SET check_daily_crawler = '0' WHERE check_daily_crawler IN ('1','3')"
+            logger.debug("daily_crawler_check 시작 - check_daily_crawler 리셋 (1,3→0) [장후 종가 재수집]")
+        else:
+            sql_reset = "UPDATE stock_item_all SET check_daily_crawler = '0' WHERE check_daily_crawler = '1'"
+            logger.debug("daily_crawler_check 시작 - check_daily_crawler 리셋 (1→0)")
         self.open_api.engine_daily_buy_list.execute(sql_reset)
 
         self.db_to_daily_craw()

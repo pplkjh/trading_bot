@@ -21,6 +21,84 @@ from library.cf import *
 from library.utils import get_latest_complete_date
 
 
+def parse_today_sell_reasons(log_path: str = 'log/jackbot.log') -> dict:
+    """
+    오늘 jackbot.log에서 매도 사유를 파싱해 {code: reason_str} 반환.
+    로그 포맷: '손절 매도: 종목명(코드) -4.23% [사유] - N주'
+               '익절 매도: 종목명(코드) 8.11% [사유] - N주'
+    """
+    reasons = {}
+    today_prefix = datetime.today().strftime('%Y-%m-%d')
+    pattern = re.compile(
+        r'(?:손절|익절) 매도: .+?\((\d{6})\) [+-]?\d+\.\d+% \[(.+?)\]'
+    )
+    try:
+        with open(log_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if today_prefix not in line:
+                    continue
+                m = pattern.search(line)
+                if m:
+                    reasons[m.group(1)] = m.group(2)
+    except Exception:
+        pass
+    return reasons
+
+
+def get_trailing_info(con_jb) -> dict:
+    """
+    realtime_position_monitor에서 highest_price 조회 → {code: highest_price}
+    """
+    try:
+        df = pd.read_sql("SELECT code, highest_price FROM realtime_position_monitor", con_jb)
+        return dict(zip(df['code'].astype(str), df['highest_price']))
+    except Exception:
+        return {}
+
+
+def get_latest_indicators(codes: list) -> dict:
+    """
+    daily_buy_list 최신 날짜 테이블에서 ADX/ATR/BB 조회 → {code: {adx, atr14, bb_position}}
+    """
+    try:
+        con = pymysql.connect(
+            user=db_id, passwd=db_passwd, host=db_ip,
+            db='daily_buy_list', charset='utf8', port=int(db_port)
+        )
+        cursor = con.cursor()
+        cursor.execute(
+            "SELECT TABLE_NAME FROM information_schema.tables "
+            "WHERE table_schema='daily_buy_list' AND table_name REGEXP '^[0-9]{8}$' "
+            "ORDER BY TABLE_NAME DESC LIMIT 1"
+        )
+        row = cursor.fetchone()
+        if not row:
+            con.close()
+            return {}
+
+        latest_table = row[0]
+        placeholders = ','.join(['%s'] * len(codes))
+        cursor.execute(
+            f"SELECT code, adx, atr14, bb_upper, bb_lower, close "
+            f"FROM `{latest_table}` WHERE code IN ({placeholders})",
+            codes
+        )
+        result = {}
+        for r in cursor.fetchall():
+            code, adx, atr14, bb_upper, bb_lower, close = r
+            bb_range = float(bb_upper or 0) - float(bb_lower or 0)
+            bb_pos = (float(close or 0) - float(bb_lower or 0)) / bb_range if bb_range > 0 else 0.5
+            result[str(code).zfill(6)] = {
+                'adx':        float(adx or 0),
+                'atr14':      float(atr14 or 0),
+                'bb_position': bb_pos,
+            }
+        con.close()
+        return result
+    except Exception:
+        return {}
+
+
 def parse_today_skips(log_path: str = 'log/jackbot.log') -> dict:
     """
     오늘 날짜 jackbot.log에서 매수 스킵 로그를 파싱해 {code: reason_str} 반환
@@ -98,17 +176,23 @@ def get_portfolio_status(db_name: str):
             print(f"\n📈 보유 종목 ({len(df_positions)}개)")
             print("-"*100)
 
+            # highest_price / ADX 지표 일괄 조회
+            codes = df_positions['code'].astype(str).tolist()
+            trailing_map  = get_trailing_info(con)
+            indicator_map = get_latest_indicators(codes)
+
             total_buy = 0
             total_value = 0
             total_profit = 0
 
             for idx, row in df_positions.iterrows():
+                code  = str(row['code'])
                 value = row['present_price'] * row['holding_amount']
-                total_buy += row['puchase_price'] * row['holding_amount']
-                total_value += value
+                total_buy    += row['puchase_price'] * row['holding_amount']
+                total_value  += value
                 total_profit += row['valuation_profit']
 
-                print(f"\n[{idx+1}] {row['code']} - {row['code_name']}")
+                print(f"\n[{idx+1}] {code} - {row['code_name']}")
                 print(f"  매수일:     {row['date']}")
                 print(f"  매수가:     {row['puchase_price']:>10,}원")
                 print(f"  현재가:     {row['present_price']:>10,}원")
@@ -116,6 +200,42 @@ def get_portfolio_status(db_name: str):
                 print(f"  평가금액:   {value:>10,}원")
                 print(f"  수익률:     {row['rate']:>10.2f}%")
                 print(f"  평가손익:   {row['valuation_profit']:>10,}원")
+
+                # trailing stop 정보
+                ind          = indicator_map.get(code, {})
+                highest      = trailing_map.get(code)
+                adx          = ind.get('adx', 0)
+                atr14        = ind.get('atr14', 0)
+                bb_pos       = ind.get('bb_position', None)
+
+                if adx >= 25:
+                    trail_mult = 2.5
+                    trail_act  = 3.0
+                    max_days   = 10
+                elif adx >= 20:
+                    trail_mult = 2.0
+                    trail_act  = 4.0
+                    max_days   = 8
+                else:
+                    trail_mult = 1.5
+                    trail_act  = 5.0
+                    max_days   = 6
+
+                if highest and atr14 > 0:
+                    trail_stop = highest - atr14 * trail_mult
+                    trail_stop_str = f"{int(trail_stop):,}원"
+                    trail_gain = (row['present_price'] / row['puchase_price'] - 1) * 100
+                    trail_active = trail_gain >= trail_act
+                    trail_status = "🟢 활성" if trail_active else f"⚪ {trail_act:.0f}% 도달 시 활성"
+                    print(f"  최고가:     {int(highest):>10,}원  (트레일링 스톱: {trail_stop_str}  {trail_status})")
+                elif highest:
+                    print(f"  최고가:     {int(highest):>10,}원")
+
+                if adx > 0:
+                    adx_label = "추세장" if adx >= 25 else ("중립" if adx >= 20 else "횡보장")
+                    atr_str   = f"ATR={atr14:.0f}" if atr14 > 0 else ""
+                    bb_str    = f"  BB위치={bb_pos:.2f}" if bb_pos is not None else ""
+                    print(f"  매도전략:   ADX={adx:.1f}({adx_label})  손절×{trail_mult}  최대{max_days}일  {atr_str}{bb_str}")
 
             print("\n" + "-"*100)
             print(f"총 매수금액:  {total_buy:>15,.0f}원")
@@ -164,8 +284,9 @@ def get_portfolio_status(db_name: str):
         df_today = pd.read_sql(query_today_trades, con, params=(today, today))
 
         if not df_today.empty:
-            buy_rows  = df_today[df_today['type'] == 'BUY']
-            sell_rows = df_today[df_today['type'] == 'SELL']
+            buy_rows   = df_today[df_today['type'] == 'BUY']
+            sell_rows  = df_today[df_today['type'] == 'SELL']
+            sell_reason_map = parse_today_sell_reasons()
             print(f"\n📝 오늘 매매 이력 ({len(df_today)}건: 매수 {len(buy_rows)}건 / 매도 {len(sell_rows)}건)")
             print("-"*100)
 
@@ -177,14 +298,16 @@ def get_portfolio_status(db_name: str):
                           f"{int(row['purchase_price']):>8,}원 × {amount:>4}주 = {total:>12,}원  "
                           f"({row['trade_date'][8:10]}:{row['trade_date'][10:12]})")
                 else:
-                    rate = float(row['sell_rate'])
+                    rate   = float(row['sell_rate'])
                     profit = int((row['sell_price'] - row['purchase_price']) * row['holding_amount'])
-                    sign = '+' if rate >= 0 else ''
-                    emoji = '🔴' if rate >= 0 else '🔵'
+                    sign   = '+' if rate >= 0 else ''
+                    emoji  = '🔴' if rate >= 0 else '🔵'
+                    reason = sell_reason_map.get(str(row['code']), '')
+                    reason_str = f"  [{reason}]" if reason else ''
                     print(f"  {emoji} 매도  {row['code']} ({row['code_name']:<12})  "
                           f"{int(row['sell_price']):>8,}원  "
                           f"수익률 {sign}{rate:.2f}%  실현손익 {sign}{profit:,}원  "
-                          f"({row['trade_date'][8:10]}:{row['trade_date'][10:12]})")
+                          f"({row['trade_date'][8:10]}:{row['trade_date'][10:12]}){reason_str}")
 
             if not sell_rows.empty:
                 total_realized = int(((sell_rows['sell_price'] - sell_rows['purchase_price']) * sell_rows['holding_amount']).sum())

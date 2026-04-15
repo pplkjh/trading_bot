@@ -10,6 +10,7 @@ Advanced Exit Strategy Module
 5. 부분 청산 (피라미딩)
 """
 
+import logging
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Optional
@@ -17,6 +18,8 @@ from datetime import datetime, timedelta
 import pymysql
 from library.cf import *
 from library.technical_indicators import calculate_atr
+
+logger = logging.getLogger(__name__)
 
 
 class ExitStrategy:
@@ -29,6 +32,7 @@ class ExitStrategy:
     def __init__(
         self,
         atr_stop_multiplier: float = 2.0,
+        trailing_atr_multiplier: float = 2.0,
         trailing_stop_activation: float = 0.05,
         trailing_stop_distance: float = 0.03,
         max_holding_days: int = 15,
@@ -44,6 +48,8 @@ class ExitStrategy:
         -----------
         atr_stop_multiplier : float
             ATR 손절 배수 (default: 2.0)
+        trailing_atr_multiplier : float
+            트레일링 스톱 ATR 배수 (default: 2.0) — ADX에 따라 동적 조정
         trailing_stop_activation : float
             트레일링 스톱 활성화 수익률 (default: 5%)
         trailing_stop_distance : float
@@ -64,6 +70,7 @@ class ExitStrategy:
             매수 후 N분간 고정 손절 비활성화 (default: 30분, 시초가 노이즈 방지)
         """
         self.atr_stop_multiplier = atr_stop_multiplier
+        self.trailing_atr_multiplier = trailing_atr_multiplier
         self.trailing_stop_activation = trailing_stop_activation
         self.trailing_stop_distance = trailing_stop_distance
         self.max_holding_days = max_holding_days
@@ -177,8 +184,8 @@ class ExitStrategy:
 
         # ATR 기반 또는 고정 비율
         if atr and atr > 0:
-            # ATR 기반: 최고가에서 ATR * 2 만큼 하락
-            trailing_stop_price = highest_price - (atr * 2.0)
+            # ATR 기반: 최고가에서 ATR * trailing_atr_multiplier 만큼 하락 (ADX에 따라 동적)
+            trailing_stop_price = highest_price - (atr * self.trailing_atr_multiplier)
         else:
             # 고정 비율: 최고가에서 N% 하락
             trailing_stop_price = highest_price * (1 - self.trailing_stop_distance)
@@ -519,13 +526,154 @@ class ExitStrategy:
         return position
 
 
+# 일봉 지표는 장중에 바뀌지 않으므로 날짜 단위로 캐싱
+# {date_str: {code: indicators_dict}}
+_indicators_cache: Dict[str, Dict] = {}
+
+
+def _get_stock_indicators(code: str) -> Optional[Dict]:
+    """
+    daily_buy_list 최신 날짜 테이블에서 종목의 기술 지표 조회.
+    ADX 기반 동적 파라미터 설정에 사용.
+    일봉 지표는 장중에 바뀌지 않으므로 날짜 단위로 캐싱한다.
+
+    Returns: dict with adx, plus_di, minus_di, atr14, bb_position, macd_histogram
+             or None on failure
+    """
+    today_str = datetime.now().strftime('%Y%m%d')
+
+    # 날짜가 바뀌면 캐시 초기화
+    cached_today = _indicators_cache.get('_date')
+    if cached_today != today_str:
+        _indicators_cache.clear()
+        _indicators_cache['_date'] = today_str
+
+    if code in _indicators_cache:
+        return _indicators_cache[code]
+
+    try:
+        con = pymysql.connect(
+            user=db_id, passwd=db_passwd, host=db_ip,
+            db='daily_buy_list', charset='utf8', port=int(db_port)
+        )
+        cursor = con.cursor()
+
+        # 최신 날짜 테이블 찾기 (YYYYMMDD 형식)
+        cursor.execute(
+            "SELECT TABLE_NAME FROM information_schema.tables "
+            "WHERE table_schema='daily_buy_list' AND table_name REGEXP '^[0-9]{8}$' "
+            "ORDER BY TABLE_NAME DESC LIMIT 1"
+        )
+        row = cursor.fetchone()
+        if not row:
+            con.close()
+            return None
+
+        latest_table = row[0]
+
+        cursor.execute(
+            f"SELECT adx, plus_di, minus_di, atr14, "
+            f"bb_upper, bb_middle, bb_lower, macd_histogram, close "
+            f"FROM `{latest_table}` WHERE code = %s LIMIT 1",
+            (code,)
+        )
+        ind = cursor.fetchone()
+        con.close()
+
+        if not ind:
+            _indicators_cache[code] = None
+            return None
+
+        adx, plus_di, minus_di, atr14, bb_upper, bb_middle, bb_lower, macd_histogram, close = ind
+
+        bb_range = (float(bb_upper or 0)) - (float(bb_lower or 0))
+        bb_position = ((float(close or 0)) - float(bb_lower or 0)) / bb_range if bb_range > 0 else 0.5
+
+        result = {
+            'adx':            float(adx or 0),
+            'plus_di':        float(plus_di or 0),
+            'minus_di':       float(minus_di or 0),
+            'atr14':          float(atr14 or 0),
+            'bb_position':    bb_position,
+            'macd_histogram': float(macd_histogram or 0),
+        }
+        _indicators_cache[code] = result
+        return result
+    except Exception:
+        _indicators_cache[code] = None
+        return None
+
+
+def _build_exit_strategy(indicators: Optional[Dict]) -> ExitStrategy:
+    """
+    ADX 값에 따라 동적으로 ExitStrategy 파라미터를 결정한다.
+
+    추세장 (ADX ≥ 25):
+      - 손절 넓게 (ATR×2.5): 추세의 호흡을 허용
+      - 트레일링 빨리 활성화 (+3%): 추세를 타고 길게 보유
+      - 최대 보유 10일
+
+    횡보장 (ADX ≤ 20):
+      - 손절 좁게 (ATR×1.5): 횡보 종목은 빠르게 손절
+      - 트레일링 늦게 활성화 (+5%): 충분히 벌고 나서 보호
+      - 최대 보유 6일
+    """
+    adx = indicators.get('adx', 0) if indicators else 0
+
+    if adx >= 25:
+        strategy = ExitStrategy(
+            fixed_stop_loss_pct=-0.05,
+            atr_stop_multiplier=2.5,
+            trailing_atr_multiplier=2.5,
+            trailing_stop_activation=0.03,
+            max_holding_days=10,
+            losscut_delay_minutes=30
+        )
+    elif adx >= 20:
+        strategy = ExitStrategy(
+            fixed_stop_loss_pct=-0.05,
+            atr_stop_multiplier=2.0,
+            trailing_atr_multiplier=2.0,
+            trailing_stop_activation=0.04,
+            max_holding_days=8,
+            losscut_delay_minutes=30
+        )
+    else:
+        strategy = ExitStrategy(
+            fixed_stop_loss_pct=-0.05,
+            atr_stop_multiplier=1.5,
+            trailing_atr_multiplier=1.5,
+            trailing_stop_activation=0.05,
+            max_holding_days=6,
+            losscut_delay_minutes=30
+        )
+
+    if indicators:
+        plus_di       = indicators.get('plus_di', 0)
+        minus_di      = indicators.get('minus_di', 0)
+        bb_position   = indicators.get('bb_position', 0.5)
+        macd_histogram = indicators.get('macd_histogram', 0)
+
+        # +DI < -DI: 방향 전환 → 트레일링 즉시 활성화 (수익 여부 무관)
+        if plus_di > 0 and minus_di > 0 and plus_di < minus_di:
+            strategy.trailing_stop_activation = 0.0
+
+        # BB 상단 근접(>0.85) + MACD 음전환 → 트레일링 거리 축소 (빠른 수익 보호)
+        if bb_position > 0.85 and macd_histogram < 0:
+            strategy.trailing_atr_multiplier = max(1.0, strategy.trailing_atr_multiplier - 0.5)
+            strategy.trailing_stop_activation = 0.0
+
+    return strategy
+
+
 def get_exit_signals(
     positions: List[Dict],
     db_name: str = 'daily_buy_list',
     current_date: Optional[datetime] = None
 ) -> List[Dict]:
     """
-    모든 포지션에 대해 청산 시그널 생성
+    모든 포지션에 대해 청산 시그널 생성.
+    종목별로 ADX/DI/BB 지표를 조회하여 ExitStrategy 파라미터를 동적으로 결정한다.
 
     Parameters:
     -----------
@@ -541,14 +689,6 @@ def get_exit_signals(
     List[Dict] : 청산 시그널 리스트
     """
     exit_signals = []
-    # 균형잡힌 설정: 고정 손절 -5%, ATR 2.0배 손절, 최대 보유 15일
-    exit_strategy = ExitStrategy(
-        fixed_stop_loss_pct=-0.05,  # 고정 손절 -5% (최우선)
-        atr_stop_multiplier=2.0,  # ATR 손절 (약 5-8% 손실에서 손절)
-        max_holding_days=15,  # 최대 보유 15일
-        time_stop_loss_pct=-0.05,  # 시간 손절 (10일 후 -5%)
-        losscut_delay_minutes=30  # 매수 후 30분간 고정 손절 유예
-    )
 
     # 에러 추적
     error_count = 0
@@ -558,6 +698,20 @@ def get_exit_signals(
     for position in positions:
         try:
             code = position['code']
+
+            # 0. 종목별 지표 조회 → ADX 기반 동적 ExitStrategy 생성
+            indicators = _get_stock_indicators(code)
+            exit_strategy = _build_exit_strategy(indicators)
+
+            if indicators:
+                logger.debug(
+                    f"{code} 매도전략: ADX={indicators['adx']:.1f} "
+                    f"+DI={indicators['plus_di']:.1f} -DI={indicators['minus_di']:.1f} "
+                    f"BB_pos={indicators['bb_position']:.2f} "
+                    f"ATR_stop×{exit_strategy.atr_stop_multiplier} "
+                    f"trail_act={exit_strategy.trailing_stop_activation*100:.0f}% "
+                    f"max_days={exit_strategy.max_holding_days}"
+                )
 
             # 1. stock_item_all에서 종목코드로 종목명 조회
             con = pymysql.connect(

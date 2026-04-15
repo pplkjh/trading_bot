@@ -182,6 +182,15 @@ class TraderAdvanced(QMainWindow):
         # 오늘의 거래 내역 추적
         self.trade_history = []
 
+        # 고급 청산 시그널 상세 (대시보드 표시용 - reason/priority 보존)
+        self.sell_signals_detail = []
+
+        # 매도 주문 쿨다운 추적: {code: {'count': int, 'last_time': float}}
+        # 동일 종목 매도 주문 3분 쿨다운, 10회 이상이면 당일 스킵
+        self._sell_cooldown = {}
+        self._sell_cooldown_secs = 180   # 3분
+        self._sell_max_attempts = 10
+
         logger.info("=" * 80)
         logger.info("⚙️  트레이더 설정")
         logger.info("=" * 80)
@@ -404,6 +413,7 @@ class TraderAdvanced(QMainWindow):
                 # 형식: [code, code_name, rate, present_price, valuation_profit]
                 # rate: 모의투자=직접 % 값, 실전=100 기준 값 (auto_trade_sell_stock 규약)
                 self.sell_list = []
+                self.sell_signals_detail = []  # 대시보드용: reason/priority 보존
                 for signal in sell_signals:
                     if signal['decision']['should_exit']:
                         profit_pct = signal.get('profit_pct', 0)  # % 단위 (e.g. -5.51)
@@ -418,11 +428,20 @@ class TraderAdvanced(QMainWindow):
                             int(signal.get('current_price', 0)),      # present_price
                             0                                         # valuation_profit (미사용)
                         ])
+                        self.sell_signals_detail.append({
+                            'code':        signal['code'],
+                            'name':        signal.get('code_name', signal['code']),
+                            'price':       int(signal.get('current_price', 0)),
+                            'profit_rate': profit_pct,
+                            'reason':      signal['decision'].get('reason', '매도 시그널'),
+                            'priority':    signal['decision'].get('priority', 50),
+                        })
 
                 logger.info(f"고급 청산: {len(self.sell_list)}개 매도 시그널")
 
                 # 고급 청산 조건 미충족 시 기본 방식으로 fallback
                 if sell_signals is None or len(sell_signals) == 0:
+                    self.sell_signals_detail = []
                     # opw00018_output은 메인 루프에서 이미 업데이트됨
                     has_positions = len(self.open_api.opw00018_output['multi']) > 0
 
@@ -434,6 +453,7 @@ class TraderAdvanced(QMainWindow):
 
             else:
                 # 기존 방식 (고급 전략 사용 안함)
+                self.sell_signals_detail = []
                 logger.info("📉 기본 방식으로 매도 리스트 생성")
                 # 실전 전용 기본 매도 로직 사용 (simulator 코드 사용 안함)
                 self.sell_list = self.open_api.get_basic_sell_list()
@@ -488,13 +508,35 @@ class TraderAdvanced(QMainWindow):
                         continue
 
                     if sell_code and sell_code != "0":
-                        # 매도 사유 결정
-                        if sell_rate < 0:
-                            logger.info(f"💔 손절 매도: {stock_name}({sell_code}) {sell_rate:.2f}% - {sell_num}주")
+                        # 매도 쿨다운 체크 (거래정지 등 반복 주문 방지)
+                        now_ts = time.time()
+                        cd = self._sell_cooldown.get(sell_code)
+                        if cd:
+                            if cd['count'] >= self._sell_max_attempts:
+                                logger.warning(f"⚠️ 매도 스킵 (10회 초과): {stock_name}({sell_code})")
+                                continue
+                            elapsed = now_ts - cd['last_time']
+                            if elapsed < self._sell_cooldown_secs:
+                                remaining = int(self._sell_cooldown_secs - elapsed)
+                                logger.debug(f"매도 쿨다운 중 ({sell_code}) - {remaining}초 후 재시도 가능 [{cd['count']}회]")
+                                continue
+
+                        # sell_signals_detail에서 실제 exit reason 조회
+                        exit_reason = next(
+                            (s['reason'] for s in self.sell_signals_detail if s['code'] == sell_code),
+                            None
+                        )
+                        if exit_reason:
+                            trade_type = exit_reason
+                        elif sell_rate < 0:
                             trade_type = "손절매도"
                         else:
-                            logger.info(f"💰 익절 매도: {stock_name}({sell_code}) {sell_rate:.2f}% - {sell_num}주")
                             trade_type = "익절매도"
+
+                        if sell_rate < 0:
+                            logger.info(f"💔 손절 매도: {stock_name}({sell_code}) {sell_rate:.2f}% [{trade_type}] - {sell_num}주")
+                        else:
+                            logger.info(f"💰 익절 매도: {stock_name}({sell_code}) {sell_rate:.2f}% [{trade_type}] - {sell_num}주")
 
                         # 거래 내역 기록
                         self.trade_history.append({
@@ -520,6 +562,12 @@ class TraderAdvanced(QMainWindow):
                             "03",  # 시장가
                             ""
                         )
+
+                        # 쿨다운 기록 갱신
+                        if sell_code not in self._sell_cooldown:
+                            self._sell_cooldown[sell_code] = {'count': 0, 'last_time': 0}
+                        self._sell_cooldown[sell_code]['count'] += 1
+                        self._sell_cooldown[sell_code]['last_time'] = now_ts
 
                 except Exception as e:
                     logger.error(f"매도 실행 오류 ({sell_code}): {e}")
@@ -614,7 +662,7 @@ class TraderAdvanced(QMainWindow):
                                 if result:
                                     highest_price = result[0]
                                     # 트레일링 스톱 활성화 체크 (수익 5% 이상)
-                                    if profit_rate >= 5.0:
+                                    if profit_rate >= 3.0:  # 추세장 +3% / 횡보장 +5% 중 낮은 기준으로 표시
                                         trailing_active_count += 1
                             except Exception as e:
                                 logger.debug(f"highest_price 조회 오류: {e}")
@@ -667,14 +715,13 @@ class TraderAdvanced(QMainWindow):
                             'volume_ratio': float(row.get('volume_ratio', 0)) if 'volume_ratio' in row else 0
                         })
 
-            # 매도 시그널
-            # sell_list 구조: [code, code_name, rate, present_price, valuation_profit]
+            # 매도 시그널: sell_signals_detail(reason/priority 포함)이 있으면 우선 사용
             sell_signals = []
-            if hasattr(self, 'sell_list') and self.sell_list:
+            if hasattr(self, 'sell_signals_detail') and self.sell_signals_detail:
+                sell_signals = list(self.sell_signals_detail)
+            elif hasattr(self, 'sell_list') and self.sell_list:
                 for sell in self.sell_list:
-                    # 수익률 형식 변환 (모의투자는 직접 %, 실전은 100 기준)
                     profit_rate = float(sell[2]) if self.open_api.mod_gubun == 1 else float(sell[2]) - 100
-
                     sell_signals.append({
                         'code': sell[0],
                         'name': sell[1],
@@ -955,8 +1002,15 @@ def main():
             print("종료하려면 아무 키나 누르세요...")
             input()
 
-        # 60초 정상 완료 시 종료 (batch에서 cmd 종료 처리)
+        # 정상 종료 플래그 파일 생성 (batch가 크래시와 구분하는 데 사용)
         if not user_interrupted:
+            import pathlib
+            flag = pathlib.Path(__file__).parent / 'batch' / 'trader_normal_exit.flag'
+            try:
+                flag.touch()
+                logger.info(f"정상 종료 플래그 생성: {flag}")
+            except Exception:
+                pass
             sys.exit(0)
 
     except Exception as e:

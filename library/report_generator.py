@@ -318,7 +318,7 @@ def generate_trader_report(trader, trade_history=None):
                         f.write("  " + "-" * 95 + "\n")
 
                         for item in positions:
-                            code = item[6] if len(item) > 6 else ''
+                            code = item[7] if len(item) > 7 else ''  # index 7 = 종목코드
                             name = item[0] if len(item) > 0 else ''
                             quantity = int(item[1]) if len(item) > 1 else 0
                             buy_price = int(item[2]) if len(item) > 2 else 0
@@ -341,15 +341,18 @@ def generate_trader_report(trader, trade_history=None):
             f.write("-" * 100 + "\n")
 
             if trade_history and len(trade_history) > 0:
-                f.write(f"  총 {len(trade_history)}건의 거래\n\n")
-                f.write(f"  {'시간':<12} {'구분':<6} {'종목코드':<10} {'종목명':<20} {'가격':>12} {'수량':>10} {'전략':>15}\n")
-                f.write("  " + "-" * 95 + "\n")
+                buys  = [t for t in trade_history if t.get('type') == '매수']
+                sells = [t for t in trade_history if t.get('type') == '매도']
+                f.write(f"  총 {len(trade_history)}건의 거래 (매수 {len(buys)}건 / 매도 {len(sells)}건)\n\n")
+                f.write(f"  {'시간':<10} {'구분':<6} {'종목코드':<10} {'종목명':<20} {'가격':>12} {'수량':>8} {'수익률':>8} {'사유'}\n")
+                f.write("  " + "-" * 100 + "\n")
 
                 for trade in trade_history:
-                    f.write(f"  {trade.get('time', ''):<12} {trade.get('type', ''):<6} "
+                    rate_str = f"{trade.get('profit_rate', 0):>+7.2f}%" if trade.get('type') == '매도' else "       "
+                    f.write(f"  {trade.get('time', ''):<10} {trade.get('type', ''):<6} "
                            f"{trade.get('code', ''):<10} {trade.get('name', ''):<20} "
-                           f"{trade.get('price', 0):>12,}원 {trade.get('quantity', 0):>10,}주 "
-                           f"{trade.get('strategy', 'N/A')[:15]:>15}\n")
+                           f"{trade.get('price', 0):>12,}원 {trade.get('quantity', 0):>8,}주 "
+                           f"{rate_str}  {trade.get('strategy', 'N/A')}\n")
             else:
                 f.write("  오늘 거래 내역이 없습니다.\n")
             f.write("\n")
