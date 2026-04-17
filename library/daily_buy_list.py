@@ -43,7 +43,18 @@ class daily_buy_list():
         logger.debug("date_rows_setting!!")
         # 날짜 지정
         sql = "select date from `gs글로벌` where date >= '%s' group by date"
-        self.date_rows = self.engine_daily_craw.execute(sql % self.start_date).fetchall()
+        self.date_rows = list(self.engine_daily_craw.execute(sql % self.start_date).fetchall())
+
+        # 장중·장후(09:00 이후) 실행 시 gs글로벌이 OHLCV 수집 대상에서 제외됐어도
+        # 오늘 날짜 테이블(daily_buy_list.YYYYMMDD)이 반드시 생성되도록 today를 강제 삽입
+        now = datetime.datetime.now()
+        market_open = now.hour >= 9  # 09:00 이후: 장중 + 장후
+        today_str = now.strftime("%Y%m%d")
+        if market_open:
+            existing_dates = [str(r[0]) for r in self.date_rows]
+            if today_str not in existing_dates:
+                self.date_rows.append((today_str,))
+                logger.debug(f"date_rows_setting: 장중/장후 실행 — today({today_str}) 강제 추가 (gs글로벌 수집 누락 보완)")
 
     def is_table_exist_daily_buy_list(self, date):
         sql = "select 1 from information_schema.tables where table_schema ='daily_buy_list' and table_name = '%s'"

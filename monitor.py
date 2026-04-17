@@ -298,14 +298,17 @@ def get_portfolio_status(db_name: str):
                           f"{int(row['purchase_price']):>8,}원 × {amount:>4}주 = {total:>12,}원  "
                           f"({row['trade_date'][8:10]}:{row['trade_date'][10:12]})")
                 else:
-                    rate   = float(row['sell_rate'])
-                    profit = int((row['sell_price'] - row['purchase_price']) * row['holding_amount'])
+                    buy_p  = int(row['purchase_price'])
+                    sell_p = int(row['sell_price'])
+                    # sell_rate는 당일 등락률 — 실제 매수 대비 수익률로 직접 계산
+                    rate   = (sell_p / buy_p - 1) * 100 if buy_p > 0 else 0.0
+                    profit = int((sell_p - buy_p) * row['holding_amount'])
                     sign   = '+' if rate >= 0 else ''
                     emoji  = '🔴' if rate >= 0 else '🔵'
                     reason = sell_reason_map.get(str(row['code']), '')
                     reason_str = f"  [{reason}]" if reason else ''
                     print(f"  {emoji} 매도  {row['code']} ({row['code_name']:<12})  "
-                          f"{int(row['sell_price']):>8,}원  "
+                          f"{sell_p:>8,}원  "
                           f"수익률 {sign}{rate:.2f}%  실현손익 {sign}{profit:,}원  "
                           f"({row['trade_date'][8:10]}:{row['trade_date'][10:12]}){reason_str}")
 

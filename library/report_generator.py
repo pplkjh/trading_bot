@@ -333,6 +333,19 @@ def generate_trader_report(trader, trade_history=None):
             held_cols = [d[0] for d in cur.description]
             held_records = [dict(zip(held_cols, r)) for r in cur.fetchall()]
 
+            # 전체 기간 누적 실현손익 (봇 시작 이후 모든 매도 합산)
+            cur.execute("""
+                SELECT purchase_price, sell_price, holding_amount
+                FROM all_item_db
+                WHERE sell_date != '0' AND simul_num = 3 AND chegyul_check = '0'
+            """)
+            _all_sold = cur.fetchall()
+            all_time_realized = sum(
+                (int(r[1]) - int(r[0])) * int(r[2])
+                for r in _all_sold
+                if int(r[0]) > 0
+            )
+
         con.close()
 
         # ─── 헬퍼 ───────────────────────────────────────────
@@ -379,8 +392,10 @@ def generate_trader_report(trader, trade_history=None):
             th_reason = exit_reason_map.get(record['code'], '').strip()
             if th_reason:
                 return th_reason
-            # 3순위: 수익률로 추정
-            rate = float(record['sell_rate'])
+            # 3순위: 수익률로 추정 (sell_rate는 당일 등락률 — 실제 매수 대비 수익률로 계산)
+            buy_p = int(record.get('purchase_price') or 0)
+            sell_p = int(record.get('sell_price') or 0)
+            rate = (sell_p / buy_p - 1) * 100 if buy_p > 0 else 0.0
             if rate <= -4.5:
                 return '손절 (고정 -5%)'
             if rate <= -2.5:
@@ -402,17 +417,32 @@ def generate_trader_report(trader, trade_history=None):
         except Exception:
             pass
 
+        # 보유 종목 평가 사전 계산 (API가 0 반환할 때 보정용)
+        portfolio_eval_price = 0
+        portfolio_unrealized = 0
+        for r in held_records:
+            buy_p = int(r['purchase_price'])
+            shares = int(r['holding_amount'])
+            curr = live_price_map.get(r['code'], int(r.get('present_price') or buy_p))
+            portfolio_eval_price += curr * shares
+            portfolio_unrealized += (curr - buy_p) * shares
+
         # ─── 매도 성과 집계 ──────────────────────────────────
+        def actual_rate(r):
+            """sell_rate(당일 등락률) 대신 매수가 대비 실제 수익률 계산"""
+            buy_p = int(r['purchase_price'])
+            return (int(r['sell_price']) / buy_p - 1) * 100 if buy_p > 0 else 0.0
+
         total_sold = len(sold_records)
-        wins = sum(1 for r in sold_records if float(r['sell_rate']) > 0)
+        wins = sum(1 for r in sold_records if actual_rate(r) > 0)
         losses = total_sold - wins
         win_rate = wins / total_sold * 100 if total_sold > 0 else 0.0
         avg_profit = (
-            sum(float(r['sell_rate']) for r in sold_records if float(r['sell_rate']) > 0) / wins
+            sum(actual_rate(r) for r in sold_records if actual_rate(r) > 0) / wins
             if wins > 0 else 0.0
         )
         avg_loss = (
-            sum(float(r['sell_rate']) for r in sold_records if float(r['sell_rate']) <= 0) / losses
+            sum(actual_rate(r) for r in sold_records if actual_rate(r) <= 0) / losses
             if losses > 0 else 0.0
         )
         total_realized = sum(calc_realized(r) for r in sold_records)
@@ -454,12 +484,36 @@ def generate_trader_report(trader, trade_history=None):
                 t_pnl = int(trader.open_api.total_evaluation_profit_loss_price) if hasattr(trader.open_api, 'total_evaluation_profit_loss_price') else 0
                 t_rate = float(trader.open_api.total_earning_rate) if hasattr(trader.open_api, 'total_earning_rate') else 0.0
 
-                f.write(f"  예수금:       {deposit:>15,}원\n")
-                f.write(f"  D+2 예수금:  {d2:>15,}원\n")
-                f.write(f"  총 매입금액:  {t_buy:>15,}원\n")
-                f.write(f"  총 평가금액:  {t_eval:>15,}원\n")
-                f.write(f"  총 평가손익:  {t_pnl:>+15,}원  ({t_rate:+.2f}%)\n")
-                f.write(f"  총 자산:      {deposit + t_eval:>15,}원\n")
+                # API가 0을 반환할 때 포트폴리오 직접 계산값으로 보정
+                # (장 종료 후 실시간 가격 업데이트 중단으로 Kiwoom API 값이 0이 되는 경우 발생)
+                if t_eval == 0 and portfolio_eval_price > 0:
+                    t_eval = portfolio_eval_price
+                if t_pnl == 0 and portfolio_unrealized != 0:
+                    t_pnl = portfolio_unrealized
+                if t_rate == 0.0 and t_buy > 0 and t_pnl != 0:
+                    t_rate = t_pnl / t_buy * 100
+
+                # 예수금이 0이면 D+2 예수금을 현금으로 사용 (T+2 정산 전 상태)
+                cash = deposit if deposit > 0 else d2
+                total_assets = cash + t_eval
+
+                f.write(f"  예수금:                   {deposit:>15,}원")
+                if deposit == 0 and d2 > 0:
+                    f.write("  (D+2 미정산 — 아래 D+2 기준 사용)")
+                f.write("\n")
+                f.write(f"  D+2 예수금 (결제 기준):   {d2:>15,}원\n")
+                f.write(f"  총 매입금액 (현 보유):     {t_buy:>15,}원\n")
+                f.write(f"  총 평가금액:              {t_eval:>15,}원\n")
+                f.write(f"  미실현 손익:              {t_pnl:>+15,}원  ({t_rate:+.2f}%)\n")
+                f.write(f"  총 자산 (현금+평가):      {total_assets:>15,}원\n")
+                f.write("\n")
+
+                # ─ 손익 요약 ─
+                f.write(f"  [ 손익 요약 ]\n")
+                f.write(f"  오늘 실현손익:            {total_realized:>+15,}원\n")
+                f.write(f"  현재 미실현손익:          {t_pnl:>+15,}원\n")
+                f.write(f"  오늘 예상 손익 합계:      {total_realized + t_pnl:>+15,}원\n")
+                f.write(f"  봇 전체 누적 실현손익:    {all_time_realized:>+15,}원\n")
             except Exception as e:
                 f.write(f"  계좌 정보 로드 실패: {e}\n")
             f.write("\n")
@@ -475,7 +529,8 @@ def generate_trader_report(trader, trade_history=None):
                     sell_str = sd.strftime('%Y-%m-%d %H:%M') if sd else r['sell_date']
                     days = holding_days(r['buy_date'], r['sell_date'])
                     realized = calc_realized(r)
-                    rate = float(r['sell_rate'])
+                    # sell_rate는 당일 등락률 — 실제 매수 대비 수익률로 직접 계산
+                    rate = (int(r['sell_price']) / int(r['purchase_price']) - 1) * 100 if int(r['purchase_price']) > 0 else 0.0
                     reason = infer_reason(r)
 
                     f.write(f"  [{r['code']}] {r['code_name']}\n")

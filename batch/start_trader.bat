@@ -1,6 +1,7 @@
 @echo off
 REM ===================================================
 REM Auto Trader Startup Script
+
 REM exit 0 = normal exit, no restart
 REM exit non-0 = crash, restart if within market hours
 REM ===================================================
@@ -31,7 +32,7 @@ if "%ERRORLEVEL%"=="0" (
 
 set TRADER_EXIT=0
 
-REM 1회 실행만 담당 - 재시작 루프는 collector_auto_restart.bat 에서 관리
+REM Single execution only - restart loop managed by collector_auto_restart.bat
 echo [%date% %time%] [BAT] trader start >> automation_log.txt
 
 python trader_advanced.py

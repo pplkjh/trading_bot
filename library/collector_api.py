@@ -1395,6 +1395,13 @@ class collector_api():
         name_list = []
         for KIND_info in origin_df.itertuples():
             kiwoom_name = self.open_api.dynamicCall("GetMasterCodeName(QString)", KIND_info.code).strip()
+            # Kiwoom COM API bug: returns CP949 bytes "widened" to Latin-1 code points
+            # e.g. '케이뱅크' CP949 bytes → returned as 'ÄÉÀÌ¹ðÅ©'
+            # Fix: encode back to bytes as Latin-1, then decode as CP949
+            try:
+                kiwoom_name = kiwoom_name.encode('latin-1').decode('cp949')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass  # Already correct Unicode (shouldn't happen, but safe fallback)
             name_list.append(kiwoom_name)
             if not kiwoom_name:
                 if type in checking_stocks:

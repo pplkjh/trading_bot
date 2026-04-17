@@ -5,10 +5,15 @@ import datetime
 
 
 def get_latest_complete_date(date_rows=None):
-    """장마감 여부에 따라 '완전한 데이터'의 최신 날짜를 반환한다.
+    """기준 날짜를 반환한다 — 어느 DB에 저장/조회할지 결정하는 핵심 함수.
 
-    - 15:40 이후 : 오늘 종가 확정 → today 반환
-    - 15:40 이전 : 오늘 데이터 미완성 → 가장 최근 이전 영업일 반환
+    - 09:00 이전 (장전) : 오늘 데이터 미완성 → 직전 영업일 반환
+    - 09:00 이후 (장중·장후) : 오늘 live/종가 사용 가능 → today 반환
+
+    의도:
+      - 08:10 실행 → previous business day (전날 종가 기준)
+      - 12:30 실행 → today (장중 live 가격 기준)
+      - 17:10 실행 → today (오늘 종가 기준)
 
     Parameters
     ----------
@@ -21,22 +26,22 @@ def get_latest_complete_date(date_rows=None):
     str : 'YYYYMMDD' 형식
     """
     now = datetime.datetime.now()
-    market_closed = (now.hour > 15) or (now.hour == 15 and now.minute >= 40)
+    market_open = now.hour >= 9  # 09:00 이후: 장중(live) + 장후(final) 모두 today 반환
     today = now.strftime("%Y%m%d")
 
     if date_rows is not None:
         dates = [str(r[0]) for r in date_rows]
         if not dates:
             return today
-        if market_closed:
+        if market_open:
             return today if today in dates else dates[-1]
-        else:
+        else:  # 장전 (hour < 9)
             prev_dates = [d for d in dates if d < today]
             return prev_dates[-1] if prev_dates else dates[-1]
     else:
-        if market_closed:
+        if market_open:
             return today
-        else:
+        else:  # 장전 (hour < 9)
             dt = now - datetime.timedelta(days=1)
             while dt.weekday() >= 5:  # 토(5), 일(6) 건너뜀
                 dt -= datetime.timedelta(days=1)

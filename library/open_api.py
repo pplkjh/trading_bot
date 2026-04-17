@@ -1162,25 +1162,28 @@ class open_api(QAxWidget):
         """
         # logger.debug("get_advanced_buy_list 함수 실행")
 
-        from library.utils import get_latest_complete_date
         today = datetime.datetime.now().strftime("%Y%m%d")
-        target_date = get_latest_complete_date()  # 장마감 여부에 따라 오늘 or 전 영업일
 
-        # collector 실행 여부: daily_buy_list.{target_date} 테이블 존재 여부로 판단
-        # (realtime_daily_buy_list.date 는 키움 데이터 기준 전일 날짜라 today와 다름 — 사용 불가)
+        # 가장 최근에 생성된 daily_buy_list 날짜 테이블 찾기
+        # (시간 경계에 무관하게 항상 실제 존재하는 최신 테이블을 사용)
         try:
-            collector_ran = self.sf.engine_daily_buy_list.execute(
-                f"SELECT COUNT(*) FROM information_schema.TABLES "
-                f"WHERE TABLE_SCHEMA='daily_buy_list' AND TABLE_NAME='{target_date}'"
-            ).fetchone()[0]
+            recent = self.sf.engine_daily_buy_list.execute(
+                "SELECT TABLE_NAME FROM information_schema.TABLES "
+                "WHERE TABLE_SCHEMA='daily_buy_list' "
+                "AND TABLE_NAME REGEXP '^[0-9]{8}$' "
+                "ORDER BY TABLE_NAME DESC LIMIT 1"
+            ).fetchone()
+            target_date = recent[0] if recent else None
         except Exception as e:
-            logger.error(f"daily_buy_list.{target_date} 테이블 확인 중 오류: {e}")
-            collector_ran = 0
+            logger.error(f"daily_buy_list 테이블 조회 실패: {e}")
+            target_date = None
 
-        if not collector_ran:
-            logger.error(f"❌ collector가 실행되지 않았습니다 (daily_buy_list.{target_date} 테이블 없음)")
+        if not target_date:
+            logger.error("❌ collector가 실행되지 않았습니다 (daily_buy_list 날짜 테이블 없음)")
             logger.error("💡 collector_v3.py를 먼저 실행하세요")
             return
+
+        logger.info(f"[get_advanced_buy_list] 기준 날짜: {target_date}")
 
         # collector 오늘 실행 확인됨 → realtime_daily_buy_list 로드
         if self.sf.is_simul_table_exist(self.db_name, "realtime_daily_buy_list"):

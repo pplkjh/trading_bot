@@ -143,7 +143,6 @@ class TraderAdvanced(QMainWindow):
 
         # 장 마감 후 대기 시간 (분)
         self.exit_wait_minutes = 30
-        """장 마감(15:30) 후 이 시간만큼 대기한 뒤 종료"""
 
         # 매수 후보 없을 시 자동 종료 여부
         self.exit_on_no_candidates = True
@@ -450,6 +449,18 @@ class TraderAdvanced(QMainWindow):
                         # 실전 전용 기본 매도 로직 사용 (simulator 코드 사용 안함)
                         self.sell_list = self.open_api.get_basic_sell_list()
                         logger.info(f"기본 청산: {len(self.sell_list)}개 매도 시그널")
+                else:
+                    # advanced 신호가 있어도 기본 -3% 손절은 모든 종목에 적용
+                    # (advanced 리스트에 없는 종목만 추가하여 중복 방지)
+                    advanced_codes = {item[0] for item in self.sell_list}
+                    basic_list = self.open_api.get_basic_sell_list()
+                    added = 0
+                    for item in basic_list:
+                        if item[0] not in advanced_codes:
+                            self.sell_list.append(item)
+                            added += 1
+                    if added:
+                        logger.info(f"기본 손절 추가 (advanced 미포함 종목): {added}개")
 
             else:
                 # 기존 방식 (고급 전략 사용 안함)
@@ -611,9 +622,12 @@ class TraderAdvanced(QMainWindow):
         self.current_time = QTime.currentTime()
 
         if self.current_time < self.buy_end_time:
+            self._buy_end_logged = False  # 매수 가능 시간엔 플래그 초기화
             return True
         else:
-            logger.debug(f"매수 마감 시간 초과 (현재: {self.current_time.toString()}, 마감: {self.buy_end_time.toString()})")
+            if not getattr(self, '_buy_end_logged', False):
+                logger.debug(f"매수 마감 시간 초과 (현재: {self.current_time.toString()}, 마감: {self.buy_end_time.toString()})")
+                self._buy_end_logged = True
             return False
 
     def update_dashboard_display(self):
@@ -656,6 +670,33 @@ class TraderAdvanced(QMainWindow):
             # 보유 종목
             positions = []
             trailing_active_count = 0  # 트레일링 스톱 활성화 종목 수
+
+            # 보유 종목 코드 목록으로 atr14/adx 배치 조회 (트레일링 스톱 가격 계산용)
+            _indicator_map = {}
+            if hasattr(self.open_api, 'opw00018_output') and 'multi' in self.open_api.opw00018_output:
+                try:
+                    import pymysql
+                    _codes = [str(item[7]) for item in self.open_api.opw00018_output['multi'] if len(item) > 7 and item[7]]
+                    if _codes:
+                        _con = pymysql.connect(
+                            user=cf.db_id, passwd=cf.db_passwd, host=cf.db_ip,
+                            db='daily_buy_list', charset='utf8', port=int(cf.db_port)
+                        )
+                        _cur = _con.cursor()
+                        _cur.execute(
+                            "SELECT TABLE_NAME FROM information_schema.tables "
+                            "WHERE table_schema='daily_buy_list' AND table_name REGEXP '^[0-9]{8}$' "
+                            "ORDER BY TABLE_NAME DESC LIMIT 1"
+                        )
+                        _tbl = _cur.fetchone()
+                        if _tbl:
+                            _ph = ','.join(['%s'] * len(_codes))
+                            _cur.execute(f"SELECT code, adx, atr14 FROM `{_tbl[0]}` WHERE code IN ({_ph})", _codes)
+                            for _r in _cur.fetchall():
+                                _indicator_map[str(_r[0]).zfill(6)] = {'adx': float(_r[1] or 0), 'atr14': float(_r[2] or 0)}
+                        _con.close()
+                except Exception as _e:
+                    logger.debug(f"indicator 배치 조회 오류: {_e}")
 
             if hasattr(self.open_api, 'opw00018_output') and 'multi' in self.open_api.opw00018_output:
                 for item in self.open_api.opw00018_output['multi']:
@@ -705,6 +746,15 @@ class TraderAdvanced(QMainWindow):
                         # highest_price 추가 (있으면)
                         if highest_price:
                             position_data['highest_price'] = highest_price
+                            # 트레일링 스톱 가격 계산
+                            ind = _indicator_map.get(code, {})
+                            adx = ind.get('adx', 0)
+                            atr14 = ind.get('atr14', 0)
+                            if atr14 > 0:
+                                trail_mult = 2.5 if adx >= 25 else (2.0 if adx >= 20 else 1.5)
+                                trail_act  = 3.0 if adx >= 25 else (4.0 if adx >= 20 else 5.0)
+                                position_data['trailing_stop_price'] = int(highest_price - atr14 * trail_mult)
+                                position_data['trail_active'] = profit_rate >= trail_act
 
                         positions.append(position_data)
 
@@ -904,9 +954,9 @@ class TraderAdvanced(QMainWindow):
                             try:
                                 today_str = datetime.now().strftime('%Y%m%d')
                                 rows = self.open_api.engine_JB.execute(
-                                    f"SELECT sell_rate FROM all_item_db WHERE LEFT(sell_date, 8) = '{today_str}'"
+                                    f"SELECT purchase_price, sell_price FROM all_item_db WHERE LEFT(sell_date, 8) = '{today_str}' AND simul_num=3"
                                 ).fetchall()
-                                sell_rates = [float(r[0]) for r in rows]
+                                sell_rates = [(float(r[1]) / float(r[0]) - 1) * 100 for r in rows if float(r[0]) > 0]
                                 wins_db = [r for r in sell_rates if r > 0]
                                 losses_db = [r for r in sell_rates if r <= 0]
                                 avg_profit = sum(wins_db) / len(wins_db) if wins_db else 0
@@ -926,7 +976,6 @@ class TraderAdvanced(QMainWindow):
 
                         # 종료 시간까지 대기 (대시보드는 계속 업데이트)
                         remaining_seconds = self.current_time.secsTo(exit_time)
-                        logger.debug(f"⏰ 장 마감 후 대기 중 (종료까지 {remaining_seconds//60}분 {remaining_seconds%60}초)")
 
                         # 대시보드 업데이트
                         current_time = time.time()

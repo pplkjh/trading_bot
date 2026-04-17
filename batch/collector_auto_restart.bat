@@ -2,6 +2,7 @@
 REM ========================================
 REM Collector Auto-Restart Script (3-Phase)
 REM ========================================
+
 REM Phase 1: OHLCV + technical indicators  (~3500 API calls)
 REM Phase 2: Fundamental data              (~2769 API calls)
 REM Phase 3: Scoring (no API calls)
@@ -186,10 +187,10 @@ echo [%date% %time%] [BAT] waiting 15s for COM cleanup before trader >> automati
 timeout /t 15 /nobreak >NUL
 
 REM ========================================
-REM Trader 실행 + 재시작 루프 (collector_auto_restart 에서 관리)
-REM start_trader.bat 은 1회 실행만 담당
-REM 플래그 없이 종료 = 크래시 → 최대 5회 재시작
-REM 플래그 있으면 정상 종료 → 루프 탈출
+REM Trader start + restart loop
+REM start_trader.bat handles single execution only
+REM No flag on exit = crash -> restart up to 5 times
+REM Flag present = normal exit -> break loop
 REM ========================================
 set TRADER_RETRY=0
 set TRADER_MAX=5

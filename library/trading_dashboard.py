@@ -179,24 +179,28 @@ class TradingDashboard:
 
             if has_highest_price:
                 # 고급 정보 포함 헤더
-                print(f"  {'종목코드':<8} {'종목명':<12} {'보유수량':>8} {'매입가':>10} {'현재가':>10} {'최고가':>10} {'수익률':>8} {'상태':>12}")
-                print("  " + "-" * 100)
+                print(f"  {'종목코드':<8} {'종목명':<12} {'보유수량':>8} {'매입가':>10} {'현재가':>10} {'최고가':>10} {'스톱가':>10} {'수익률':>8} {'상태':>12}")
+                print("  " + "-" * 110)
                 for pos in positions[:10]:  # 최대 10개만 표시
                     profit_rate = pos.get('profit_rate', 0)
                     profit_color = "[+]" if profit_rate > 0 else "[-]" if profit_rate < 0 else "[=]"
 
-                    # 트레일링 스톱 활성화 체크 (추세장 +3% / 횡보장 +5% — 임시 3% 기준)
-                    trailing_status = "🟢 트레일링" if profit_rate >= 3.0 else "⚪ 대기"
+                    # 트레일링 스톱 활성화 여부
+                    trail_active = pos.get('trail_active', profit_rate >= 3.0)
+                    trailing_status = "🟢 트레일링" if trail_active else "⚪ 대기"
 
                     # 손절 유예 표시
                     if pos.get('losscut_delay', False):
                         trailing_status = "⏰ 손절유예"
 
                     highest_price = pos.get('highest_price', pos.get('current_price', 0))
+                    stop_price = pos.get('trailing_stop_price')
+                    stop_str = f"{stop_price:>10,}원" if stop_price else f"{'---':>10}"
 
                     print(f"  {pos.get('code', ''):<8} {pos.get('name', ''):<12} "
                           f"{pos.get('quantity', 0):>8} {pos.get('buy_price', 0):>10,}원 "
                           f"{pos.get('current_price', 0):>10,}원 {highest_price:>10,}원 "
+                          f"{stop_str} "
                           f"{profit_color} {profit_rate:>6.2f}% {trailing_status:>12}")
             else:
                 # 기본 헤더

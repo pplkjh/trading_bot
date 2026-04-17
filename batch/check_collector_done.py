@@ -70,40 +70,54 @@ if phase == 1:
 
         update_time = tbl_row[0] if tbl_row else None  # datetime or None
 
-        # 테이블 없거나 UPDATE_TIME 없으면 무조건 재수집
-        if not tbl_row or not update_time:
-            print(f"[FAIL] Phase 1: daily_buy_list.{ref_date} 없음 or UPDATE_TIME null")
-            sys.exit(1)
-
         today_8am  = now.replace(hour=8,  minute=0, second=0, microsecond=0)
-        today_4pm  = now.replace(hour=16, minute=0, second=0, microsecond=0)
-        elapsed_min = (now - update_time).total_seconds() / 60
 
-        if 8 <= hour < 9:
-            # 장전: 오늘 08:00 이후에 수집 완료됐으면 OK
-            if update_time >= today_8am:
-                print(f"[OK] Phase 1: morning run done (updated {update_time.strftime('%H:%M')})")
-                sys.exit(0)
-            else:
-                print(f"[FAIL] Phase 1: morning run needed (last update {update_time.strftime('%Y-%m-%d %H:%M')})")
+        if 8 <= hour < 16:
+            # 장전/장중: 특정 ref_date 테이블 기준 — 없거나 UPDATE_TIME 없으면 재수집
+            if not tbl_row or not update_time:
+                print(f"[FAIL] Phase 1: daily_buy_list.{ref_date} 없음 or UPDATE_TIME null")
                 sys.exit(1)
-
-        elif 9 <= hour < 16:
-            # 장중: 1시간 이내 수집 완료면 스킵, 초과면 재수집
-            if elapsed_min < 60:
-                print(f"[OK] Phase 1: market hours, collected {elapsed_min:.0f}min ago (< 60min)")
-                sys.exit(0)
-            else:
-                print(f"[FAIL] Phase 1: market hours, {elapsed_min:.0f}min ago (> 60min), re-collect")
-                sys.exit(1)
+            elapsed_min = (now - update_time).total_seconds() / 60
+            if 8 <= hour < 9:
+                if update_time >= today_8am:
+                    print(f"[OK] Phase 1: morning run done (updated {update_time.strftime('%H:%M')})")
+                    sys.exit(0)
+                else:
+                    print(f"[FAIL] Phase 1: morning run needed (last update {update_time.strftime('%Y-%m-%d %H:%M')})")
+                    sys.exit(1)
+            else:  # 9 <= hour < 16
+                if elapsed_min < 60:
+                    print(f"[OK] Phase 1: market hours, collected {elapsed_min:.0f}min ago (< 60min)")
+                    sys.exit(0)
+                else:
+                    print(f"[FAIL] Phase 1: market hours, {elapsed_min:.0f}min ago (> 60min), re-collect")
+                    sys.exit(1)
 
         else:  # hour >= 16
-            # 장후: 오늘 16:00 이후에 최종 수집 완료됐으면 OK
-            if update_time >= today_4pm:
-                print(f"[OK] Phase 1: post-market final done (updated {update_time.strftime('%H:%M')})")
-                sys.exit(0)
-            else:
-                print(f"[FAIL] Phase 1: post-market final needed (last {update_time.strftime('%Y-%m-%d %H:%M')})")
+            # 장후: setting_data.daily_buy_list 타임스탬프 기반 확인
+            # 한국 공휴일인 경우 날짜 테이블이 어제(전 영업일) 이름이라 ref_date 테이블이 없을 수 있음
+            # collector가 daily_buy_list_check() 완료 시 현재 시각(YYYYMMDDHHMM)으로 업데이트하므로
+            # 이 값이 오늘 날짜(YYYYMMDD)로 시작하면 Phase 1 완료 확인
+            try:
+                con_jb = pymysql.connect(
+                    user=db_id, passwd=db_passwd, host=db_ip,
+                    port=int(db_port), db=imi1_db_name, charset='utf8'
+                )
+                cursor_jb = con_jb.cursor()
+                cursor_jb.execute("SELECT daily_buy_list FROM setting_data LIMIT 1")
+                row_jb = cursor_jb.fetchone()
+                con_jb.close()
+                val = str(row_jb[0]) if (row_jb and row_jb[0]) else ''
+                # 오늘 16:00 이후에 수집 완료된 경우만 OK
+                # (오전 모닝 런이 오늘 날짜로 찍혀 있어도, 장후 수집은 16시 이후 타임스탬프여야 함)
+                if val[:8] == today and val[8:12] >= '1600':
+                    print(f"[OK] Phase 1: post-market final done (daily_buy_list={val})")
+                    sys.exit(0)
+                else:
+                    print(f"[FAIL] Phase 1: post-market final needed (daily_buy_list={val or 'None'}, today={today})")
+                    sys.exit(1)
+            except Exception as inner_e:
+                print(f"[ERROR] Phase 1 post-market check failed: {inner_e}")
                 sys.exit(1)
 
     except Exception as e:
