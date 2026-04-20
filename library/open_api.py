@@ -1519,14 +1519,22 @@ class open_api(QAxWidget):
             if not self._data['주문번호']: # 과거에 거래한 경우 opt10076 조회 시 주문번호 등의 데이터가 존재하지 않음.
                 logger.debug(f"{r.code} 체결 완료 (과거 거래 한 경우)")
                 self.engine_JB.execute(update_sql)
+                if hasattr(self, '_miche_logged'):
+                    self._miche_logged.discard(r.code)
 
             elif self._data['미체결수량'] == 0:
                 logger.debug(f"{r.code} 체결 완료 (오늘 거래 한 경우)")
                 # 제일 최근 종목하나만 체결정보 업데이트하는거다
                 self.engine_JB.execute(update_sql)
+                if hasattr(self, '_miche_logged'):
+                    self._miche_logged.discard(r.code)
 
             else:
-                logger.debug(f"미체결 대기 중: {self._data['미체결수량']}주")
+                if not hasattr(self, '_miche_logged'):
+                    self._miche_logged = set()
+                if r.code not in self._miche_logged:
+                    logger.debug(f"미체결 대기 중 ({r.code}): {self._data['미체결수량']}주")
+                    self._miche_logged.add(r.code)
 
     # 하나의 종목이 체결이 됐는지 확인
     # 그래야 재매수든, 초기매수든 한번 샀는데 미체결량이 남아서 다시 사는건지 확인이 가능하다.

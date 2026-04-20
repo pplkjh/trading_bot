@@ -55,7 +55,8 @@ if %TRADER_EXIT% NEQ 0 (
     echo.
     echo [ERROR] Trader exited abnormally (code=%TRADER_EXIT%)
     echo --- Recent log (last 10 lines) ---
-    powershell -Command "Get-Content 'log\jackbot.log' -Tail 10" 2>NUL
+    chcp 65001 >nul
+    powershell -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-Content 'log\jackbot.log' -Tail 10 -Encoding UTF8" 2>NUL
     echo ----------------------------------
     echo.
     echo Closing in 30 seconds... (Press Ctrl+C to cancel)

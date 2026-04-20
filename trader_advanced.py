@@ -189,6 +189,7 @@ class TraderAdvanced(QMainWindow):
         self._sell_cooldown = {}
         self._sell_cooldown_secs = 180   # 3분
         self._sell_max_attempts = 10
+        self._sell_skip_warned = set()
 
         logger.info("=" * 80)
         logger.info("⚙️  트레이더 설정")
@@ -524,12 +525,14 @@ class TraderAdvanced(QMainWindow):
                         cd = self._sell_cooldown.get(sell_code)
                         if cd:
                             if cd['count'] >= self._sell_max_attempts:
-                                logger.warning(f"⚠️ 매도 스킵 (10회 초과): {stock_name}({sell_code})")
+                                if sell_code not in self._sell_skip_warned:
+                                    logger.warning(f"⚠️ 매도 스킵 (10회 초과): {stock_name}({sell_code})")
+                                    self._sell_skip_warned.add(sell_code)
                                 continue
                             elapsed = now_ts - cd['last_time']
                             if elapsed < self._sell_cooldown_secs:
-                                remaining = int(self._sell_cooldown_secs - elapsed)
-                                logger.debug(f"매도 쿨다운 중 ({sell_code}) - {remaining}초 후 재시도 가능 [{cd['count']}회]")
+                                if elapsed < 6:  # 쿨다운 시작 시점에만 1회 로그
+                                    logger.debug(f"매도 쿨다운 시작 ({sell_code}) - {int(self._sell_cooldown_secs)}초 대기 [{cd['count']}회]")
                                 continue
 
                         # sell_signals_detail에서 실제 exit reason 조회
