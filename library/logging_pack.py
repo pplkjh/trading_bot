@@ -26,10 +26,19 @@ class DeduplicateFilter(logging.Filter):
 # 콜렉터, 시뮬레이터, 봇 모두 logging_pack.py를 import 하고있다.
 # jackbot.log 라는 이름으로 로그파일이 만들어진다.
 
-# log파일 위치와 로그 이름을 설정한다. (촬영 후 아래 수정 하였습니다.)
-file_path = pathlib.Path(__file__).parent.parent.absolute() / 'log' / 'jackbot.log'
+# JACKBOT_LOG_FILE env var가 있으면 backtest 전용 로그 (backtest_report 폴더, INFO 레벨)
+# 없으면 기본 jackbot.log (log 폴더, DEBUG 레벨)
+_log_file_override = os.environ.get('JACKBOT_LOG_FILE')
+if _log_file_override:
+    _log_dir = pathlib.Path(__file__).parent.parent.absolute() / 'backtest_report'
+    os.makedirs(_log_dir, exist_ok=True)
+    file_path = _log_dir / _log_file_override
+    _file_log_level = logging.INFO
+else:
+    file_path = pathlib.Path(__file__).parent.parent.absolute() / 'log' / 'jackbot.log'
+    _file_log_level = logging.DEBUG
 
-os.makedirs(file_path.parents[0], exist_ok=True)  # 로그 폴더가 존재하는지 확인 후 없으면 생성
+os.makedirs(file_path.parents[0], exist_ok=True)
 
 # 로그 파일 더블클릭 -> 연결 프로그램 -> 메모장
 
@@ -52,7 +61,7 @@ stream_handler.setLevel(logging.INFO)  # 콘솔에는 INFO 이상만 출력
 
 # 파일 핸들러 (DEBUG 모두 기록, 중복 억제)
 file_handler = TimedRotatingFileHandler(file_path, when="midnight", encoding='utf-8')
-file_handler.setLevel(logging.DEBUG)  # 파일에는 DEBUG 모두 기록
+file_handler.setLevel(_file_log_level)
 file_handler.addFilter(DeduplicateFilter())
 
 # formatter 생성

@@ -150,7 +150,7 @@ class TradingDashboard:
         print(f"  D+2 예수금: {account.get('d2_deposit', 0):,}원")
         print(f"  총 매입금액: {account.get('total_purchase', 0):,}원")
         print(f"  총 평가금액: {account.get('total_evaluation', 0):,}원")
-        print(f"  총 평가손익: {account.get('total_profit', 0):,}원 ({account.get('total_profit_rate', 0):.2f}%)")
+        print(f"  총 평가손익: {account.get('total_profit', 0):,}원 ({account.get('total_profit_rate', 0):.2f}%)  ← 전체기간 실현+미실현")
         print()
 
     def _render_portfolio_summary(self):
@@ -161,7 +161,7 @@ class TradingDashboard:
         print(f"  보유 종목 수: {portfolio.get('position_count', 0)}개")
         print(f"  포트폴리오 가치: {portfolio.get('total_value', 0):,}원")
         print(f"  현금 비율: {portfolio.get('cash_ratio', 0):.1f}%")
-        print(f"  오늘 수익: {portfolio.get('daily_profit', 0):,}원 ({portfolio.get('daily_profit_rate', 0):.2f}%)")
+        print(f"  오늘 실현수익: {portfolio.get('daily_profit', 0):,}원 (평균 {portfolio.get('daily_profit_rate', 0):.2f}%)  ← 오늘 매도 완료 종목")
 
         # 트레일링 스톱 활성화 종목 수
         if portfolio.get('trailing_active_count') is not None:

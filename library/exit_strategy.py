@@ -455,11 +455,10 @@ class ExitStrategy:
         result['profit_target'] = target_price
 
         if should_take_profit:
-            # 목표가 도달 시 절반 청산
             result['should_exit'] = True
-            result['exit_type'] = 'partial'
-            result['exit_ratio'] = 0.5  # 50% 청산
-            result['reason'] = reason + " (50% 부분 청산)"
+            result['exit_type'] = 'full'
+            result['exit_ratio'] = 1.0
+            result['reason'] = reason
             result['priority'] = 70
             return result
 
@@ -713,27 +712,25 @@ def get_exit_signals(
                     f"max_days={exit_strategy.max_holding_days}"
                 )
 
-            # 1. stock_item_all에서 종목코드로 종목명 조회
-            con = pymysql.connect(
-                user=db_id,
-                passwd=db_passwd,
-                host=db_ip,
-                db='daily_buy_list',
-                charset='utf8',
-                port=int(db_port)
-            )
+            # 1. position dict에 code_name이 있으면 바로 사용, 없으면 stock_item_all 조회
+            code_name = position.get('code_name')
+            if not code_name:
+                con = pymysql.connect(
+                    user=db_id,
+                    passwd=db_passwd,
+                    host=db_ip,
+                    db='daily_buy_list',
+                    charset='utf8',
+                    port=int(db_port)
+                )
+                query_get_name = f"SELECT code_name FROM stock_item_all WHERE code = '{code}' LIMIT 1"
+                code_name_result = pd.read_sql(query_get_name, con)
+                con.close()
 
-            query_get_name = f"""
-            SELECT code_name FROM stock_item_all WHERE code = '{code}' LIMIT 1
-            """
-            code_name_result = pd.read_sql(query_get_name, con)
-            con.close()
-
-            if len(code_name_result) == 0:
-                print(f"포지션 {code} 종목명을 찾을 수 없습니다 (stock_item_all에 없음)")
-                continue
-
-            code_name = code_name_result.iloc[0]['code_name']
+                if len(code_name_result) == 0:
+                    print(f"포지션 {code} 종목명을 찾을 수 없습니다 (stock_item_all에 없음)")
+                    continue
+                code_name = code_name_result.iloc[0]['code_name']
 
             # 2. daily_craw에서 일봉 데이터 로드 (종목명을 테이블명으로 사용)
             con = pymysql.connect(

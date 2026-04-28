@@ -210,6 +210,54 @@ class simulator_func_mysql:
             self.invest_min_limit_rate = 0.97
             self.use_hybrid_v2 = True
 
+        elif self.simul_num == 4:
+            # Strategy A: 돌파 초입 (BreakoutStrategyV3) — jackbot4_imi1
+            self.simul_start_date = "20230102"
+            self.use_min = False
+            self.only_nine_buy = False
+            self.db_to_realtime_daily_buy_list_num = 22
+            self.sell_list_num = 20   # sim=3과 동일 조건으로 매수 전략 비교
+            self.start_invest_price = 10000000
+            self.invest_unit = self._resolve_invest_unit(self.start_invest_price)
+            self.limit_money = 300000
+            self.sell_point = 6
+            self.losscut_point = -3
+            self.max_positions = 999
+            self.invest_limit_rate = 1.02
+            self.invest_min_limit_rate = 0.97
+
+        elif self.simul_num == 5:
+            # Strategy B: 저점 반등 (ReversalStrategyV3) — jackbot4_imi1
+            self.simul_start_date = "20230102"
+            self.use_min = False
+            self.only_nine_buy = False
+            self.db_to_realtime_daily_buy_list_num = 22
+            self.sell_list_num = 20   # sim=3과 동일 조건으로 매수 전략 비교
+            self.start_invest_price = 10000000
+            self.invest_unit = self._resolve_invest_unit(self.start_invest_price)
+            self.limit_money = 300000
+            self.sell_point = 6
+            self.losscut_point = -3
+            self.max_positions = 999
+            self.invest_limit_rate = 1.02
+            self.invest_min_limit_rate = 0.97
+
+        elif self.simul_num == 6:
+            # Strategy A+B 혼합 — jackbot4_imi1
+            self.simul_start_date = "20230102"
+            self.use_min = False
+            self.only_nine_buy = False
+            self.db_to_realtime_daily_buy_list_num = 22
+            self.sell_list_num = 20   # sim=3과 동일 조건으로 매수 전략 비교
+            self.start_invest_price = 10000000
+            self.invest_unit = self._resolve_invest_unit(self.start_invest_price)
+            self.limit_money = 300000
+            self.sell_point = 6
+            self.losscut_point = -3
+            self.max_positions = 999
+            self.invest_limit_rate = 1.02
+            self.invest_min_limit_rate = 0.97
+
         # ==================== 기존 전략 (20번대로 이동) ====================
 
         elif self.simul_num == 21:
@@ -693,6 +741,14 @@ class simulator_func_mysql:
                 sql = "select * from realtime_daily_buy_list where check_item = '0' order by code"
                 logger.debug("composite_score 없음, code 정렬로 폴백: %s", sql)
                 self.df_realtime_daily_buy_list = pd.read_sql(sql, self.engine_simulator)
+            logger.debug("Query returned %d rows", len(self.df_realtime_daily_buy_list))
+        elif self.simul_num in (4, 5, 6):
+            # simul_num=4/5/6: strategy_type 컬럼 포함 — pd.read_sql로 전체 읽기
+            import pandas as pd
+            sql = "select * from realtime_daily_buy_list where check_item = '0' order by composite_score desc, code"
+            logger.debug("SQL query (sim=4/5/6): %s", sql)
+            logger.debug("Using database engine: %s", self.engine_simulator.url.database)
+            self.df_realtime_daily_buy_list = pd.read_sql(sql, self.engine_simulator)
             logger.debug("Query returned %d rows", len(self.df_realtime_daily_buy_list))
         else:
             # 시뮬레이터: rsi14, bb_upper, bb_middle, bb_lower, atr14 포함 (47개)
@@ -1309,6 +1365,147 @@ class simulator_func_mysql:
             # dict 리스트: DataFrame(list_of_dicts, columns=[...]) 로 45컬럼 처리
             realtime_daily_buy_list = [item[0] for item in scored_list]
 
+        # 🤖 전략 22: BreakoutStrategyV3 / ReversalStrategyV3 (simul_num=4/5/6)
+        elif self.db_to_realtime_daily_buy_list_num == 22:
+            import pandas as pd
+            if self.simul_num == 4:
+                from library.hybrid_strategy_v3 import BreakoutStrategyV3
+                strategies = [BreakoutStrategyV3()]
+                min_score = cf.v4_min_score_a
+                logger.debug(f"[num=22] simul_num=4 BreakoutStrategyV3 시작 - 기준날짜: {date_rows_today}")
+            elif self.simul_num == 5:
+                from library.hybrid_strategy_v3 import ReversalStrategyV3
+                strategies = [ReversalStrategyV3()]
+                min_score = cf.v4_min_score_b
+                logger.debug(f"[num=22] simul_num=5 ReversalStrategyV3 시작 - 기준날짜: {date_rows_today}")
+            else:  # simul_num == 6
+                from library.hybrid_strategy_v3 import BreakoutStrategyV3, ReversalStrategyV3
+                strategies = [BreakoutStrategyV3(), ReversalStrategyV3()]
+                min_score = min(cf.v4_min_score_a, cf.v4_min_score_b)
+                logger.debug(f"[num=22] simul_num=6 A+B 혼합 시작 - 기준날짜: {date_rows_today}")
+
+            # SQL 사전 필터: 전략별 특성에 맞는 후보 선별
+            try:
+                if self.simul_num == 4:
+                    # Strategy A: 오늘 상승 + 거래량 급증 + BB 상단 근처
+                    pre_filter_sql = f"""
+                        SELECT a.* FROM `{date_rows_today}` a
+                        WHERE NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code=b.code)
+                        AND a.close > 0 AND a.close < {self.invest_unit}
+                        AND a.volume > 0 AND a.vol20 > 0
+                        AND a.d1_diff_rate >= 1.5
+                        AND a.vol5 > a.vol20 * 1.2
+                        ORDER BY a.d1_diff_rate DESC
+                        LIMIT 150
+                    """
+                elif self.simul_num == 5:
+                    # Strategy B: RSI 낮음 + BB 하단 근처 + 거래량 증가
+                    pre_filter_sql = f"""
+                        SELECT a.* FROM `{date_rows_today}` a
+                        WHERE NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code=b.code)
+                        AND a.close > 0 AND a.close < {self.invest_unit}
+                        AND a.volume > 0 AND a.vol20 > 0
+                        AND a.rsi14 <= 55
+                        AND a.rsi14 >= 30
+                        ORDER BY a.rsi14 ASC
+                        LIMIT 150
+                    """
+                else:  # sim=6
+                    # A+B 둘 다: 상승 돌파 OR RSI 저점 반등
+                    pre_filter_sql = f"""
+                        SELECT a.* FROM `{date_rows_today}` a
+                        WHERE NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code=b.code)
+                        AND a.close > 0 AND a.close < {self.invest_unit}
+                        AND a.volume > 0 AND a.vol20 > 0
+                        AND (
+                            (a.d1_diff_rate >= 1.5 AND a.vol5 > a.vol20 * 1.2)
+                            OR (a.rsi14 <= 55 AND a.rsi14 >= 30)
+                        )
+                        ORDER BY (
+                            (CASE WHEN a.d1_diff_rate >= 1.5 THEN 1 ELSE 0 END) +
+                            (CASE WHEN a.rsi14 <= 45 THEN 1 ELSE 0 END)
+                        ) DESC
+                        LIMIT 200
+                    """
+                candidates = self.engine_daily_buy_list.execute(pre_filter_sql).fetchall()
+                logger.debug(f"[num=22] SQL 사전필터 완료 - 후보: {len(candidates)}개")
+            except Exception as e:
+                logger.debug(f"[num=22] SQL 사전필터 실패: {e}")
+                candidates = []
+
+            # kospi_index 최근 20일 close 로드 (없으면 None)
+            market_data = None
+            try:
+                ki_df = pd.read_sql(
+                    "SELECT close FROM kospi_index ORDER BY date DESC LIMIT 20",
+                    self.engine_daily_craw
+                )
+                if len(ki_df) >= 20:
+                    market_data = ki_df['close'].iloc[::-1].reset_index(drop=True)
+            except Exception as e:
+                logger.debug(f"[num=22] kospi_index 로드 실패: {e}")
+
+            # 종목별 스코어링
+            scored_list = []
+            for idx, row in enumerate(candidates):
+                code = row['code']
+                code_name = row['code_name']
+                logger.debug(f"[num=22] 스코어링 {idx+1}/{len(candidates)}: {code_name}({code})")
+                try:
+                    df_120 = pd.read_sql(
+                        f"SELECT * FROM `{code_name}` WHERE code = '{code}'"
+                        f" AND date <= '{date_rows_today}' ORDER BY date DESC LIMIT 120",
+                        self.engine_daily_craw
+                    )
+                    if len(df_120) < 2:
+                        continue
+                    df_120 = df_120.sort_values('date').reset_index(drop=True)
+                except Exception as e:
+                    logger.debug(f"[num=22] df_120 로드 실패 {code_name}: {e}")
+                    continue
+
+                row_dict = dict(row)
+
+                if len(strategies) == 1:
+                    result = strategies[0].calculate_total_score(row_dict, df_120, market_data)
+                    if not result['auto_reject'] and result['total'] >= min_score:
+                        row_dict['composite_score'] = int(result['total'])
+                        row_dict['score_a']       = result['score_a']
+                        row_dict['score_b']       = result['score_b']
+                        row_dict['score_c']       = result['score_c']
+                        row_dict['score_d']       = result['score_d']
+                        row_dict['score_e']       = result['score_e']
+                        row_dict['score_f']       = result['score_f']
+                        row_dict['score_penalty'] = result['score_penalty']
+                        row_dict['strategy_type'] = result['strategy_type']
+                        scored_list.append((row_dict, result['total']))
+                        logger.debug(f"[num=22] ✅ 합격: {code_name} {result['total']}pt ({result['strategy_type']})")
+                else:
+                    # sim=6: 두 전략 모두 계산, 높은 점수 선택
+                    best_result = None
+                    best_score = -9999
+                    for strategy in strategies:
+                        r = strategy.calculate_total_score(row_dict, df_120, market_data)
+                        if not r['auto_reject'] and r['total'] > best_score:
+                            best_score = r['total']
+                            best_result = r
+                    if best_result is not None and best_score >= (cf.v4_min_score_a if best_result['strategy_type'] == 'A' else cf.v4_min_score_b):
+                        row_dict['composite_score'] = int(best_score)
+                        row_dict['score_a']       = best_result['score_a']
+                        row_dict['score_b']       = best_result['score_b']
+                        row_dict['score_c']       = best_result['score_c']
+                        row_dict['score_d']       = best_result['score_d']
+                        row_dict['score_e']       = best_result['score_e']
+                        row_dict['score_f']       = best_result['score_f']
+                        row_dict['score_penalty'] = best_result['score_penalty']
+                        row_dict['strategy_type'] = best_result['strategy_type']
+                        scored_list.append((row_dict, best_score))
+                        logger.debug(f"[num=22] ✅ 합격: {code_name} {best_score}pt ({best_result['strategy_type']})")
+
+            logger.debug(f"[num=22] 스코어링 완료 - 합격: {len(scored_list)}개 / {len(candidates)}개")
+            scored_list.sort(key=lambda x: x[1], reverse=True)
+            realtime_daily_buy_list = [item[0] for item in scored_list]
+
         # 🔧 전략 100: 심플 프로토타입 전략 (이동평균 기반)
         # 기본 이동평균 + 거래량 조합
         elif self.db_to_realtime_daily_buy_list_num == 100:
@@ -1379,7 +1576,7 @@ class simulator_func_mysql:
             sys.exit(1)
         # num=21 실전 모드: 0개여도 테이블을 클리어해 어제 데이터가 남지 않도록 함
         # (트레이더가 date 컬럼으로 collector 실행 여부를 판단하므로 오래된 데이터가 남으면 오동작)
-        if self.db_to_realtime_daily_buy_list_num == 21 and self.op == 'real' and len(realtime_daily_buy_list) == 0:
+        if self.db_to_realtime_daily_buy_list_num in (21, 22) and self.op == 'real' and len(realtime_daily_buy_list) == 0:
             try:
                 if self.is_simul_table_exist(self.db_name, "realtime_daily_buy_list"):
                     self.engine_simulator.execute("DELETE FROM realtime_daily_buy_list")
@@ -1409,20 +1606,16 @@ class simulator_func_mysql:
             # 종목코드를 6자리 문자열로 변환 (우선주 코드 'xxxRx' 형태도 처리)
             df_realtime_daily_buy_list['code'] = df_realtime_daily_buy_list['code'].astype(str).str.zfill(6)
 
-            # 섹션별 스코어 컬럼 주입 (num=21: row_dict에 이미 저장됨, 나머지: 0)
+            # 섹션별 스코어 컬럼 주입 (num=21/22: row_dict에 이미 저장됨, 나머지: 0)
             score_cols = ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']
-            if self.db_to_realtime_daily_buy_list_num == 21 and isinstance(realtime_daily_buy_list[0], dict):
+            if self.db_to_realtime_daily_buy_list_num in (21, 22) and isinstance(realtime_daily_buy_list[0], dict):
                 for col in score_cols:
                     df_realtime_daily_buy_list[col] = [row.get(col, 0) for row in realtime_daily_buy_list]
+                if self.db_to_realtime_daily_buy_list_num == 22:
+                    df_realtime_daily_buy_list['strategy_type'] = [d.get('strategy_type', 'A') for d in realtime_daily_buy_list]
             else:
                 for col in score_cols:
                     df_realtime_daily_buy_list[col] = 0
-
-            # composite_score: num=21(dict 기반)이면 dict에서 추출, 나머지 전략은 0
-            if self.db_to_realtime_daily_buy_list_num == 21 and isinstance(realtime_daily_buy_list[0], dict):
-                df_realtime_daily_buy_list['composite_score'] = [d.get('composite_score', 0) for d in realtime_daily_buy_list]
-            else:
-                df_realtime_daily_buy_list['composite_score'] = 0
 
             # 시뮬레이터의 경우
             if self.op != 'real':
@@ -1457,8 +1650,8 @@ class simulator_func_mysql:
             else:
                 # check_item 컬럼에 0 으로 setting
                 df_realtime_daily_buy_list['check_item'] = int(0)
-                # num=21: row_dict 기반이므로 composite_score 포함 DataFrame으로 저장
-                if self.db_to_realtime_daily_buy_list_num == 21:
+                # num=21/22: row_dict 기반이므로 모든 컬럼(composite_score, strategy_type 포함) DataFrame으로 저장
+                if self.db_to_realtime_daily_buy_list_num in (21, 22):
                     import pandas as pd
                     df_write = pd.DataFrame(realtime_daily_buy_list)
                     df_write['check_item'] = int(0)
@@ -1616,6 +1809,13 @@ class simulator_func_mysql:
         for _col in ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']:
             self.df_all_item.loc[0, _col] = df.loc[index, _col] if _col in df.columns else 0
         self.df_all_item.loc[0, 'simul_num'] = self.simul_num
+        if self.simul_num in (4, 5, 6):
+            if 'strategy_type' in df.columns:
+                self.df_all_item.loc[0, 'strategy_type'] = df.loc[index, 'strategy_type']
+            elif self.simul_num == 4:
+                self.df_all_item.loc[0, 'strategy_type'] = 'A'
+            elif self.simul_num == 5:
+                self.df_all_item.loc[0, 'strategy_type'] = 'B'
 
         # 컬럼 중에 nan 값이 있는 경우 0으로 변경 -> 이렇게 안하면 아래 데이터베이스에 넣을 때
         # AttributeError: 'numpy.int64' object has no attribute 'translate' 에러 발생
@@ -2013,6 +2213,7 @@ class simulator_func_mysql:
 
                 positions.append({
                     'code': code,
+                    'code_name': code_name,
                     'entry_price': purchase_price,
                     'entry_date': entry_date,
                     'shares': 1,  # 시뮬레이터는 비율로 관리
@@ -2629,7 +2830,7 @@ class simulator_func_mysql:
                     # 누적 수익률 그래프 생성
                     try:
                         # log/report 폴더 생성
-                        report_dir = os.path.join(os.getcwd(), 'log', 'report')
+                        report_dir = os.path.join(os.getcwd(), 'backtest_report')
                         os.makedirs(report_dir, exist_ok=True)
 
                         # 수익률 계산
@@ -2716,7 +2917,7 @@ class simulator_func_mysql:
             print("=" * 80)
 
             # log/report 폴더 생성
-            report_dir = os.path.join(os.getcwd(), 'log', 'report')
+            report_dir = os.path.join(os.getcwd(), 'backtest_report')
             os.makedirs(report_dir, exist_ok=True)
 
             # 타임스탬프

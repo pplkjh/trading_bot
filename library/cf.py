@@ -78,3 +78,7 @@ v2_fundamental_collect_interval = 1
 
 # 동적 가중치 (ADX 기반)
 v2_dynamic_weights = True
+
+# ===== v4 Scoring (simul_num=4/5/6) =====
+v4_min_score_a = 100   # BreakoutStrategyV3 minimum buy threshold (200pt max)
+v4_min_score_b = 90    # ReversalStrategyV3 minimum buy threshold (200pt max)

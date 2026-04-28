@@ -1,6 +1,13 @@
 # -*- coding: utf-8 -*-
 import os
-os.environ.setdefault('JACKBOT_LOG_NAME', 'simulator')  # import 전에 설정해야 적용됨
+import sys
+from datetime import datetime
+
+# import 전에 설정해야 logging_pack.py가 올바른 파일 경로를 사용함
+_simul_num = sys.argv[1] if len(sys.argv) >= 2 else 'X'
+_date = datetime.now().strftime('%Y%m%d')
+os.environ['JACKBOT_LOG_FILE'] = f'backtest_sim{_simul_num}_{_date}.log'
+os.environ.setdefault('JACKBOT_LOG_NAME', 'simulator')
 
 from library.simulator_func_mysql import *
 

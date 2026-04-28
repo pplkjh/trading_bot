@@ -661,13 +661,49 @@ class TraderAdvanced(QMainWindow):
             # 예수금 = 추정예탁자산 - 총평가금액
             deposit = estimated_deposit - total_evaluation if estimated_deposit > 0 else 0
 
+            # 현재 미실현 평가손익 (Kiwoom: 보유 중인 종목 기준)
+            floating_profit = int(self.open_api.change_total_eval_profit_loss_price) if hasattr(self.open_api, 'change_total_eval_profit_loss_price') else 0
+
+            # 전체 기간 실현손익 합산 (DB: 매도 완료된 전체 종목)
+            total_realized_profit = 0
+            try:
+                result = self.open_api.engine_JB.execute(
+                    "SELECT COALESCE(SUM(realized_profit), 0) FROM all_item_db WHERE sell_date != '0'"
+                ).fetchone()
+                if result and result[0]:
+                    total_realized_profit = int(result[0])
+            except Exception as _e:
+                logger.debug(f"전체 실현손익 조회 오류: {_e}")
+
+            # 총 평가손익 = 전체 실현손익 + 현재 미실현손익
+            total_profit_all = total_realized_profit + floating_profit
+            total_purchase = int(self.open_api.change_total_purchase_price) if hasattr(self.open_api, 'change_total_purchase_price') else 0
+            total_profit_rate_all = round(total_profit_all / total_purchase * 100, 2) if total_purchase > 0 else 0.0
+
+            # 오늘 실현손익 (DB: 오늘 매도 완료된 종목만)
+            today_str = datetime.now().strftime('%Y%m%d')
+            today_realized_profit = 0
+            today_realized_rate = 0.0
+            try:
+                result_today = self.open_api.engine_JB.execute(
+                    f"SELECT COALESCE(SUM(realized_profit), 0), COALESCE(AVG(sell_rate), 0) "
+                    f"FROM all_item_db WHERE LEFT(sell_date, 8) = '{today_str}' AND sell_date != '0'"
+                ).fetchone()
+                if result_today and result_today[0]:
+                    today_realized_profit = int(result_today[0])
+                    today_realized_rate = round(float(result_today[1]), 2)
+            except Exception as _e:
+                logger.debug(f"오늘 실현손익 조회 오류: {_e}")
+
             account_info = {
                 'deposit': deposit,
                 'd2_deposit': int(self.open_api.d2_deposit_before_format) if hasattr(self.open_api, 'd2_deposit_before_format') else 0,
-                'total_purchase': int(self.open_api.change_total_purchase_price) if hasattr(self.open_api, 'change_total_purchase_price') else 0,
+                'total_purchase': total_purchase,
                 'total_evaluation': total_evaluation,
-                'total_profit': int(self.open_api.change_total_eval_profit_loss_price) if hasattr(self.open_api, 'change_total_eval_profit_loss_price') else 0,
-                'total_profit_rate': float(self.open_api.change_total_earning_rate) if hasattr(self.open_api, 'change_total_earning_rate') else 0.0
+                'total_profit': total_profit_all,
+                'total_profit_rate': total_profit_rate_all,
+                'today_realized_profit': today_realized_profit,
+                'today_realized_rate': today_realized_rate,
             }
 
             # 보유 종목
@@ -800,8 +836,8 @@ class TraderAdvanced(QMainWindow):
                 'position_count': len(positions),
                 'total_value': account_info['total_evaluation'] + account_info['deposit'],
                 'cash_ratio': (account_info['deposit'] / (account_info['total_evaluation'] + account_info['deposit']) * 100) if (account_info['total_evaluation'] + account_info['deposit']) > 0 else 100,
-                'daily_profit': account_info['total_profit'],
-                'daily_profit_rate': account_info['total_profit_rate'],
+                'daily_profit': account_info['today_realized_profit'],
+                'daily_profit_rate': account_info['today_realized_rate'],
                 'trailing_active_count': trailing_active_count  # 트레일링 스톱 활성화 종목 수
             }
 
