@@ -59,6 +59,13 @@ buy_list_*.csv
 buy_list_log/
 *.png
 
+# backtest_report 폴더는 예외 (백테스트 결과 보존)
+!backtest_report/
+!backtest_report/*.csv
+!backtest_report/*.png
+!backtest_report/*.log
+!backtest_report/*.md
+
 # KIND 크롤링 관련
 KIND_xls/
 kind_snapshots/

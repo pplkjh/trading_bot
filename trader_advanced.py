@@ -665,10 +665,12 @@ class TraderAdvanced(QMainWindow):
             floating_profit = int(self.open_api.change_total_eval_profit_loss_price) if hasattr(self.open_api, 'change_total_eval_profit_loss_price') else 0
 
             # 전체 기간 실현손익 합산 (DB: 매도 완료된 전체 종목)
+            # realized_profit 컬럼은 매도 시 업데이트되지 않으므로 가격차×수량으로 계산
             total_realized_profit = 0
             try:
                 result = self.open_api.engine_JB.execute(
-                    "SELECT COALESCE(SUM(realized_profit), 0) FROM all_item_db WHERE sell_date != '0'"
+                    "SELECT COALESCE(SUM((sell_price - purchase_price) * holding_amount), 0) "
+                    "FROM all_item_db WHERE sell_date != '0' AND sell_price > 0"
                 ).fetchone()
                 if result and result[0]:
                     total_realized_profit = int(result[0])
@@ -686,8 +688,10 @@ class TraderAdvanced(QMainWindow):
             today_realized_rate = 0.0
             try:
                 result_today = self.open_api.engine_JB.execute(
-                    f"SELECT COALESCE(SUM(realized_profit), 0), COALESCE(AVG(sell_rate), 0) "
-                    f"FROM all_item_db WHERE LEFT(sell_date, 8) = '{today_str}' AND sell_date != '0'"
+                    f"SELECT COALESCE(SUM((sell_price - purchase_price) * holding_amount), 0), "
+                    f"COALESCE(AVG(sell_rate), 0) "
+                    f"FROM all_item_db WHERE LEFT(sell_date, 8) = '{today_str}' "
+                    f"AND sell_date != '0' AND sell_price > 0"
                 ).fetchone()
                 if result_today and result_today[0]:
                     today_realized_profit = int(result_today[0])
