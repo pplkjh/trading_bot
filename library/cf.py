@@ -63,6 +63,7 @@ dart_api_key = 'cc3e62c424689322f224f18b4f5ab5f6bfdb5497'
 # - invest_unit_pct = 0.0 이면 invest_unit 고정값 사용
 invest_unit     = 1_000_000   # 고정 금액 모드 (원)
 invest_unit_pct = 0.0         # 퍼센트 모드 (0.0 = 고정 금액 사용)
+initial_capital = 50_000_000  # 초기 투자 원금 (대시보드 원금 대비 손익 계산용)
 
 # 250점 만점 중 최소 매수 기준점
 v2_min_score = 120

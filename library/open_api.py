@@ -167,6 +167,7 @@ class open_api(QAxWidget):
         self.get_today_buy_list_code = 0
         self.get_today_buy_list_code_name = ''
         self.get_today_buy_list_atr14 = 0
+        self.get_today_buy_list_bb_bandwidth = 0.0
         self.cf = cf
         self.reset_opw00018_output()
         # 아래 분기문은 실전 투자 인지, 모의 투자 인지 결정
@@ -1057,12 +1058,19 @@ class open_api(QAxWidget):
 
         prev_close = int(self.get_today_buy_list_close)
         atr14 = self.get_today_buy_list_atr14
+        bb_bandwidth = self.get_today_buy_list_bb_bandwidth
         if atr14 and atr14 > 0:
-            # ATR 기반 동적 범위
-            # 상한 1.0×ATR: 갭상은 모멘텀 확인 신호 → 1 ATR까지 허용
-            # 하한 losscut_point%: 갭하 -3% 이상이면 사자마자 손절 위험 → losscut과 연동
             losscut_pct = self.sf.losscut_point / 100  # e.g. -3 → -0.03
-            max_buy_limit = prev_close + atr14 * 1.0
+            if current_price > prev_close:
+                # 갭상승: BB스퀴즈 여부에 따라 ATR 배수 차등 적용
+                # BB폭이 좁으면(스퀴즈 해소) 압축 에너지 방출 → 더 넓게 허용
+                if bb_bandwidth > 0 and bb_bandwidth < 0.15:
+                    atr_mult = 2.5  # 스퀴즈 해소 모멘텀
+                else:
+                    atr_mult = 1.5  # 일반 갭상승
+            else:
+                atr_mult = 1.0  # 갭하락 or 보합: 기존 유지
+            max_buy_limit = prev_close + atr14 * atr_mult
             min_buy_limit = prev_close * (1 + losscut_pct)
         else:
             # ATR 없는 경우 기존 고정 비율로 폴백
@@ -1144,6 +1152,10 @@ class open_api(QAxWidget):
                     self.get_today_buy_list_atr14 = float(self.sf.df_realtime_daily_buy_list.loc[i, 'atr14'] or 0)
                 except Exception:
                     self.get_today_buy_list_atr14 = 0
+                try:
+                    self.get_today_buy_list_bb_bandwidth = float(self.sf.df_realtime_daily_buy_list.loc[i, 'bb_bandwidth'] or 0)
+                except Exception:
+                    self.get_today_buy_list_bb_bandwidth = 0.0
                 # 매수 하기 전에 해당 종목의 check_item을 1로 변경. 즉, 이미 매수 했으니까 다시 매수 하지말라고 체크 하는 로직
                 sql = "UPDATE realtime_daily_buy_list SET check_item='%s' WHERE code='%s'"
                 self.engine_JB.execute(sql % (1, self.get_today_buy_list_code))
@@ -2050,16 +2062,14 @@ class open_api(QAxWidget):
         try:
             from datetime import datetime, timedelta
 
-            # 마지막 업데이트 시간 체크 (10초마다만 실행)
             now = datetime.now()
             if not hasattr(self, '_last_monitor_update'):
-                self._last_monitor_update = now - timedelta(seconds=11)  # 첫 실행은 즉시
+                self._last_monitor_update = now - timedelta(seconds=11)
 
             time_diff = (now - self._last_monitor_update).total_seconds()
             if time_diff < 10:
-                return  # 10초 안 지났으면 스킵
+                return
 
-            # 보유 종목이 없으면 스킵
             if not hasattr(self, 'opw00018_output') or 'multi' not in self.opw00018_output:
                 return
 
@@ -2067,10 +2077,23 @@ class open_api(QAxWidget):
             if len(holdings) == 0:
                 return
 
-            # 각 보유 종목의 highest_price 업데이트
+            # intraday_tracker 초기화 (최초 1회)
+            if not hasattr(self, '_intraday_initialized'):
+                self._init_intraday_tracker()
+
+            # 매도된 종목 candle flush 및 캐시 정리
+            current_codes = {holding[7] for holding in holdings}
+            if hasattr(self, '_prev_intraday_codes'):
+                for code in self._prev_intraday_codes - current_codes:
+                    if code in getattr(self, '_intraday_candles', {}):
+                        self._flush_intraday_candle(code, self._intraday_candles[code])
+                        del self._intraday_candles[code]
+                    getattr(self, '_entry_price_cache', {}).pop(code, None)
+            self._prev_intraday_codes = current_codes
+
             for holding in holdings:
-                code = holding[7]  # 종목코드
-                current_price = holding[3]  # 현재가
+                code = holding[7]
+                current_price = holding[3]
 
                 sql_update = """
                 UPDATE realtime_position_monitor
@@ -2081,11 +2104,146 @@ class open_api(QAxWidget):
                 """
                 self.engine_JB.execute(sql_update % (current_price, current_price, code))
 
+                if getattr(self, '_intraday_initialized', False):
+                    if code not in self._entry_price_cache:
+                        row = self.engine_JB.execute(
+                            f"SELECT entry_price FROM realtime_position_monitor WHERE code = '{code}'"
+                        ).fetchone()
+                        self._entry_price_cache[code] = int(row[0]) if row else current_price
+                    self._update_intraday_candle(code, current_price, self._entry_price_cache[code], now)
+
             self._last_monitor_update = now
             logger.debug(f"✅ realtime_position_monitor 업데이트 완료 ({len(holdings)}개 종목)")
 
         except Exception as e:
             logger.warning(f"⚠️  realtime_position_monitor 업데이트 실패: {e}")
+
+    def _init_intraday_tracker(self):
+        """intraday_tracker 테이블 생성 및 5일 이전 데이터 정리"""
+        try:
+            self.engine_JB.execute("""
+                CREATE TABLE IF NOT EXISTS intraday_tracker (
+                    code           VARCHAR(10)   NOT NULL,
+                    ts             DATETIME      NOT NULL,
+                    open           INT           DEFAULT 0,
+                    high           INT           DEFAULT 0,
+                    low            INT           DEFAULT 0,
+                    close          INT           DEFAULT 0,
+                    rsi            DECIMAL(5,2)  DEFAULT NULL,
+                    vwap           DECIMAL(12,2) DEFAULT NULL,
+                    highest_price  INT           DEFAULT 0,
+                    rsi_at_highest DECIMAL(5,2)  DEFAULT NULL,
+                    highest_ts     DATETIME      DEFAULT NULL,
+                    entry_price    INT           DEFAULT 0,
+                    PRIMARY KEY (code, ts),
+                    INDEX idx_ts (ts)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            self.engine_JB.execute(
+                "DELETE FROM intraday_tracker WHERE ts < DATE_SUB(NOW(), INTERVAL 5 DAY)"
+            )
+            self._intraday_candles = {}
+            self._entry_price_cache = {}
+            self._intraday_initialized = True
+            logger.info("✅ intraday_tracker 초기화 완료")
+        except Exception as e:
+            logger.warning(f"⚠️  intraday_tracker 초기화 실패: {e}")
+            self._intraday_initialized = False
+
+    def _update_intraday_candle(self, code, price, entry_price, now):
+        """10초 틱을 1분 캔들로 집계. 분 전환 시 완성 캔들을 DB에 flush."""
+        current_minute = now.replace(second=0, microsecond=0)
+
+        if code not in self._intraday_candles:
+            self._intraday_candles[code] = {
+                'minute': current_minute,
+                'open': price, 'high': price, 'low': price, 'close': price,
+                'tick_count': 1, 'vwap_sum': price,
+                'entry_price': entry_price,
+                'highest_price': price,
+                'highest_ts': now,
+                'highest_updated': True,
+                'rsi_at_highest': None,
+            }
+            return
+
+        candle = self._intraday_candles[code]
+
+        if current_minute > candle['minute']:
+            rsi_at_highest = self._flush_intraday_candle(code, candle)
+            self._intraday_candles[code] = {
+                'minute': current_minute,
+                'open': price, 'high': price, 'low': price, 'close': price,
+                'tick_count': 1, 'vwap_sum': price,
+                'entry_price': entry_price,
+                'highest_price': candle['highest_price'],
+                'highest_ts': candle['highest_ts'],
+                'highest_updated': False,
+                'rsi_at_highest': rsi_at_highest,
+            }
+            return
+
+        candle['high'] = max(candle['high'], price)
+        candle['low'] = min(candle['low'], price)
+        candle['close'] = price
+        candle['tick_count'] += 1
+        candle['vwap_sum'] += price
+
+        if price > candle['highest_price']:
+            candle['highest_price'] = price
+            candle['highest_ts'] = now
+            candle['highest_updated'] = True
+
+    def _flush_intraday_candle(self, code, candle):
+        """완성된 1분 캔들을 DB에 저장. 계산된 rsi_at_highest를 반환."""
+        rsi_at_highest = candle.get('rsi_at_highest')
+        try:
+            vwap = candle['vwap_sum'] / candle['tick_count']
+
+            rows = self.engine_JB.execute(
+                f"SELECT close FROM intraday_tracker WHERE code = '{code}' ORDER BY ts DESC LIMIT 30"
+            ).fetchall()
+            closes = [r[0] for r in reversed(rows)] + [candle['close']]
+            rsi = self._compute_rsi_wilder(closes)
+
+            if candle.get('highest_updated'):
+                rsi_at_highest = rsi
+
+            minute_str = candle['minute'].strftime('%Y-%m-%d %H:%M:%S')
+            rsi_str = f'{rsi}' if rsi is not None else 'NULL'
+            rsi_at_highest_str = f'{rsi_at_highest}' if rsi_at_highest is not None else 'NULL'
+            vwap_str = f'{round(vwap, 2)}'
+            ht = candle.get('highest_ts')
+            highest_ts_str = f"'{ht.strftime('%Y-%m-%d %H:%M:%S')}'" if ht else 'NULL'
+
+            self.engine_JB.execute(f"""
+                REPLACE INTO intraday_tracker
+                (code, ts, open, high, low, close, rsi, vwap,
+                 highest_price, rsi_at_highest, highest_ts, entry_price)
+                VALUES ('{code}', '{minute_str}', {candle['open']}, {candle['high']},
+                        {candle['low']}, {candle['close']}, {rsi_str}, {vwap_str},
+                        {candle['highest_price']}, {rsi_at_highest_str}, {highest_ts_str},
+                        {candle['entry_price']})
+            """)
+        except Exception as e:
+            logger.warning(f"⚠️  intraday_tracker flush 실패 ({code}): {e}")
+        return rsi_at_highest
+
+    def _compute_rsi_wilder(self, closes):
+        """Wilder RSI(14). closes: oldest→newest 순서. 최소 15개 필요."""
+        if len(closes) < 15:
+            return None
+        deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+        gains  = [max(d, 0.0) for d in deltas]
+        losses = [max(-d, 0.0) for d in deltas]
+        avg_gain = sum(gains[:14]) / 14
+        avg_loss = sum(losses[:14]) / 14
+        for i in range(14, len(deltas)):
+            avg_gain = (avg_gain * 13 + gains[i]) / 14
+            avg_loss = (avg_loss * 13 + losses[i]) / 14
+        if avg_loss == 0:
+            return 100.0
+        return round(100 - (100 / (1 + avg_gain / avg_loss)), 2)
 
     #   일자별 종목별 실현손익
     def reset_opt10073_output(self):

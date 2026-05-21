@@ -240,13 +240,15 @@ class TraderAdvanced(QMainWindow):
 
     def reset_realtime_position_monitor(self):
         """
-        realtime_position_monitor 테이블 초기화 및 동기화
+        realtime_position_monitor 테이블 동기화
 
-        trader 시작 시 테이블을 초기화하고,
-        all_item_db의 보유 종목과 동기화합니다.
+        TRUNCATE 없이 증분 동기화: 기존 종목의 highest_price를 재시작 후에도 보존.
+        - 더 이상 보유하지 않는 종목 → 삭제
+        - 이미 테이블에 있는 종목 → highest_price 그대로 유지
+        - 신규 매수 종목 → purchase_price로 초기화하여 추가
         """
         try:
-            logger.info("🔄 realtime_position_monitor 테이블 초기화 중...")
+            logger.info("🔄 realtime_position_monitor 동기화 중...")
 
             # 1. 테이블 없으면 생성
             self.open_api.engine_JB.execute("""
@@ -262,40 +264,48 @@ class TraderAdvanced(QMainWindow):
                 )
             """)
 
-            # 2. 테이블 초기화
-            self.open_api.engine_JB.execute("TRUNCATE TABLE realtime_position_monitor")
-
             # 2. all_item_db에서 현재 보유 종목 조회
-            sql = """
-            SELECT code, code_name, purchase_price, buy_date
-            FROM all_item_db
-            WHERE sell_date = '0'
-            GROUP BY code
-            """
-            holdings = self.open_api.engine_JB.execute(sql).fetchall()
+            holdings = self.open_api.engine_JB.execute("""
+                SELECT code, code_name, purchase_price, buy_date
+                FROM all_item_db WHERE sell_date = '0'
+                GROUP BY code
+            """).fetchall()
+            holding_codes = {h[0] for h in holdings}
 
-            # 3. 보유 종목이 있으면 realtime_position_monitor에 추가
-            if holdings:
-                for holding in holdings:
-                    code = holding[0]
-                    code_name = holding[1]
-                    purchase_price = holding[2]
-                    buy_date = holding[3]
+            # 3. 테이블에 있는 기존 코드 조회
+            existing_rows = self.open_api.engine_JB.execute(
+                "SELECT code FROM realtime_position_monitor"
+            ).fetchall()
+            existing_codes = {row[0] for row in existing_rows}
 
-                    # 초기 highest_price는 매수가로 설정
-                    sql_insert = """
+            # 4. 더 이상 보유하지 않는 종목 삭제
+            for code in existing_codes - holding_codes:
+                self.open_api.engine_JB.execute(
+                    f"DELETE FROM realtime_position_monitor WHERE code = '{code}'"
+                )
+
+            # 5. 신규 보유 종목만 INSERT (기존 종목은 highest_price 보존)
+            added = 0
+            for holding in holdings:
+                code = holding[0]
+                if code in existing_codes:
+                    continue  # 이미 있음 → highest_price 그대로 유지
+                code_name = holding[1]
+                purchase_price = int(holding[2])
+                buy_date = holding[3]
+                self.open_api.engine_JB.execute("""
                     INSERT INTO realtime_position_monitor
                     (code, code_name, entry_price, entry_date, current_price, highest_price, last_update)
                     VALUES ('%s', '%s', %d, '%s', %d, %d, NOW())
-                    """
-                    self.open_api.engine_JB.execute(sql_insert % (
-                        code, code_name, purchase_price, buy_date,
-                        purchase_price, purchase_price
-                    ))
+                """ % (code, code_name, purchase_price, buy_date, purchase_price, purchase_price))
+                added += 1
 
-                logger.info(f"✅ realtime_position_monitor 동기화 완료 ({len(holdings)}개 종목)")
-            else:
-                logger.info("ℹ️  보유 종목 없음 - 테이블 초기화만 완료")
+            kept = len(holding_codes & existing_codes)
+            removed = len(existing_codes - holding_codes)
+            logger.info(
+                f"✅ realtime_position_monitor 동기화 완료 — "
+                f"유지(highest_price 보존): {kept}개 / 신규: {added}개 / 삭제: {removed}개"
+            )
 
         except Exception as e:
             logger.warning(f"⚠️  realtime_position_monitor 초기화 실패: {e}")
@@ -656,10 +666,11 @@ class TraderAdvanced(QMainWindow):
 
             # 계좌 정보 (opw00018에서 가져온 값 사용)
             total_evaluation = int(self.open_api.change_total_eval_price) if hasattr(self.open_api, 'change_total_eval_price') else 0
-            estimated_deposit = int(self.open_api.change_estimated_deposit) if hasattr(self.open_api, 'change_estimated_deposit') else 0
+            d2_deposit_val = int(self.open_api.d2_deposit_before_format) if hasattr(self.open_api, 'd2_deposit_before_format') else 0
 
-            # 예수금 = 추정예탁자산 - 총평가금액
-            deposit = estimated_deposit - total_evaluation if estimated_deposit > 0 else 0
+            # 예수금: D+2 출금가능금액을 현금으로 사용 (report_generator와 동일 기준)
+            # open_api.deposit이 없으므로 항상 d2_deposit_before_format 사용
+            deposit = d2_deposit_val
 
             # 현재 미실현 평가손익 (Kiwoom: 보유 중인 종목 기준)
             floating_profit = int(self.open_api.change_total_eval_profit_loss_price) if hasattr(self.open_api, 'change_total_eval_profit_loss_price') else 0
@@ -677,10 +688,14 @@ class TraderAdvanced(QMainWindow):
             except Exception as _e:
                 logger.debug(f"전체 실현손익 조회 오류: {_e}")
 
-            # 총 평가손익 = 전체 실현손익 + 현재 미실현손익
+            # 누적 총손익 = 전체 실현손익 + 현재 미실현손익 (수수료 차감 전 gross)
             total_profit_all = total_realized_profit + floating_profit
             total_purchase = int(self.open_api.change_total_purchase_price) if hasattr(self.open_api, 'change_total_purchase_price') else 0
-            total_profit_rate_all = round(total_profit_all / total_purchase * 100, 2) if total_purchase > 0 else 0.0
+
+            # 원금 대비 실제 수익률: (현재 총자산 - 초기 원금) / 초기 원금
+            total_assets = deposit + total_evaluation
+            net_pnl = total_assets - cf.initial_capital
+            net_pnl_rate = round(net_pnl / cf.initial_capital * 100, 2) if cf.initial_capital > 0 else 0.0
 
             # 오늘 실현손익 (DB: 오늘 매도 완료된 종목만)
             today_str = datetime.now().strftime('%Y%m%d')
@@ -704,8 +719,11 @@ class TraderAdvanced(QMainWindow):
                 'd2_deposit': int(self.open_api.d2_deposit_before_format) if hasattr(self.open_api, 'd2_deposit_before_format') else 0,
                 'total_purchase': total_purchase,
                 'total_evaluation': total_evaluation,
+                'total_assets': total_assets,
+                'net_pnl': net_pnl,
+                'net_pnl_rate': net_pnl_rate,
+                'initial_capital': cf.initial_capital,
                 'total_profit': total_profit_all,
-                'total_profit_rate': total_profit_rate_all,
                 'today_realized_profit': today_realized_profit,
                 'today_realized_rate': today_realized_rate,
             }

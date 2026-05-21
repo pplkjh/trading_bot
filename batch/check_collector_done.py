@@ -68,30 +68,29 @@ if phase == 1:
         total_count = cursor.fetchone()[0]
         con.close()
 
-        update_time = tbl_row[0] if tbl_row else None  # datetime or None
-
-        today_8am  = now.replace(hour=8,  minute=0, second=0, microsecond=0)
-
         if 8 <= hour < 16:
-            # 장전/장중: 특정 ref_date 테이블 기준 — 없거나 UPDATE_TIME 없으면 재수집
-            if not tbl_row or not update_time:
-                print(f"[FAIL] Phase 1: daily_buy_list.{ref_date} 없음 or UPDATE_TIME null")
+            # 장전/장중: 날짜 테이블 이름은 전 영업일(예: 20260430)이라 ref_date(오늘)와 다름
+            # UPDATE_TIME 체크 대신 setting_data.daily_buy_list 타임스탬프로 판단
+            # → 컬렉터가 Phase 1 완료 시 이 값을 오늘 날짜(YYYYMMDDHHMM)로 업데이트
+            try:
+                con_jb = pymysql.connect(
+                    user=db_id, passwd=db_passwd, host=db_ip,
+                    port=int(db_port), db=imi1_db_name, charset='utf8'
+                )
+                cursor_jb = con_jb.cursor()
+                cursor_jb.execute("SELECT daily_buy_list FROM setting_data LIMIT 1")
+                row_jb = cursor_jb.fetchone()
+                con_jb.close()
+                val = str(row_jb[0]) if (row_jb and row_jb[0]) else ''
+                if val[:8] == today:
+                    print(f"[OK] Phase 1: 오늘 수집 완료 (daily_buy_list={val})")
+                    sys.exit(0)
+                else:
+                    print(f"[FAIL] Phase 1: 오늘 수집 필요 (daily_buy_list={val or 'None'}, today={today})")
+                    sys.exit(1)
+            except Exception as e:
+                print(f"[ERROR] Phase 1 check failed: {e}")
                 sys.exit(1)
-            elapsed_min = (now - update_time).total_seconds() / 60
-            if 8 <= hour < 9:
-                if update_time >= today_8am:
-                    print(f"[OK] Phase 1: morning run done (updated {update_time.strftime('%H:%M')})")
-                    sys.exit(0)
-                else:
-                    print(f"[FAIL] Phase 1: morning run needed (last update {update_time.strftime('%Y-%m-%d %H:%M')})")
-                    sys.exit(1)
-            else:  # 9 <= hour < 16
-                if elapsed_min < 60:
-                    print(f"[OK] Phase 1: market hours, collected {elapsed_min:.0f}min ago (< 60min)")
-                    sys.exit(0)
-                else:
-                    print(f"[FAIL] Phase 1: market hours, {elapsed_min:.0f}min ago (> 60min), re-collect")
-                    sys.exit(1)
 
         else:  # hour >= 16
             # 장후: setting_data.daily_buy_list 타임스탬프 기반 확인

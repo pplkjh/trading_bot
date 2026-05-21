@@ -147,6 +147,27 @@ def get_portfolio_status(db_name: str):
         print(f"📊 포트폴리오 현황 ({db_name})")
         print("="*100)
 
+        # 0. 잔액 현황 (jango_data 마지막 레코드)
+        try:
+            df_jango = pd.read_sql(
+                "SELECT date, d2_deposit, total_invest "
+                "FROM jango_data ORDER BY date DESC LIMIT 1",
+                con
+            )
+            if not df_jango.empty:
+                j = df_jango.iloc[0]
+                d2    = int(j['d2_deposit'])  if j['d2_deposit']  is not None else 0
+                t_inv = int(j['total_invest']) if j['total_invest'] is not None else 0
+                pnl   = t_inv - initial_capital if t_inv > 0 else 0
+                sign  = '+' if pnl >= 0 else ''
+                print(f"\n💰 잔액 현황  (기준: {str(j['date'])})")
+                print("-"*100)
+                print(f"  D+2 예수금:   {d2:>15,}원")
+                print(f"  총 자산:      {t_inv:>15,}원")
+                print(f"  원금 대비:    {sign}{pnl:>14,}원  ({sign}{pnl/initial_capital*100:.2f}%)" if initial_capital > 0 else "")
+        except Exception as _e:
+            print(f"\n💰 잔액 현황 조회 실패: {_e}")
+
         # 1. 보유 종목 조회
         # 주의: puchase_price는 철자 오류지만 실제 DB 컬럼명
         query_positions = """
@@ -385,8 +406,6 @@ def get_portfolio_status(db_name: str):
                     print(f"\n[{rank}] {code} - {code_name}  {status}")
 
                     close = _v(row, 'close')
-                    if close is not None:
-                        print(f"  현재가:       {int(close):>10,}원")
 
                     score = _v(row, 'composite_score')
                     if score is not None:

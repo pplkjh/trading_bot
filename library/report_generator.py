@@ -480,8 +480,8 @@ def generate_trader_report(trader, trade_history=None):
                 deposit = int(trader.open_api.deposit) if hasattr(trader.open_api, 'deposit') else 0
                 d2 = int(trader.open_api.d2_deposit_before_format) if hasattr(trader.open_api, 'd2_deposit_before_format') else 0
                 t_buy = int(trader.open_api.total_purchase_price) if hasattr(trader.open_api, 'total_purchase_price') else 0
-                t_eval = int(trader.open_api.total_evaluation_price) if hasattr(trader.open_api, 'total_evaluation_price') else 0
-                t_pnl = int(trader.open_api.total_evaluation_profit_loss_price) if hasattr(trader.open_api, 'total_evaluation_profit_loss_price') else 0
+                t_eval = int(trader.open_api.change_total_eval_price) if hasattr(trader.open_api, 'change_total_eval_price') else 0
+                t_pnl = int(trader.open_api.change_total_eval_profit_loss_price) if hasattr(trader.open_api, 'change_total_eval_profit_loss_price') else 0
                 t_rate = float(trader.open_api.total_earning_rate) if hasattr(trader.open_api, 'total_earning_rate') else 0.0
 
                 # API가 0을 반환할 때 포트폴리오 직접 계산값으로 보정

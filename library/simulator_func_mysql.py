@@ -1490,6 +1490,7 @@ class simulator_func_mysql:
                             best_score = r['total']
                             best_result = r
                     if best_result is not None and best_score >= (cf.v4_min_score_a if best_result['strategy_type'] == 'A' else cf.v4_min_score_b):
+                        best_score = best_result['total']
                         row_dict['composite_score'] = int(best_score)
                         row_dict['score_a']       = best_result['score_a']
                         row_dict['score_b']       = best_result['score_b']
@@ -2755,7 +2756,7 @@ class simulator_func_mysql:
                 date,
                 d2_deposit,
                 total_evaluation,
-                (d2_deposit + total_evaluation) as total_asset
+                total_invest as total_asset
             FROM jango_data
             ORDER BY date ASC
             """
@@ -2961,7 +2962,7 @@ class simulator_func_mysql:
             summary_stats = {}
             try:
                 daily_rows = self.engine_simulator.execute(
-                    "SELECT total_asset FROM jango_data ORDER BY date ASC"
+                    "SELECT total_invest FROM jango_data WHERE total_invest > 0 ORDER BY date ASC"
                 ).fetchall()
                 final_res = self.engine_simulator.execute(
                     "SELECT * FROM jango_data ORDER BY date DESC LIMIT 1"
@@ -2973,10 +2974,11 @@ class simulator_func_mysql:
                     v = fd.get(k, d)
                     try: return float(v) if v is not None else d
                     except: return d
-                d2_dep   = _sf('d2_deposit')
-                total_val = _sf('total_evaluation')
                 init_cap  = float(self.start_invest_price or 10_000_000)
-                final_cap = d2_dep + total_val
+                d2_dep    = _sf('d2_deposit')
+                total_val = _sf('total_evaluation')
+                # total_asset 컬럼은 NULL — total_invest(= 초기자본 + 누적손익)를 사용
+                final_cap = _sf('total_invest') or (d2_dep + total_val)
                 st2 = self.engine_simulator.execute("""
                     SELECT AVG(DATEDIFF(STR_TO_DATE(sell_date,'%%Y%%m%%d'),
                                        STR_TO_DATE(buy_date,'%%Y%%m%%d'))),

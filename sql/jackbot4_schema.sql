@@ -210,5 +210,26 @@ CREATE TABLE IF NOT EXISTS realtime_position_monitor (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ================================================
+-- 7. intraday_tracker
+-- ================================================
+CREATE TABLE IF NOT EXISTS intraday_tracker (
+    code           VARCHAR(10)   NOT NULL,
+    ts             DATETIME      NOT NULL,
+    open           INT           DEFAULT 0,
+    high           INT           DEFAULT 0,
+    low            INT           DEFAULT 0,
+    close          INT           DEFAULT 0,
+    rsi            DECIMAL(5,2)  DEFAULT NULL,
+    vwap           DECIMAL(12,2) DEFAULT NULL,
+    highest_price  INT           DEFAULT 0,
+    rsi_at_highest DECIMAL(5,2)  DEFAULT NULL,
+    highest_ts     DATETIME      DEFAULT NULL,
+    entry_price    INT           DEFAULT 0,
+    PRIMARY KEY (code, ts),
+    INDEX idx_ts (ts)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='보유종목 1분봉 추적 (5일 롤링 보존) — RSI/VWAP 기반 추세 전환 감지용';
+
+-- ================================================
 SELECT 'jackbot4_imi1 schema created.' AS status;
 SHOW TABLES;

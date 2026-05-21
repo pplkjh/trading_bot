@@ -17,6 +17,11 @@ class TradingDashboard:
     """
 
     def __init__(self):
+        # Windows 콘솔을 UTF-8로 전환 (이모지/한글 동시 출력)
+        import sys, io
+        if sys.platform == 'win32':
+            os.system('chcp 65001 >nul 2>&1')
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
         self.last_update = None
         self.dashboard_data = {
             'current_time': '',
@@ -76,96 +81,97 @@ class TradingDashboard:
         """대시보드 렌더링"""
         self.clear_screen()
 
-        # 헤더
+        # ── 헤더 ──────────────────────────────────────────────────────────────
         print("=" * 100)
-        print("[DASHBOARD] 고급 전략 트레이더 - 실시간 모니터링 대시보드".center(100))
+        print("[DASHBOARD] 고급 전략 트레이더 - 실시간 모니터링".center(100))
         print("=" * 100)
-        print(f"현재 시간: {self.dashboard_data['current_time']}")
-        print(f"장 상태: {self.dashboard_data['market_status']}")
-        print(f"최종 업데이트: {self.last_update.strftime('%Y-%m-%d %H:%M:%S') if self.last_update else 'N/A'}")
+
+        # 상태 한 줄 요약
+        config = self.dashboard_data.get('strategy_config', {})
+        portfolio = self.dashboard_data.get('portfolio_summary', {})
+        status_parts = [
+            self.dashboard_data['current_time'],
+            self.dashboard_data['market_status'],
+        ]
+        if config:
+            buy_tag  = "고급매수" if config.get('use_advanced_buy') else "기본매수"
+            sell_tag = "고급매도" if config.get('use_advanced_sell') else "기본매도"
+            status_parts.append(f"전략: {buy_tag}/{sell_tag}  스코어≥{config.get('min_factor_score','?')}")
+        if portfolio:
+            trail = portfolio.get('trailing_active_count', 0)
+            if trail:
+                status_parts.append(f"🟢 트레일링 {trail}개")
+        sys_status = self.dashboard_data.get('system_status', '')
+        if sys_status:
+            status_parts.append(sys_status)
+        print("  " + "  |  ".join(status_parts))
         print("=" * 100)
         print()
 
-        # 전략 설정
-        if self.dashboard_data['strategy_config']:
-            self._render_strategy_config()
-
-        # 계좌 정보
+        # ── 계좌 + 포트폴리오 (통합) ─────────────────────────────────────────
         if self.dashboard_data['account_info']:
             self._render_account_info()
 
-        # 포트폴리오 요약
-        if self.dashboard_data['portfolio_summary']:
-            self._render_portfolio_summary()
-
-        # 보유 종목
+        # ── 보유 종목 ────────────────────────────────────────────────────────
         if self.dashboard_data['positions']:
             self._render_positions()
 
-        # 매수 후보
+        # ── 매수 후보 ────────────────────────────────────────────────────────
         if self.dashboard_data['buy_candidates']:
             self._render_buy_candidates()
 
-        # 매도 시그널
+        # ── 매도 시그널 ──────────────────────────────────────────────────────
         if self.dashboard_data['sell_signals']:
             self._render_sell_signals()
 
-        # 최근 거래
+        # ── 최근 거래 ────────────────────────────────────────────────────────
         if self.dashboard_data['recent_trades']:
             self._render_recent_trades()
-
-        # 시스템 상태
-        if self.dashboard_data['system_status']:
-            print(f"\n[STATUS] 시스템 상태: {self.dashboard_data['system_status']}")
 
         # 푸터
         print()
         print("=" * 100)
-        print("[INFO] 종료: Ctrl+C | 자세한 로그: log/jackbot.log".center(100))
+        print("[INFO] 종료: Ctrl+C | 로그: log/jackbot.log".center(100))
         print("=" * 100)
-
-    def _render_strategy_config(self):
-        """전략 설정 표시"""
-        config = self.dashboard_data['strategy_config']
-        print("[STRATEGY] 전략 설정")
-        print("-" * 100)
-        print(f"  고급 매수 전략: {'사용' if config.get('use_advanced_buy') else '미사용'}")
-        print(f"  고급 매도 전략: {'사용' if config.get('use_advanced_sell') else '미사용'}")
-        print(f"  리스크 프로필: {config.get('risk_profile', 'N/A')}")
-        print(f"  매수 최소 종합 스코어: {config.get('min_factor_score', 'N/A')}점")
-        print(f"  일일 최대 매수 종목: {config.get('max_positions', 'N/A')}개 (예수금으로 살 수 있는 만큼 보유)")
-
-        # realtime_position_monitor 상태 표시
-        if config.get('use_advanced_sell'):
-            print(f"  ⭐ highest_price 추적: 활성화 (10초마다 업데이트)")
-            print(f"  ⭐ 트레일링 스톱: ADX 기반 동적 활성화 (추세장 +3% / 횡보장 +5%)")
-        print()
+        sys.stdout.flush()
 
     def _render_account_info(self):
-        """계좌 정보 표시"""
-        account = self.dashboard_data['account_info']
-        print("[ACCOUNT] 계좌 정보")
-        print("-" * 100)
-        print(f"  예수금: {account.get('deposit', 0):,}원")
-        print(f"  D+2 예수금: {account.get('d2_deposit', 0):,}원")
-        print(f"  총 매입금액: {account.get('total_purchase', 0):,}원")
-        print(f"  총 평가금액: {account.get('total_evaluation', 0):,}원")
-        print(f"  총 평가손익: {account.get('total_profit', 0):,}원 ({account.get('total_profit_rate', 0):.2f}%)  ← 전체기간 실현+미실현")
-        print()
+        """계좌 + 포트폴리오 통합 표시"""
+        account  = self.dashboard_data['account_info']
+        portfolio = self.dashboard_data.get('portfolio_summary', {})
 
-    def _render_portfolio_summary(self):
-        """포트폴리오 요약 표시"""
-        portfolio = self.dashboard_data['portfolio_summary']
-        print("[PORTFOLIO] 포트폴리오 요약")
+        print("[ACCOUNT] 계좌 현황")
         print("-" * 100)
-        print(f"  보유 종목 수: {portfolio.get('position_count', 0)}개")
-        print(f"  포트폴리오 가치: {portfolio.get('total_value', 0):,}원")
-        print(f"  현금 비율: {portfolio.get('cash_ratio', 0):.1f}%")
-        print(f"  오늘 실현수익: {portfolio.get('daily_profit', 0):,}원 (평균 {portfolio.get('daily_profit_rate', 0):.2f}%)  ← 오늘 매도 완료 종목")
 
-        # 트레일링 스톱 활성화 종목 수
-        if portfolio.get('trailing_active_count') is not None:
-            print(f"  🟢 트레일링 스톱 활성화: {portfolio.get('trailing_active_count', 0)}개 종목")
+        # 총자산 / 원금 대비 손익
+        total_assets    = account.get('total_assets', account.get('deposit', 0) + account.get('total_evaluation', 0))
+        net_pnl         = account.get('net_pnl', 0)
+        net_pnl_rate    = account.get('net_pnl_rate', 0.0)
+        initial_capital = account.get('initial_capital', 0)
+        sign = "+" if net_pnl >= 0 else ""
+        print(f"  총 자산:        {total_assets:>15,}원   (예수금 {account.get('deposit',0):,} + 평가 {account.get('total_evaluation',0):,})")
+        if initial_capital:
+            print(f"  원금 대비 손익: {sign}{net_pnl:>14,}원   ({sign}{net_pnl_rate:.2f}%)  ← 초기 원금 {initial_capital:,}원 기준")
+
+        # 누적 총손익 (gross, 수수료 전)
+        total_profit = account.get('total_profit', 0)
+        tp_sign = "+" if total_profit >= 0 else ""
+        print(f"  누적 총손익:    {tp_sign}{total_profit:>14,}원   (전체기간 실현+미실현, 수수료 차감 전)")
+
+        # 오늘 실현손익
+        today_profit = account.get('today_realized_profit', 0)
+        today_rate   = account.get('today_realized_rate', 0.0)
+        td_sign = "+" if today_profit >= 0 else ""
+        print(f"  오늘 실현손익:  {td_sign}{today_profit:>14,}원   (평균 {td_sign}{today_rate:.2f}%)")
+
+        # 보유 현황 한 줄 요약
+        pos_count = portfolio.get('position_count', 0)
+        cash_ratio = portfolio.get('cash_ratio', 0.0)
+        trail_count = portfolio.get('trailing_active_count', 0)
+        summary_parts = [f"보유 {pos_count}종목", f"현금 {cash_ratio:.1f}%"]
+        if trail_count:
+            summary_parts.append(f"🟢 트레일링 {trail_count}개")
+        print(f"  포트폴리오:     " + "  |  ".join(summary_parts))
         print()
 
     def _render_positions(self):
