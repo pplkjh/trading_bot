@@ -33,84 +33,56 @@ class ExitStrategy:
         self,
         atr_stop_multiplier: float = 2.0,
         trailing_atr_multiplier: float = 2.0,
-        trailing_stop_activation: float = 0.05,
+        trailing_stop_activation: float = 0.03,
         trailing_stop_distance: float = 0.03,
+        trailing_stop_floor_pct: float = 0.01,
         max_holding_days: int = 15,
         time_stop_loss_pct: float = -0.02,
         factor_score_threshold: float = 40.0,
-        fixed_stop_loss_pct: float = -0.03,
-        breakeven_activation: float = 0.03,
-        breakeven_buffer: float = -0.005,
+        fixed_stop_loss_pct: float = -0.05,
+        emergency_stop_atr_multiplier: float = 3.0,
         losscut_delay_minutes: int = 30
     ):
         """
-        Parameters:
-        -----------
-        atr_stop_multiplier : float
-            ATR 손절 배수 (default: 2.0)
-        trailing_atr_multiplier : float
-            트레일링 스톱 ATR 배수 (default: 2.0) — ADX에 따라 동적 조정
-        trailing_stop_activation : float
-            트레일링 스톱 활성화 수익률 (default: 5%)
-        trailing_stop_distance : float
-            트레일링 스톱 거리 (default: 3%)
-        max_holding_days : int
-            최대 보유 기간 (default: 15일)
-        time_stop_loss_pct : float
-            시간 경과 후 손절 기준 (default: -2%)
-        factor_score_threshold : float
-            팩터 스코어 청산 임계값 (default: 40)
-        fixed_stop_loss_pct : float
-            고정 손절률 (default: -3%)
-        breakeven_activation : float
-            본전 보장 활성화 수익률 (default: +3% 도달 시 손절선 → 매수가)
-        breakeven_buffer : float
-            본전 보장 발동 버퍼 (default: -0.5%, 장중 noise 방지)
-        losscut_delay_minutes : int
-            매수 후 N분간 고정 손절 비활성화 (default: 30분, 시초가 노이즈 방지)
+        청산 우선순위:
+          120 긴급손절  — ATR×emergency_stop_atr_multiplier(3.0), 유예 없음
+          100 고정손절  — fixed_stop_loss_pct(-5%), losscut_delay_minutes(30분) 유예
+           90 트레일링  — trailing_stop_activation(+3%) 이상에서 발동,
+                          스톱 = max(entry×1.01, highest - ATR×trailing_atr_multiplier)
+           70 ATR목표가 — entry + ATR×atr_stop_multiplier × risk_reward_ratio(1.0)
+           60 시간청산  — max_holding_days 초과
+           40 팩터스코어 — factor_score_threshold 이하
         """
         self.atr_stop_multiplier = atr_stop_multiplier
         self.trailing_atr_multiplier = trailing_atr_multiplier
         self.trailing_stop_activation = trailing_stop_activation
         self.trailing_stop_distance = trailing_stop_distance
+        self.trailing_stop_floor_pct = trailing_stop_floor_pct
         self.max_holding_days = max_holding_days
         self.time_stop_loss_pct = time_stop_loss_pct
         self.factor_score_threshold = factor_score_threshold
         self.fixed_stop_loss_pct = fixed_stop_loss_pct
-        self.breakeven_activation = breakeven_activation
-        self.breakeven_buffer = breakeven_buffer
+        self.emergency_stop_atr_multiplier = emergency_stop_atr_multiplier
         self.losscut_delay_minutes = losscut_delay_minutes
 
 
-    def check_atr_stop_loss(
+    def check_emergency_stop(
         self,
         entry_price: float,
         current_price: float,
         atr: float
     ) -> Tuple[bool, float, str]:
         """
-        ATR 기반 손절 체크
-
-        Parameters:
-        -----------
-        entry_price : float
-            진입 가격
-        current_price : float
-            현재 가격
-        atr : float
-            ATR 값
-
-        Returns:
-        --------
-        Tuple[bool, float, str] : (청산 여부, 손절가, 사유)
+        긴급 손절 체크 (ATR×3, 유예 없음)
+        갭다운·서킷브레이커 등 재난적 급락 시 즉시 발동
         """
-        stop_loss_price = entry_price - (atr * self.atr_stop_multiplier)
+        stop_price = entry_price - (atr * self.emergency_stop_atr_multiplier)
 
-        if current_price <= stop_loss_price:
+        if current_price <= stop_price:
             loss_pct = (current_price / entry_price - 1) * 100
-            return True, stop_loss_price, f"ATR 손절 도달 ({loss_pct:.2f}%)"
+            return True, stop_price, f"긴급 손절 도달 ({loss_pct:.2f}%)"
 
-        return False, stop_loss_price, ""
+        return False, stop_price, ""
 
 
     def check_atr_profit_target(
@@ -118,7 +90,7 @@ class ExitStrategy:
         entry_price: float,
         current_price: float,
         atr: float,
-        risk_reward_ratio: float = 1.5
+        risk_reward_ratio: float = 1.0
     ) -> Tuple[bool, float, str]:
         """
         ATR 기반 목표가 도달 체크
@@ -182,13 +154,15 @@ class ExitStrategy:
         if current_gain < self.trailing_stop_activation:
             return False, 0, ""
 
-        # ATR 기반 또는 고정 비율
+        # ATR 기반 또는 고정 비율로 trailing 스톱 계산
         if atr and atr > 0:
-            # ATR 기반: 최고가에서 ATR * trailing_atr_multiplier 만큼 하락 (ADX에 따라 동적)
-            trailing_stop_price = highest_price - (atr * self.trailing_atr_multiplier)
+            raw_stop = highest_price - (atr * self.trailing_atr_multiplier)
         else:
-            # 고정 비율: 최고가에서 N% 하락
-            trailing_stop_price = highest_price * (1 - self.trailing_stop_distance)
+            raw_stop = highest_price * (1 - self.trailing_stop_distance)
+
+        # floor: 트레일링 발동 후 매수가+1% 이상 보장 (매수가 이하 손절 방지)
+        floor = entry_price * (1 + self.trailing_stop_floor_pct)
+        trailing_stop_price = max(floor, raw_stop)
 
         if current_price <= trailing_stop_price:
             profit_pct = (current_price / entry_price - 1) * 100
@@ -406,7 +380,19 @@ class ExitStrategy:
             current_data['close']
         )
 
-        # 0. 고정 손절률 체크 (최우선) — 매수 후 N분간 유예
+        # 0. 긴급 손절 (ATR×3, 유예 없음) — 갭다운·서킷브레이커 등 재난적 급락
+        should_emergency, emerg_price, reason = self.check_emergency_stop(
+            entry_price, current_price, atr
+        )
+        result['stop_loss_price'] = emerg_price
+
+        if should_emergency:
+            result['should_exit'] = True
+            result['reason'] = reason
+            result['priority'] = 120
+            return result
+
+        # 1. 고정 손절 (-5%, 30분 유예) — 일반 손절
         current_return = (current_price / entry_price - 1)
         if current_return <= self.fixed_stop_loss_pct:
             losscut_active = True
@@ -420,23 +406,11 @@ class ExitStrategy:
                 loss_pct = current_return * 100
                 result['should_exit'] = True
                 result['reason'] = f"고정 손절 도달 ({loss_pct:.2f}%)"
-                result['priority'] = 110  # 최우선
+                result['priority'] = 100
                 result['stop_loss_price'] = entry_price * (1 + self.fixed_stop_loss_pct)
                 return result
 
-        # 1. ATR 손절 체크
-        should_stop, stop_price, reason = self.check_atr_stop_loss(
-            entry_price, current_price, atr
-        )
-        result['stop_loss_price'] = stop_price
-
-        if should_stop:
-            result['should_exit'] = True
-            result['reason'] = reason
-            result['priority'] = 100
-            return result
-
-        # 2. 트레일링 스톱 체크 (수익 보호)
+        # 2. 트레일링 스톱 (+3% 발동, floor=entry×1.01)
         should_trail, trail_price, reason = self.check_trailing_stop(
             entry_price, current_price, highest_price, atr
         )
@@ -448,7 +422,7 @@ class ExitStrategy:
             result['priority'] = 90
             return result
 
-        # 3. ATR 목표가 도달 (부분 청산 고려)
+        # 3. ATR 목표가 도달 (RR=1.0)
         should_take_profit, target_price, reason = self.check_atr_profit_target(
             entry_price, current_price, atr
         )
@@ -473,18 +447,7 @@ class ExitStrategy:
             result['priority'] = 60
             return result
 
-        # 5. 기술적 지표 청산 (비활성화 - 너무 빨리 청산됨)
-        # should_tech_exit, reason = self.check_technical_exit(
-        #     current_data, entry_price
-        # )
-        #
-        # if should_tech_exit:
-        #     result['should_exit'] = True
-        #     result['reason'] = reason
-        #     result['priority'] = 50
-        #     return result
-
-        # 6. 팩터 스코어 청산
+        # 5. 팩터 스코어 청산
         if current_score is not None:
             should_factor_exit, reason = self.check_factor_score_exit(current_score)
 
@@ -607,42 +570,48 @@ def _build_exit_strategy(indicators: Optional[Dict]) -> ExitStrategy:
     """
     ADX 값에 따라 동적으로 ExitStrategy 파라미터를 결정한다.
 
-    추세장 (ADX ≥ 25):
-      - 손절 넓게 (ATR×2.5): 추세의 호흡을 허용
-      - 트레일링 빨리 활성화 (+3%): 추세를 타고 길게 보유
-      - 최대 보유 10일
+    공통:
+      - 긴급 손절: ATR×3 (유예 없음)
+      - 고정 손절: -5% (30분 유예)
+      - 트레일링: +3% 발동, floor=entry×1.01
+      - ATR 목표가: entry + ATR×배수×1.0 (RR=1.0)
 
-    횡보장 (ADX ≤ 20):
-      - 손절 좁게 (ATR×1.5): 횡보 종목은 빠르게 손절
-      - 트레일링 늦게 활성화 (+5%): 충분히 벌고 나서 보호
-      - 최대 보유 6일
+    추세장 (ADX ≥ 25): ATR×2.5, 최대 10일 보유
+    중간장 (ADX 20~25): ATR×2.0, 최대 8일 보유
+    횡보장 (ADX < 20):  ATR×1.5, 최대 6일 보유
     """
     adx = indicators.get('adx', 0) if indicators else 0
 
     if adx >= 25:
         strategy = ExitStrategy(
             fixed_stop_loss_pct=-0.05,
+            emergency_stop_atr_multiplier=3.0,
             atr_stop_multiplier=2.5,
             trailing_atr_multiplier=2.5,
             trailing_stop_activation=0.03,
+            trailing_stop_floor_pct=0.01,
             max_holding_days=10,
             losscut_delay_minutes=30
         )
     elif adx >= 20:
         strategy = ExitStrategy(
             fixed_stop_loss_pct=-0.05,
+            emergency_stop_atr_multiplier=3.0,
             atr_stop_multiplier=2.0,
             trailing_atr_multiplier=2.0,
-            trailing_stop_activation=0.04,
+            trailing_stop_activation=0.03,
+            trailing_stop_floor_pct=0.01,
             max_holding_days=8,
             losscut_delay_minutes=30
         )
     else:
         strategy = ExitStrategy(
             fixed_stop_loss_pct=-0.05,
+            emergency_stop_atr_multiplier=3.0,
             atr_stop_multiplier=1.5,
             trailing_atr_multiplier=1.5,
-            trailing_stop_activation=0.05,
+            trailing_stop_activation=0.03,
+            trailing_stop_floor_pct=0.01,
             max_holding_days=6,
             losscut_delay_minutes=30
         )

@@ -449,29 +449,11 @@ class TraderAdvanced(QMainWindow):
 
                 logger.info(f"고급 청산: {len(self.sell_list)}개 매도 시그널")
 
-                # 고급 청산 조건 미충족 시 기본 방식으로 fallback
+                # exit_strategy.py가 모든 손절/익절을 통합 처리
+                # (긴급손절 ATR×3, 고정손절 -5%, 트레일링, ATR목표가, 시간청산)
                 if sell_signals is None or len(sell_signals) == 0:
                     self.sell_signals_detail = []
-                    # opw00018_output은 메인 루프에서 이미 업데이트됨
-                    has_positions = len(self.open_api.opw00018_output['multi']) > 0
-
-                    if has_positions:
-                        logger.debug("고급 청산 조건 미충족, 기본 청산 전략 적용")
-                        # 실전 전용 기본 매도 로직 사용 (simulator 코드 사용 안함)
-                        self.sell_list = self.open_api.get_basic_sell_list()
-                        logger.info(f"기본 청산: {len(self.sell_list)}개 매도 시그널")
-                else:
-                    # advanced 신호가 있어도 기본 -3% 손절은 모든 종목에 적용
-                    # (advanced 리스트에 없는 종목만 추가하여 중복 방지)
-                    advanced_codes = {item[0] for item in self.sell_list}
-                    basic_list = self.open_api.get_basic_sell_list()
-                    added = 0
-                    for item in basic_list:
-                        if item[0] not in advanced_codes:
-                            self.sell_list.append(item)
-                            added += 1
-                    if added:
-                        logger.info(f"기본 손절 추가 (advanced 미포함 종목): {added}개")
+                    logger.debug("고급 청산 조건 미충족 — 청산 없음")
 
             else:
                 # 기존 방식 (고급 전략 사용 안함)
