@@ -136,7 +136,7 @@ def simulate_ma_deadcross(rows, entry_price, ma_short=5, ma_long=20):
             continue
         short_ma = np.mean(closes[i - ma_short + 1: i + 1])
         long_ma  = np.mean(closes[i - ma_long  + 1: i + 1])
-        if i > ma_long and short_ma < long_ma:
+        if short_ma < long_ma:
             prev_short = np.mean(closes[i - ma_short: i])
             prev_long  = np.mean(closes[i - ma_long:  i])
             if prev_short >= prev_long:  # 직전엔 golden cross
@@ -225,35 +225,31 @@ def run_analysis(target_db, window_days, simul_num_filter=None, output_dir=None)
     con_trade = get_connection(target_db)
     con_craw  = get_connection('daily_craw')
 
-    # 매매 기록 조회 (매도 완료 건만)
-    where_simul = f"AND simul_num = {simul_num_filter}" if simul_num_filter else ""
+    # 컬럼 존재 여부 사전 확인
+    with con_trade.cursor() as cur:
+        cur.execute("SHOW COLUMNS FROM all_item_db LIKE 'max_high_pct'")
+        has_minmax = cur.fetchone() is not None
+        cur.execute("SHOW COLUMNS FROM all_item_db LIKE 'strategy_type'")
+        has_strategy_type = cur.fetchone() is not None
+
+    minmax_cols = (
+        "COALESCE(max_high_pct, 0) as max_high_pct, COALESCE(min_low_pct, 0) as min_low_pct"
+        if has_minmax else
+        "0 as max_high_pct, 0 as min_low_pct"
+    )
+    strategy_col = "strategy_type" if has_strategy_type else "'N/A' as strategy_type"
+    where_simul  = f"AND simul_num = {simul_num_filter}" if simul_num_filter else ""
+
     sql = f"""
         SELECT code, code_name, buy_date, purchase_price, sell_date, sell_rate,
-               COALESCE(max_high_pct, 0) as max_high_pct,
-               COALESCE(min_low_pct, 0) as min_low_pct,
-               strategy_type
+               {minmax_cols}, {strategy_col}
         FROM all_item_db
         WHERE sell_date != '0' {where_simul}
         ORDER BY buy_date
     """
-    try:
-        with con_trade.cursor() as cur:
-            cur.execute(sql)
-            trades = cur.fetchall()
-    except Exception as e:
-        # strategy_type 컬럼 없는 DB (jackbot3_imi1)
-        sql_fallback = f"""
-            SELECT code, code_name, buy_date, purchase_price, sell_date, sell_rate,
-                   COALESCE(max_high_pct, 0) as max_high_pct,
-                   COALESCE(min_low_pct, 0) as min_low_pct,
-                   'N/A' as strategy_type
-            FROM all_item_db
-            WHERE sell_date != '0' {where_simul}
-            ORDER BY buy_date
-        """
-        with con_trade.cursor() as cur:
-            cur.execute(sql_fallback)
-            trades = cur.fetchall()
+    with con_trade.cursor() as cur:
+        cur.execute(sql)
+        trades = cur.fetchall()
 
     print(f"총 {len(trades)}건 분석 중 (window={window_days}일)...")
 
