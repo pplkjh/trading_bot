@@ -139,6 +139,10 @@ CREATE TABLE IF NOT EXISTS all_item_db (
     item_total_purchase BIGINT DEFAULT 0 COMMENT '총 매수금액',
     valuation_price BIGINT DEFAULT 0 COMMENT '평가금액',
 
+    -- 보유기간 중 최대/최소 수익률 추적 (백테스트 잠재력 분석용)
+    max_high_pct DECIMAL(10,4) DEFAULT 0 COMMENT '보유 중 최대 고가 수익률 (%)',
+    min_low_pct DECIMAL(10,4) DEFAULT 0 COMMENT '보유 중 최대 저가 손실률 (%)',
+
     INDEX idx_code (code),
     INDEX idx_buy_date (buy_date),
     INDEX idx_sell_date (sell_date),

@@ -124,6 +124,10 @@ CREATE TABLE IF NOT EXISTS all_item_db (
     -- ★ simul_num=4 신규: 전략 구분
     strategy_type VARCHAR(1) DEFAULT 'A' COMMENT '전략 유형 (A: 돌파초입, B: 저점반등)',
 
+    -- 보유기간 중 최대/최소 수익률 추적 (백테스트 잠재력 분석용)
+    max_high_pct DECIMAL(10,4) DEFAULT 0 COMMENT '보유 중 최대 고가 수익률 (%)',
+    min_low_pct DECIMAL(10,4) DEFAULT 0 COMMENT '보유 중 최대 저가 손실률 (%)',
+
     INDEX idx_code (code),
     INDEX idx_buy_date (buy_date),
     INDEX idx_sell_date (sell_date),

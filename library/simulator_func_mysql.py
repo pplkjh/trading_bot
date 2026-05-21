@@ -1703,6 +1703,16 @@ class simulator_func_mysql:
 
         self.engine_simulator.execute(sql)
 
+        # max/min 잠재력 추적 (백테스트 분석용)
+        if high and low and high > 0 and low > 0:
+            sql_minmax = (
+                f"UPDATE all_item_db SET "
+                f"max_high_pct = GREATEST(COALESCE(max_high_pct, 0), (({high} / purchase_price) - 1) * 100), "
+                f"min_low_pct = LEAST(COALESCE(min_low_pct, 0), (({low} / purchase_price) - 1) * 100) "
+                f"WHERE code_name = '{code_name}' AND sell_date = 0"
+            )
+            self.engine_simulator.execute(sql_minmax)
+
     # jango_data 라는 테이블을 만들기 위한 self.jango 데이터프레임을 생성
     def init_df_jango(self):
         jango_temp = {'id': []}
@@ -1761,7 +1771,8 @@ class simulator_func_mysql:
                                               'composite_score',
                                               'score_a', 'score_b', 'score_c', 'score_d',
                                               'score_e', 'score_f', 'score_penalty',
-                                              'simul_num'])
+                                              'simul_num',
+                                              'max_high_pct', 'min_low_pct'])
 
     # 가장 초기에 매수 했을 때 all_item_db 에 추가하는 함수
     def db_to_all_item(self, min_date, df, index, code, code_name, purchase_price, yesterday_close):
@@ -1810,6 +1821,8 @@ class simulator_func_mysql:
         for _col in ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']:
             self.df_all_item.loc[0, _col] = df.loc[index, _col] if _col in df.columns else 0
         self.df_all_item.loc[0, 'simul_num'] = self.simul_num
+        self.df_all_item.loc[0, 'max_high_pct'] = 0.0
+        self.df_all_item.loc[0, 'min_low_pct'] = 0.0
         if self.simul_num in (4, 5, 6):
             if 'strategy_type' in df.columns:
                 self.df_all_item.loc[0, 'strategy_type'] = df.loc[index, 'strategy_type']
@@ -2155,6 +2168,16 @@ class simulator_func_mysql:
                 "WHERE sell_date = '0' "
                 "AND ((rate >= {sp}) OR (rate <= {lc}) OR (ma5 < ma20)) GROUP BY code"
             ).format(sp=self.sell_point, lc=self.losscut_point)
+            sell_list = self.engine_simulator.execute(sql).fetchall()
+
+        # MA 데드크로스만으로 청산 (TP/SL 없음) — max/min 잠재력 분석용 백테스트
+        elif self.sell_list_num == 30:
+            sql = (
+                "SELECT code, code_name, rate, present_price, valuation_profit, "
+                "'MA데드크로스' AS sell_reason "
+                "FROM all_item_db "
+                "WHERE sell_date = '0' AND ma5 < ma20 GROUP BY code"
+            )
             sell_list = self.engine_simulator.execute(sql).fetchall()
 
         # 🚀 고급 통합 전략: exit_strategy.py 사용 (ATR 기반 동적 손절/익절)
