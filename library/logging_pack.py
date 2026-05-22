@@ -27,15 +27,22 @@ class DeduplicateFilter(logging.Filter):
 # jackbot.log 라는 이름으로 로그파일이 만들어진다.
 
 # JACKBOT_LOG_FILE env var가 있으면 backtest 전용 로그 (backtest_report 폴더, INFO 레벨)
-# 없으면 기본 jackbot.log (log 폴더, DEBUG 레벨)
+# JACKBOT_LOG_NAME=simulator 이면 log/simulator.log (jackbot.log와 분리)
+# 그 외 기본 jackbot.log (log 폴더, DEBUG 레벨)
 _log_file_override = os.environ.get('JACKBOT_LOG_FILE')
+_log_name = os.environ.get('JACKBOT_LOG_NAME', '')
+_log_base = pathlib.Path(__file__).parent.parent.absolute() / 'log'
+
 if _log_file_override:
     _log_dir = pathlib.Path(__file__).parent.parent.absolute() / 'backtest_report'
     os.makedirs(_log_dir, exist_ok=True)
     file_path = _log_dir / _log_file_override
     _file_log_level = logging.INFO
+elif _log_name == 'simulator':
+    file_path = _log_base / 'simulator.log'
+    _file_log_level = logging.DEBUG
 else:
-    file_path = pathlib.Path(__file__).parent.parent.absolute() / 'log' / 'jackbot.log'
+    file_path = _log_base / 'jackbot.log'
     _file_log_level = logging.DEBUG
 
 os.makedirs(file_path.parents[0], exist_ok=True)

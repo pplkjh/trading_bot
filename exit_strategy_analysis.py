@@ -339,13 +339,13 @@ def run_analysis(target_db, window_days, simul_num_filter=None, output_dir=None)
         w('  max_high_pct 분포 (달성 가능 수익 상한):')
         for thr in [3, 5, 6, 8, 10, 12, 15, 20]:
             pct = pct_above_threshold(max_high_pcts, thr)
-            bar = '█' * int(pct / 2)
+            bar = '#' * int(pct / 2)
             w(f'    > +{thr:2d}%  :  {pct:5.1f}%  {bar}')
         w()
         w('  min_low_pct 분포 (최대 역행 손실):')
         for thr in [-2, -3, -4, -5, -7, -10]:
             pct = pct_below_threshold(min_low_pcts, thr)
-            bar = '█' * int(pct / 2)
+            bar = '#' * int(pct / 2)
             w(f'    < {thr:3d}%  :  {pct:5.1f}%  {bar}')
 
     # 전략별 비교
