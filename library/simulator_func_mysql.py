@@ -227,17 +227,17 @@ class simulator_func_mysql:
             self.invest_min_limit_rate = 0.97
 
         elif self.simul_num == 5:
-            # Strategy B: 저점 반등 (ReversalStrategyV3) — jackbot4_imi1
+            # Strategy B: 중장기 RSI 사이클 (ReversalStrategyV3) — jackbot4_imi1
             self.simul_start_date = "20230102"
             self.use_min = False
             self.only_nine_buy = False
             self.db_to_realtime_daily_buy_list_num = 22
-            self.sell_list_num = 20   # sim=3과 동일 조건으로 매수 전략 비교
+            self.sell_list_num = 31   # B 전략 전용: 하드SL -8% / MA데드크로스 / RSI>=70 / 84일 시간청산
             self.start_invest_price = 10000000
             self.invest_unit = self._resolve_invest_unit(self.start_invest_price)
             self.limit_money = 300000
-            self.sell_point = 6
-            self.losscut_point = -3
+            self.sell_point = 6       # sell_list_num=31에서 직접 사용 안함 (참고용)
+            self.losscut_point = -8   # 하드 SL 기준 (sell_list_num=31에서 직접 쿼리)
             self.max_positions = 999
             self.invest_limit_rate = 1.02
             self.invest_min_limit_rate = 0.97
@@ -1399,19 +1399,19 @@ class simulator_func_mysql:
                         LIMIT 150
                     """
                 elif self.simul_num == 5:
-                    # Strategy B: RSI 낮음 + BB 하단 근처 + 거래량 증가
+                    # Strategy B: 중장기 사이클 — 진짜 과매도 후 회복 중인 종목
                     pre_filter_sql = f"""
                         SELECT a.* FROM `{date_rows_today}` a
                         WHERE NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code=b.code)
                         AND a.close > 0 AND a.close < {self.invest_unit}
                         AND a.volume > 0 AND a.vol20 > 0
-                        AND a.rsi14 <= 55
-                        AND a.rsi14 >= 30
+                        AND a.rsi14 <= 54
+                        AND a.rsi14 >= 25
                         ORDER BY a.rsi14 ASC
                         LIMIT 150
                     """
                 else:  # sim=6
-                    # A+B 둘 다: 상승 돌파 OR RSI 저점 반등
+                    # A+B 둘 다: 상승 돌파 OR RSI 사이클 저점 회복 중
                     pre_filter_sql = f"""
                         SELECT a.* FROM `{date_rows_today}` a
                         WHERE NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code=b.code)
@@ -1419,11 +1419,11 @@ class simulator_func_mysql:
                         AND a.volume > 0 AND a.vol20 > 0
                         AND (
                             (a.d1_diff_rate >= 1.5 AND a.vol5 > a.vol20 * 1.2)
-                            OR (a.rsi14 <= 55 AND a.rsi14 >= 30)
+                            OR (a.rsi14 <= 54 AND a.rsi14 >= 25)
                         )
                         ORDER BY (
                             (CASE WHEN a.d1_diff_rate >= 1.5 THEN 1 ELSE 0 END) +
-                            (CASE WHEN a.rsi14 <= 45 THEN 1 ELSE 0 END)
+                            (CASE WHEN a.rsi14 <= 42 THEN 1 ELSE 0 END)
                         ) DESC
                         LIMIT 200
                     """
@@ -1684,7 +1684,7 @@ class simulator_func_mysql:
 
     # 현재의 주가를 all_item_db에 있는 보유한 종목들에 대해서 반영 한다.
     def db_to_all_item_present_price_update(self, code_name, d1_diff_rate, close, open, high, low, volume, clo5, clo10, clo20,
-                                                         clo40, clo60, clo80, clo100, clo120, option='ALL'):
+                                                         clo40, clo60, clo80, clo100, clo120, option='ALL', rsi14=None):
         # 영상 촬영 후 아래 내용 업데이트 하였습니다.
         if self.op == 'real': # 콜렉터에서 업데이트 할 때는 현재가를 종가로 업데이트(trader에서 실시간으로 present_price 업데이트함)
             present_price = close
@@ -1712,6 +1712,16 @@ class simulator_func_mysql:
                 f"WHERE code_name = '{code_name}' AND sell_date = 0"
             )
             self.engine_simulator.execute(sql_minmax)
+
+        # RSI 추적 (B전략 RSI 천장 매도용)
+        if rsi14 is not None and self.simul_num in (5, 6):
+            try:
+                self.engine_simulator.execute(
+                    f"UPDATE all_item_db SET rsi14 = {float(rsi14)} "
+                    f"WHERE code_name = '{code_name}' AND sell_date = 0"
+                )
+            except Exception:
+                pass
 
     # jango_data 라는 테이블을 만들기 위한 self.jango 데이터프레임을 생성
     def init_df_jango(self):
@@ -1772,7 +1782,7 @@ class simulator_func_mysql:
                                               'score_a', 'score_b', 'score_c', 'score_d',
                                               'score_e', 'score_f', 'score_penalty',
                                               'simul_num',
-                                              'max_high_pct', 'min_low_pct'])
+                                              'max_high_pct', 'min_low_pct', 'rsi14'])
 
     # 가장 초기에 매수 했을 때 all_item_db 에 추가하는 함수
     def db_to_all_item(self, min_date, df, index, code, code_name, purchase_price, yesterday_close):
@@ -1823,6 +1833,7 @@ class simulator_func_mysql:
         self.df_all_item.loc[0, 'simul_num'] = self.simul_num
         self.df_all_item.loc[0, 'max_high_pct'] = 0.0
         self.df_all_item.loc[0, 'min_low_pct'] = 0.0
+        self.df_all_item.loc[0, 'rsi14'] = 0.0
         if self.simul_num in (4, 5, 6):
             if 'strategy_type' in df.columns:
                 self.df_all_item.loc[0, 'strategy_type'] = df.loc[index, 'strategy_type']
@@ -1993,7 +2004,7 @@ class simulator_func_mysql:
 
     # 종목의 현재 일자에 대한 주가 정보를 가져 오는 함수
     def get_now_price_by_date(self, code_name, date):
-        sql = "select d1_diff_rate, close, open, high, low, volume, clo5, clo10, clo20, clo40, clo60, clo80, clo100, clo120 from `" + date + "` where code_name = '%s' group by code"
+        sql = "select d1_diff_rate, close, open, high, low, volume, clo5, clo10, clo20, clo40, clo60, clo80, clo100, clo120, rsi14 from `" + date + "` where code_name = '%s' group by code"
         rows = self.engine_daily_buy_list.execute(sql % (code_name)).fetchall()
 
         if len(rows) == 1:
@@ -2048,11 +2059,12 @@ class simulator_func_mysql:
             clo80 = rows[0][11]
             clo100 = rows[0][12]
             clo120 = rows[0][13]
+            rsi14 = rows[0][14] if len(rows[0]) > 14 else None
 
             # 만약에 open가에 어떤 값이 있으면(True) 현재 주가를 all_item_db에 반영 하기 위해 아래 함수를 들어간다.
             if open:
                 self.db_to_all_item_present_price_update(code_name, d1_diff_rate, close, open, high, low, volume, clo5, clo10, clo20,
-                                                         clo40, clo60, clo80, clo100, clo120, option)
+                                                         clo40, clo60, clo80, clo100, clo120, option, rsi14=rsi14)
 
                 # [시뮬레이터 당일 손절 보정]
                 # 실전에서는 장중 손절가 도달 시 즉시 매도하지만, 시뮬레이터는 시가 기준이라
@@ -2178,6 +2190,28 @@ class simulator_func_mysql:
                 "FROM all_item_db "
                 "WHERE sell_date = '0' AND ma5 < ma20 GROUP BY code"
             )
+            sell_list = self.engine_simulator.execute(sql).fetchall()
+
+        # Strategy B 중장기 사이클 매도 — 하드SL / MA데드크로스 / RSI천장 / 60거래일 시간청산
+        elif self.sell_list_num == 31:
+            date_today_str = self.date_rows[i][0]
+            sql = (
+                "SELECT code, code_name, rate, present_price, valuation_profit, "
+                "CASE "
+                "  WHEN rate <= -8 THEN '하드SL(-8%)' "
+                "  WHEN ma5 < ma20 THEN 'MA데드크로스' "
+                "  WHEN rsi14 >= 70 THEN 'RSI천장(>=70)' "
+                "  ELSE '시간청산(60d)' "
+                "END AS sell_reason "
+                "FROM all_item_db "
+                "WHERE sell_date = '0' "
+                "AND ("
+                "  rate <= -8 "
+                "  OR ma5 < ma20 "
+                "  OR rsi14 >= 70 "
+                "  OR DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 84"
+                ") GROUP BY code"
+            ).format(d=date_today_str)
             sell_list = self.engine_simulator.execute(sql).fetchall()
 
         # 🚀 고급 통합 전략: exit_strategy.py 사용 (ATR 기반 동적 손절/익절)

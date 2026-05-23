@@ -338,20 +338,30 @@ class BreakoutStrategyV3:
 
 
 # ============================================================
-# Strategy B: 저점 반등 (ReversalStrategyV3)
+# Strategy B: 중장기 RSI 사이클 (ReversalStrategyV3)
 # ============================================================
 
 class ReversalStrategyV3:
     """
-    낙폭 과대 → RSI 바닥 확인 + 반등 시작 → 단기 회복 구간 포착
+    과매도 후 지속적 회복 → 중장기 사이클 상승 구간 포착
+
+    [배점] 200pt 만점 (백테스트 시 펀더멘털 B 제외 → 최대 160pt)
+      A. RSI 사이클 깊이 + 지속 회복  80pt
+      B. 펀더멘털 품질               40pt  ← 실전 전용, 백테스트=0
+      C. 중장기 추세 전환             40pt
+      D. BB 사이클 위치              25pt
+      E. 거래량 + MACD               15pt
 
     자동 탈락 조건 (auto_reject):
-      - RSI today < RSI yesterday    : 아직 하락 중 (핵심 — 낙도 붙잡기 방지)
-      - RSI > 55                     : 이미 많이 회복됨
-      - 최근 15일 내 trough RSI > 42 : 과매도 구간 진입 없음
+      - 최근 25일 내 RSI trough > 30  : 진짜 과매도 없음
+      - RSI 연속 상승일 < 2일          : 회복 지속성 없음 (하루짜리 반등 방지)
+      - RSI > 55                      : 이미 충분히 회복됨
+
+    매도 전략: sell_list_num=31
+      - 하드 SL -8% / MA 데드크로스 / RSI > 70 / 60거래일 시간청산
     """
 
-    def calculate_total_score(self, row: dict, df_120, market_data=None) -> dict:
+    def calculate_total_score(self, row: dict, df_120, market_data=None, fundamental_data=None) -> dict:
         base = {
             'total': 0.0, 'score_a': 0.0, 'score_b': 0.0, 'score_c': 0.0,
             'score_d': 0.0, 'score_e': 0.0, 'score_f': 0.0,
@@ -359,7 +369,6 @@ class ReversalStrategyV3:
             'reject_reason': '', 'strategy_type': 'B'
         }
 
-        # RSI 시계열이 필요하므로 먼저 계산
         rsi_series = None
         if df_120 is not None and len(df_120) >= 30:
             rsi_series = _calc_rsi_series(df_120)
@@ -371,21 +380,13 @@ class ReversalStrategyV3:
             base['total'] = -999.0
             return base
 
-        # score_a: RSI 저점 깊이 + 반등 강도 — 70pt
-        sa = self._score_rsi_reversal(rsi_series)
-        # score_b: BB 하단 반등 + BB 현재 위치 — 55pt
-        sb = self._score_bb_bounce(row, df_120)
-        # score_c: 반등 거래량 — 30pt
-        sc = self._score_reversal_volume(row)
-        # score_d: MACD 전환 — 25pt
-        sd = self._score_macd(row)
-        # score_e: 캔들 패턴 — 20pt
-        se = self._score_candle(row)
-        # score_f: 미사용
+        sa = self._score_rsi_cycle(rsi_series)
+        sb = self._score_fundamental(fundamental_data)
+        sc = self._score_trend_reversal(row, df_120)
+        sd = self._score_bb_cycle(row, df_120)
+        se = self._score_volume_macd(row)
         sf = 0.0
-
         penalty = self._penalty(row)
-
         total = sa + sb + sc + sd + se + sf + penalty
 
         base.update({
@@ -401,80 +402,160 @@ class ReversalStrategyV3:
         return base
 
     def _auto_reject(self, row: dict, rsi_series) -> str:
-        # RSI 아직 하락 중 — 가장 중요한 필터
         try:
             rsi_now = float(row.get('rsi14') or 50)
-            if rsi_series is not None and len(rsi_series) >= 2:
-                rsi_yesterday = float(rsi_series.iloc[-2])
-                if rsi_now < rsi_yesterday:
-                    return f'RSI 하락 중 ({rsi_yesterday:.1f} → {rsi_now:.1f})'
             if rsi_now > 55:
                 return f'RSI {rsi_now:.1f} > 55 (이미 충분히 회복)'
         except (TypeError, ValueError):
             pass
 
-        # 최근 15일 내 과매도 구간(RSI<42) 미진입 시 탈락
+        # 최근 25일 내 RSI trough > 30 → 진짜 과매도 없음
         try:
-            if rsi_series is not None and len(rsi_series) >= 16:
-                recent_search = rsi_series.iloc[-16:-1]
-                trough_rsi = float(recent_search.min())
-                if trough_rsi > 42:
-                    return f'최근 15일 RSI 최저 {trough_rsi:.1f} > 42 (과매도 없음)'
+            if rsi_series is not None and len(rsi_series) >= 26:
+                trough_rsi = float(rsi_series.iloc[-26:-1].min())
+                if trough_rsi > 30:
+                    return f'최근 25일 RSI 최저 {trough_rsi:.1f} > 30 (과매도 미달)'
+        except Exception:
+            pass
+
+        # RSI 연속 상승일 < 2일 → 하루짜리 반등 방지
+        try:
+            if rsi_series is not None and len(rsi_series) >= 4:
+                consecutive = 0
+                for k in range(1, min(6, len(rsi_series))):
+                    if float(rsi_series.iloc[-k]) > float(rsi_series.iloc[-(k + 1)]):
+                        consecutive += 1
+                    else:
+                        break
+                if consecutive < 2:
+                    return f'RSI 연속 상승일 {consecutive}일 < 2일 (회복 지속성 없음)'
         except Exception:
             pass
 
         return None
 
-    def _score_rsi_reversal(self, rsi_series) -> float:
-        """RSI 저점 깊이(35pt) + 반등 강도(35pt) = 70pt"""
+    def _score_rsi_cycle(self, rsi_series) -> float:
+        """A. RSI 저점 깊이(40pt) + 회복 지속성(40pt) = 80pt"""
         score = 0.0
-        if rsi_series is None or len(rsi_series) < 16:
+        if rsi_series is None or len(rsi_series) < 26:
             return score
 
         try:
-            recent = rsi_series.iloc[-16:].reset_index(drop=True)
-            rsi_now = float(recent.iloc[-1])
-            search = recent.iloc[:-1]  # 과거 15일
-
-            trough_idx = int(search.idxmin())
-            trough_rsi = float(search.iloc[trough_idx])
-            days_since_trough = 15 - trough_idx
-            rise_from_trough = rsi_now - trough_rsi
-
-            # 저점 깊이 (35pt)
-            if trough_rsi <= 25:
-                score += 35
+            trough_rsi = float(rsi_series.iloc[-26:-1].min())
+            if trough_rsi <= 20:
+                score += 40
+            elif trough_rsi <= 25:
+                score += 30
             elif trough_rsi <= 30:
-                score += 25
-            elif trough_rsi <= 35:
-                score += 15
-            elif trough_rsi <= 42:
-                score += 8
+                score += 20
 
-            # 반등 강도 (35pt)
-            if rise_from_trough > 0 and days_since_trough > 0:
-                rise_rate = rise_from_trough / days_since_trough
-                if rise_rate >= 2.0:
-                    score += 35
-                elif rise_rate >= 1.5:
-                    score += 28
-                elif rise_rate >= 1.0:
-                    score += 20
-                elif rise_rate >= 0.5:
-                    score += 10
+            consecutive = 0
+            for k in range(1, min(10, len(rsi_series))):
+                if float(rsi_series.iloc[-k]) > float(rsi_series.iloc[-(k + 1)]):
+                    consecutive += 1
                 else:
-                    score += 5  # 상승 중이긴 함
-
+                    break
+            if consecutive >= 5:
+                score += 40
+            elif consecutive >= 3:
+                score += 25
+            elif consecutive >= 2:
+                score += 12
         except Exception:
             pass
 
         return score
 
-    def _score_bb_bounce(self, row: dict, df_120) -> float:
-        """BB 하단 반등(30pt) + BB 현재 위치(25pt) = 55pt"""
+    def _score_fundamental(self, fundamental_data) -> float:
+        """B. 펀더멘털 품질 — 40pt (실전 전용, fundamental_data=None → 0)"""
+        if fundamental_data is None:
+            return 0.0
+        score = 0.0
+        try:
+            roa = fundamental_data.get('roa')
+            if roa is not None:
+                roa = float(roa)
+                if roa > 10:
+                    score += 20
+                elif roa > 5:
+                    score += 12
+                elif roa > 0:
+                    score += 5
+                else:
+                    score -= 10
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            per = fundamental_data.get('per')
+            if per is not None:
+                per = float(per)
+                if per < 0:
+                    score -= 15
+                elif 5 <= per <= 15:
+                    score += 20
+                elif 15 < per <= 25:
+                    score += 10
+        except (TypeError, ValueError):
+            pass
+
+        return score
+
+    def _score_trend_reversal(self, row: dict, df_120) -> float:
+        """C. MA25 기울기 전환(20pt) + MA5>MA20 & MA20 기울기(20pt) = 40pt"""
         score = 0.0
 
-        # BB 현재 위치: (close - bb_lower) / (bb_upper - bb_lower) → 0.15~0.40 구간 만점
+        try:
+            if df_120 is not None and len(df_120) >= 31:
+                close_s = df_120['close'].reset_index(drop=True)
+                ma25_today = float(close_s.iloc[-25:].mean())
+                ma25_6d_ago = float(close_s.iloc[-31:-6].mean())
+                close_now = float(row.get('close') or 0)
+                if close_now > ma25_today and ma25_today > ma25_6d_ago:
+                    score += 20
+                elif close_now > ma25_today:
+                    score += 10
+        except Exception:
+            pass
+
+        try:
+            ma5 = float(row.get('clo5') or 0)
+            ma20 = float(row.get('clo20') or 0)
+            if ma5 > 0 and ma20 > 0 and ma5 > ma20:
+                score += 10
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            ma20_now = float(row.get('clo20') or 0)
+            yes_ma20 = float(row.get('yes_clo20') or 0)
+            if ma20_now > 0 and yes_ma20 > 0 and ma20_now > yes_ma20:
+                score += 10
+        except (TypeError, ValueError):
+            pass
+
+        return score
+
+    def _score_bb_cycle(self, row: dict, df_120) -> float:
+        """D. BB 하단 터치 후 복귀(15pt) + BB 현재 위치(10pt) = 25pt"""
+        score = 0.0
+
+        try:
+            if df_120 is not None and len(df_120) >= 25:
+                bb_lower_series = _calc_bb_lower_series(df_120)
+                if bb_lower_series is not None:
+                    recent_close = df_120['close'].iloc[-11:-1].values
+                    recent_low = df_120['low'].iloc[-11:-1].values
+                    recent_bb_l = bb_lower_series.iloc[-11:-1].values
+                    if any(
+                        (recent_close[k] <= recent_bb_l[k] or recent_low[k] <= recent_bb_l[k])
+                        for k in range(len(recent_close))
+                        if recent_bb_l[k] == recent_bb_l[k]
+                    ):
+                        score += 15
+        except Exception:
+            pass
+
         try:
             close = float(row.get('close') or 0)
             bb_upper = float(row.get('bb_upper') or 0)
@@ -482,105 +563,53 @@ class ReversalStrategyV3:
             bb_range = bb_upper - bb_lower
             if bb_range > 0:
                 pos = (close - bb_lower) / bb_range
-                if 0.15 <= pos <= 0.40:
-                    score += 25
-                elif 0.10 <= pos < 0.15:
-                    score += 25 * (pos - 0.10) / 0.05
+                if 0.10 <= pos <= 0.40:
+                    score += 10
                 elif 0.40 < pos <= 0.55:
-                    score += 25 * (0.55 - pos) / 0.15
+                    score += 10 * (0.55 - pos) / 0.15
         except (TypeError, ZeroDivisionError):
-            pass
-
-        # BB 하단 이탈 후 복귀: 최근 5일 내 종가 or 저가가 bb_lower 아래였는지 확인
-        try:
-            if df_120 is not None and len(df_120) >= 25:
-                bb_lower_series = _calc_bb_lower_series(df_120)
-                if bb_lower_series is not None:
-                    # 오늘 제외 최근 5거래일 확인
-                    recent_close = df_120['close'].iloc[-6:-1].values
-                    recent_low = df_120['low'].iloc[-6:-1].values
-                    recent_bb_l = bb_lower_series.iloc[-6:-1].values
-                    penetrated = any(
-                        (recent_close[i] <= recent_bb_l[i] or recent_low[i] <= recent_bb_l[i])
-                        for i in range(len(recent_close))
-                        if recent_bb_l[i] == recent_bb_l[i]  # nan 제외
-                    )
-                    if penetrated:
-                        score += 30
-                    else:
-                        # bb_lower 근처였다면 부분 점수
-                        bb_lower_now = float(row.get('bb_lower') or 0)
-                        close_now = float(row.get('close') or 0)
-                        if bb_lower_now > 0 and close_now < bb_lower_now * 1.05:
-                            score += 15
-        except Exception:
             pass
 
         return score
 
-    def _score_reversal_volume(self, row: dict) -> float:
-        """반등 거래량 (vol5/vol20): 30pt"""
+    def _score_volume_macd(self, row: dict) -> float:
+        """E. 반등 거래량(8pt) + MACD 전환(7pt) = 15pt"""
+        score = 0.0
+
         try:
             vol5 = float(row.get('vol5') or 0)
             vol20 = float(row.get('vol20') or 1)
             if vol20 > 0:
                 ratio = vol5 / vol20
-                if ratio >= 1.8:
-                    return 30.0
-                elif ratio >= 1.5:
-                    return 25.0
+                if ratio >= 1.5:
+                    score += 8
                 elif ratio >= 1.2:
-                    return 15.0
+                    score += 5
                 elif ratio >= 1.0:
-                    return 5.0
+                    score += 2
         except (TypeError, ZeroDivisionError):
             pass
-        return 0.0
 
-    def _score_macd(self, row: dict) -> float:
-        """MACD 전환 신호: 25pt"""
-        score = 0.0
         try:
             hist = float(row.get('macd_histogram') or 0)
             macd = float(row.get('macd') or 0)
             signal = float(row.get('macd_signal') or 0)
             if hist > 0 and macd > signal:
-                score += 25
-            elif hist > 0:
-                score += 15
-            elif macd > signal:
-                score += 10
+                score += 7
+            elif hist > 0 or macd > signal:
+                score += 4
         except (TypeError, ValueError):
             pass
-        return score
 
-    def _score_candle(self, row: dict) -> float:
-        """캔들 패턴 점수: 20pt (망치형, 도지 등 반전 패턴)"""
-        try:
-            return min(20.0, float(row.get('candle_pattern_score') or 0))
-        except (TypeError, ValueError):
-            return 0.0
+        return score
 
     def _penalty(self, row: dict) -> float:
         penalty = 0.0
-
-        # RSI > 53: 회복 구간 상단 접근 (auto_reject가 >55 이므로 53~55 구간 경고)
-        try:
-            rsi = float(row.get('rsi14') or 50)
-            if rsi > 53:
-                penalty -= 10
-        except (TypeError, ValueError):
-            pass
-
-        # 변동성 패널티
         try:
             atr14 = float(row.get('atr14') or 0)
             close = float(row.get('close') or 1)
-            if close > 0:
-                atr_rate = atr14 / close
-                if atr_rate > 0.08:
-                    penalty -= 10
+            if close > 0 and atr14 / close > 0.08:
+                penalty -= 10
         except (TypeError, ZeroDivisionError):
             pass
-
         return penalty
