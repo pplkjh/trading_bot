@@ -2194,22 +2194,22 @@ class simulator_func_mysql:
             )
             sell_list = self.engine_simulator.execute(sql).fetchall()
 
-        # Strategy B 중장기 사이클 매도 — 하드SL / RSI Top Failure Swing / 84일 시간청산
+        # Strategy B 과매도 반등 매도 — 하드SL -7% / RSI>=60 회복청산 / 30일 시간청산
         elif self.sell_list_num == 31:
             date_today_str = self.date_rows[i][0]
             sql = (
                 "SELECT code, code_name, rate, present_price, valuation_profit, "
                 "CASE "
-                "  WHEN rate <= -8 THEN '하드SL(-8%)' "
-                "  WHEN rsi_peak >= 70 AND rsi14 < 70 THEN 'RSI천장이탈(TFS)' "
-                "  ELSE '시간청산(84d)' "
+                "  WHEN rate <= -7 THEN '하드SL(-7%)' "
+                "  WHEN rsi14 >= 60 THEN 'RSI회복(>=60)' "
+                "  ELSE '시간청산(30d)' "
                 "END AS sell_reason "
                 "FROM all_item_db "
                 "WHERE sell_date = '0' "
                 "AND ("
-                "  rate <= -8 "
-                "  OR (rsi_peak >= 70 AND rsi14 < 70) "
-                "  OR DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 84"
+                "  rate <= -7 "
+                "  OR rsi14 >= 60 "
+                "  OR DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 30"
                 ") GROUP BY code"
             ).format(d=date_today_str)
             sell_list = self.engine_simulator.execute(sql).fetchall()

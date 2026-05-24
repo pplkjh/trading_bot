@@ -181,6 +181,61 @@ def simulate_combined(rows, entry_price, tp_pct, sl_pct, trail_activation_pct, t
     return len(rows) - 1, (rows[-1]['close'] / entry_price - 1) * 100, 'TIME'
 
 
+def _calc_rsi_list(closes, period=14):
+    """EWM 방식 RSI 계산 — list 반환"""
+    s = pd.Series(closes, dtype=float)
+    delta = s.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    avg_gain = gain.ewm(alpha=1.0 / period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / period, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, float('nan'))
+    return (100 - (100 / (1 + rs))).fillna(50).tolist()
+
+
+def get_price_path_extended(con_craw, code_name, buy_date_str, window_days, pre_days=30):
+    """매수일 이전 pre_days + 이후 window_days 데이터 반환 — RSI 초기화용"""
+    try:
+        with con_craw.cursor() as cur:
+            cur.execute(
+                f"SELECT date, open, high, low, close, volume FROM `{code_name}` "
+                f"WHERE date < '{buy_date_str}' ORDER BY date DESC LIMIT {pre_days}"
+            )
+            pre_rows = list(reversed(cur.fetchall()))
+            cur.execute(
+                f"SELECT date, open, high, low, close, volume FROM `{code_name}` "
+                f"WHERE date >= '{buy_date_str}' ORDER BY date ASC LIMIT {window_days + 1}"
+            )
+            post_rows = cur.fetchall()
+        return pre_rows, post_rows
+    except Exception:
+        return [], []
+
+
+def simulate_rsi_exit(pre_rows, post_rows, entry_price, rsi_threshold, sl_pct, max_days):
+    """RSI >= threshold OR SL OR max_days 시간청산"""
+    if not post_rows:
+        return 0, 0.0, 'TIME'
+    all_closes = [r['close'] for r in pre_rows] + [r['close'] for r in post_rows]
+    rsi_all = _calc_rsi_list(all_closes)
+    pre_len = len(pre_rows)
+    limit = min(len(post_rows) - 1, max_days)
+    for i in range(1, limit + 1):
+        row = post_rows[i]
+        rsi_idx = pre_len + i
+        rsi_val = rsi_all[rsi_idx] if rsi_idx < len(rsi_all) else 50.0
+        low_pct   = (row['low']   / entry_price - 1) * 100
+        close_pct = (row['close'] / entry_price - 1) * 100
+        if low_pct <= sl_pct:
+            return i, sl_pct, 'SL'
+        if rsi_val >= rsi_threshold:
+            return i, close_pct, f'RSI{rsi_threshold:.0f}'
+        if i == limit:
+            return i, close_pct, 'TIME'
+    close_pct = (post_rows[-1]['close'] / entry_price - 1) * 100
+    return len(post_rows) - 1, close_pct, 'TIME'
+
+
 # ─────────────────────────────────────────────
 # 통계 계산
 # ─────────────────────────────────────────────
@@ -271,8 +326,17 @@ def run_analysis(target_db, window_days, simul_num_filter=None, output_dir=None)
         ),
     }
 
+    # RSI 기반 전략 정의 (pre_rows 필요 — 별도 처리)
+    rsi_strategies = {
+        'RSI>55+SL-5(20d)': lambda pr, po, ep: simulate_rsi_exit(pr, po, ep, 55, -5, 20),
+        'RSI>60+SL-5(20d)': lambda pr, po, ep: simulate_rsi_exit(pr, po, ep, 60, -5, 20),
+        'RSI>60+SL-7(30d)': lambda pr, po, ep: simulate_rsi_exit(pr, po, ep, 60, -7, 30),
+        'RSI>65+SL-5(30d)': lambda pr, po, ep: simulate_rsi_exit(pr, po, ep, 65, -5, 30),
+    }
+
     # 종목별로 전략 시뮬레이션
     strategy_results = {k: [] for k in strategies}
+    rsi_strategy_results = {k: [] for k in rsi_strategies}
     actual_sell_pcts = []
     max_high_pcts    = []
     min_low_pcts     = []
@@ -299,6 +363,19 @@ def run_analysis(target_db, window_days, simul_num_filter=None, output_dir=None)
                 strategy_results[name].append(result)
             except Exception:
                 pass
+
+        # RSI 전략 — pre_rows 별도 fetch
+        try:
+            pre_rows, post_rows = get_price_path_extended(con_craw, code_name, buy_date, window_days, pre_days=30)
+            if post_rows and len(post_rows) >= 3:
+                for name, fn in rsi_strategies.items():
+                    try:
+                        result = fn(pre_rows, post_rows, entry_price)
+                        rsi_strategy_results[name].append(result)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     con_trade.close()
     con_craw.close()
@@ -364,11 +441,22 @@ def run_analysis(target_db, window_days, simul_num_filter=None, output_dir=None)
           f'{s["max_win"]:>+7.2f}% {s["max_loss"]:>+7.2f}% '
           f'{s["avg_days"]:>8.1f}일')
 
+    w('-' * 90)
+    w(f'  {"[RSI 기반 전략]":<38}')
+    for name, results in rsi_strategy_results.items():
+        s = calc_stats(results)
+        if not s:
+            continue
+        w(f'  {name:<38} {s["avg_pct"]:>+7.2f}% {s["win_rate"]:>6.1f}% '
+          f'{s["avg_win"]:>+8.2f}% {s["avg_loss"]:>+8.2f}% '
+          f'{s["max_win"]:>+7.2f}% {s["max_loss"]:>+7.2f}% '
+          f'{s["avg_days"]:>8.1f}일')
+
     # TP 달성률 상세 (fixed TP 전략 기준)
     w()
     w('[ TP 달성률 vs SL 발동률 상세 ]')
     w('-' * 60)
-    for name, results in strategy_results.items():
+    for name, results in list(strategy_results.items()) + list(rsi_strategy_results.items()):
         if not results:
             continue
         exit_counts = defaultdict(int)
