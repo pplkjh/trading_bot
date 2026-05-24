@@ -22,7 +22,7 @@ v3 해결책:
     E. 거래량+MACD 15pt
 
 [매도 전략 — sell_list_num=31]
-  B: 하드SL -7% / RSI회복청산(rsi14>=60) / 30일 시간청산
+  B: 하드SL -7% / RSI회복청산(rsi14>=60) / 45일 시간청산
 """
 
 
@@ -375,7 +375,7 @@ class ReversalStrategyV3:
       - RSI 연속 상승일 < 2일                : 회복 모멘텀 부족
 
     매도 전략: sell_list_num=31
-      - 하드 SL -7% / RSI회복청산(rsi14>=60) / 30일 시간청산
+      - 하드 SL -7% / RSI회복청산(rsi14>=60) / 45일 시간청산
     """
 
     def calculate_total_score(self, row: dict, df_120, market_data=None, fundamental_data=None) -> dict:
