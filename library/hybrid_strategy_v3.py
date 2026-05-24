@@ -15,14 +15,14 @@ v3 해결책:
     돌파강도(d1_diff+거래량) 70 + BB돌파위치 40 + MACD전환초입 30
     + RSI50돌파초입 30 + 단기MA정렬시작 20 + ADX초입 10
   Strategy B: 200pt 만점 (백테스트 시 펀더멘털 제외 → 최대 160pt)
-    A. RSI 신호 80 (Bottom Failure Swing 30 + 강세다이버전스 10 + RSI9/14크로스 40)
-    B. 펀더멘털 품질 40 (실전 전용, PER/ROA)
-    C. 장기 추세 40 (MA120 장기추세 20 + RSI 50선 접근 20)
-    D. BB 사이클 25 (BB하단터치 15 + BB현재위치 10)
-    E. 거래량+MACD 15
+    A. RSI 저점깊이+회복지속성 80pt (저점깊이 40 + 연속상승일 40)
+    B. 펀더멘털 품질 40pt (실전 전용, PER/ROA)
+    C. 중장기 추세 40pt (MA25 기울기 전환 20 + MA5>MA20 & MA20기울기 20)
+    D. BB 사이클 25pt (BB하단터치 15 + BB현재위치 10)
+    E. 거래량+MACD 15pt
 
 [매도 전략 — sell_list_num=31]
-  B: 하드SL -8% / MA5<MA20 데드크로스 / RSI>=70 천장 / 84일 시간청산
+  B: 하드SL -8% / RSI천장이탈(rsi_peak>=70 & rsi14<70) / 84일 시간청산
 """
 
 
@@ -360,22 +360,22 @@ class BreakoutStrategyV3:
 
 class ReversalStrategyV3:
     """
-    RSI 과매도 바닥 패턴 확인 후 중장기 사이클 상승 구간 포착
+    과매도 후 지속적 회복 → 중장기 RSI 사이클 상승 구간 포착
 
     [배점] 200pt 만점 (백테스트 시 펀더멘털 B 제외 → 최대 160pt)
-      A. RSI 신호                    80pt  (BFS 30 + 다이버전스 10 + RSI9/14크로스 40)
+      A. RSI 저점깊이+회복지속성     80pt  (저점깊이 40 + 연속상승일 40)
       B. 펀더멘털 품질               40pt  ← 실전 전용, 백테스트=0
-      C. 장기 추세                   40pt  (MA120 장기추세 20 + RSI 50선 접근 20)
+      C. 중장기 추세                 40pt  (MA25 기울기 전환 20 + MA5>MA20 & MA20기울기 20)
       D. BB 사이클 위치              25pt
       E. 거래량 + MACD               15pt
 
     자동 탈락 조건 (auto_reject):
-      - 최근 30일 내 RSI trough > 30         : 진짜 과매도 없음
-      - RSI9 < RSI14 AND RSI 하락 중         : 하락 모멘텀 지속
       - RSI > 55                             : 이미 충분히 회복됨
+      - 최근 25일 내 RSI trough > 30         : 진짜 과매도 없음
+      - RSI 연속 상승일 < 2일                : 회복 모멘텀 부족
 
     매도 전략: sell_list_num=31
-      - 하드 SL -8% / MA 데드크로스 / RSI >= 70 천장 / 84일 시간청산
+      - 하드 SL -8% / RSI천장이탈(rsi_peak>=70 & rsi14<70) / 84일 시간청산
     """
 
     def calculate_total_score(self, row: dict, df_120, market_data=None, fundamental_data=None) -> dict:
@@ -387,21 +387,19 @@ class ReversalStrategyV3:
         }
 
         rsi_series = None
-        rsi9_series = None
         if df_120 is not None and len(df_120) >= 30:
             rsi_series = _calc_rsi_series(df_120)
-            rsi9_series = _calc_rsi9_series(df_120)
 
-        reject = self._auto_reject(row, rsi_series, rsi9_series)
+        reject = self._auto_reject(row, rsi_series)
         if reject:
             base['auto_reject'] = True
             base['reject_reason'] = reject
             base['total'] = -999.0
             return base
 
-        sa = self._score_rsi_signals(row, rsi_series, rsi9_series, df_120)
+        sa = self._score_rsi_cycle(rsi_series)
         sb = self._score_fundamental(fundamental_data)
-        sc = self._score_long_trend(row, rsi_series, df_120)
+        sc = self._score_trend_reversal(row, df_120)
         sd = self._score_bb_cycle(row, df_120)
         se = self._score_volume_macd(row)
         sf = 0.0
@@ -420,7 +418,7 @@ class ReversalStrategyV3:
         })
         return base
 
-    def _auto_reject(self, row: dict, rsi_series, rsi9_series) -> str:
+    def _auto_reject(self, row: dict, rsi_series) -> str:
         try:
             rsi_now = float(row.get('rsi14') or 50)
             if rsi_now > 55:
@@ -428,195 +426,100 @@ class ReversalStrategyV3:
         except (TypeError, ValueError):
             pass
 
-        # 최근 30일 내 RSI trough > 30 → 진짜 과매도 없음
         try:
-            if rsi_series is not None and len(rsi_series) >= 30:
-                trough_rsi = float(rsi_series.iloc[-30:-1].min())
+            if rsi_series is not None and len(rsi_series) >= 25:
+                trough_rsi = float(rsi_series.iloc[-26:-1].min())
                 if trough_rsi > 30:
-                    return f'최근 30일 RSI 최저 {trough_rsi:.1f} > 30 (과매도 미달)'
+                    return f'최근 25일 RSI 최저 {trough_rsi:.1f} > 30 (과매도 미달)'
         except Exception:
             pass
 
-        # RSI9 < RSI14 AND RSI14 하락 중 → 하락 모멘텀 지속
+        # RSI 연속 상승일 < 2 → 회복 모멘텀 부족
         try:
-            if (rsi9_series is not None and rsi_series is not None
-                    and len(rsi9_series) >= 4 and len(rsi_series) >= 4):
-                rsi9_now = float(rsi9_series.iloc[-1])
-                rsi14_now = float(rsi_series.iloc[-1])
-                rsi14_3d = float(rsi_series.iloc[-4])
-                if rsi9_now < rsi14_now and rsi14_now < rsi14_3d:
-                    return f'RSI9({rsi9_now:.1f}) < RSI14({rsi14_now:.1f}) & RSI 하락 중'
+            if rsi_series is not None and len(rsi_series) >= 3:
+                rsi_vals = rsi_series.values.astype(float)
+                consecutive = 0
+                for k in range(len(rsi_vals) - 1, 0, -1):
+                    if rsi_vals[k] > rsi_vals[k - 1]:
+                        consecutive += 1
+                    else:
+                        break
+                if consecutive < 2:
+                    return f'RSI 연속 상승일 {consecutive}일 < 2 (회복 모멘텀 부족)'
         except Exception:
             pass
 
         return None
 
-    def _score_rsi_signals(self, row: dict, rsi_series, rsi9_series, df_120) -> float:
-        """A. Bottom Failure Swing(30pt) + RSI 다이버전스(10pt) + RSI9/14 크로스(40pt) = 80pt"""
+    def _score_rsi_cycle(self, rsi_series) -> float:
+        """A. RSI 저점 깊이(40pt) + 회복 지속성(40pt) = 80pt"""
+        if rsi_series is None or len(rsi_series) < 26:
+            return 0.0
         score = 0.0
-        score += self._bfs_score(rsi_series)
-        score += self._divergence_score(rsi_series, df_120)
-        score += self._rsi9_cross_score(rsi_series, rsi9_series)
+
+        try:
+            trough_rsi = float(rsi_series.iloc[-26:-1].min())
+            if trough_rsi <= 20:
+                score += 40
+            elif trough_rsi <= 25:
+                score += 30
+            elif trough_rsi <= 30:
+                score += 20
+        except Exception:
+            pass
+
+        try:
+            rsi_vals = rsi_series.values.astype(float)
+            consecutive = 0
+            for k in range(len(rsi_vals) - 1, 0, -1):
+                if rsi_vals[k] > rsi_vals[k - 1]:
+                    consecutive += 1
+                else:
+                    break
+            if consecutive >= 5:
+                score += 40
+            elif consecutive >= 3:
+                score += 25
+            elif consecutive >= 2:
+                score += 12
+        except Exception:
+            pass
+
         return score
 
-    def _bfs_score(self, rsi_series) -> float:
-        """RSI Bottom Failure Swing 패턴 탐지 — 30pt
-        trough1(<30) → H1 반등 → trough2(>trough1) → 현재 RSI > H1 = BFS 완성
-        """
-        if rsi_series is None or len(rsi_series) < 30:
-            return 0.0
-        try:
-            n = len(rsi_series)
-            rsi = rsi_series.values.astype(float)
-
-            # trough1: 최근 60일(최소 5일 전) 내 30 이하 가장 최근 지점
-            search_start = max(0, n - 60)
-            search_end = n - 5
-            trough1_idx = None
-            for i in range(search_end - 1, search_start - 1, -1):
-                if rsi[i] <= 30:
-                    trough1_idx = i
-                    break
-            if trough1_idx is None:
-                return 0.0
-
-            trough1_val = float(rsi[trough1_idx])
-
-            # H1: trough1 이후 최댓값 (의미있는 반등 최소 5pt 이상)
-            post_t1 = rsi[trough1_idx:]
-            h1_local = int(post_t1.argmax())
-            h1_idx = trough1_idx + h1_local
-            h1_val = float(post_t1[h1_local])
-            if h1_val - trough1_val < 5 or h1_idx >= n - 1:
-                return 0.0
-
-            # trough2: H1 이후 최솟값
-            post_h1 = rsi[h1_idx + 1:]
-            if len(post_h1) == 0:
-                return 0.0
-            trough2_val = float(post_h1.min())
-
-            # BFS 성립: trough2 > trough1 (더 낮은 저점 없음)
-            if trough2_val <= trough1_val:
-                return 0.0
-
-            current_rsi = float(rsi[n - 1])
-            if current_rsi > h1_val:
-                return 30.0  # BFS 완성: 현재 RSI가 H1 돌파
-            # H1 돌파 전 — 진행률 비례 부분 점수
-            denom = max(h1_val - trough2_val, 0.1)
-            progress = (current_rsi - trough2_val) / denom
-            return min(15.0, max(0.0, 15.0 * progress))
-        except Exception:
-            pass
-        return 0.0
-
-    def _divergence_score(self, rsi_series, df_120) -> float:
-        """RSI 강세 다이버전스 — 10pt (가격 낮은 저점 + RSI 높은 저점)"""
-        if rsi_series is None or df_120 is None or len(df_120) < 20:
-            return 0.0
-        try:
-            close = df_120['close'].reset_index(drop=True)
-            n = len(close)
-            z1_s, z1_e = max(0, n - 30), max(1, n - 15)
-            z2_s, z2_e = max(0, n - 15), n - 1
-            if z1_s >= z1_e or z2_s >= z2_e:
-                return 0.0
-
-            p1_idx = z1_s + int(close.iloc[z1_s:z1_e].values.argmin())
-            p2_idx = z2_s + int(close.iloc[z2_s:z2_e].values.argmin())
-            price1 = float(close.iloc[p1_idx])
-            price2 = float(close.iloc[p2_idx])
-            rsi1 = float(rsi_series.iloc[p1_idx])
-            rsi2 = float(rsi_series.iloc[p2_idx])
-
-            if price2 < price1 * 0.99 and rsi2 > rsi1 + 2:
-                return 10.0
-            elif price2 < price1 and rsi2 > rsi1:
-                return 5.0
-        except Exception:
-            pass
-        return 0.0
-
-    def _rsi9_cross_score(self, rsi_series, rsi9_series) -> float:
-        """RSI 9/14 골든크로스 — 40pt (단기 모멘텀 가속 신호)"""
-        if rsi9_series is None or rsi_series is None:
-            return 0.0
-        try:
-            n9, n14 = len(rsi9_series), len(rsi_series)
-            if n9 < 2 or n14 < 2:
-                return 0.0
-
-            rsi9 = rsi9_series.values.astype(float)
-            rsi14 = rsi_series.values.astype(float)
-
-            if rsi9[-1] <= rsi14[-1]:
-                # 크로스 없음 — 갭 축소 중인지 확인 (예비 신호)
-                if n9 >= 4 and n14 >= 4:
-                    gap_now = rsi14[-1] - rsi9[-1]
-                    gap_3d = rsi14[-4] - rsi9[-4]
-                    if gap_now < 3 and gap_now < gap_3d:
-                        return 5.0
-                return 0.0
-
-            # RSI9 > RSI14: 마지막으로 RSI9 <= RSI14 였던 날 탐색
-            cross_days_ago = None
-            limit = min(10, n9, n14)
-            for k in range(1, limit):
-                if rsi9[-1 - k] <= rsi14[-1 - k]:
-                    cross_days_ago = k
-                    break
-
-            if cross_days_ago is None:
-                return 15.0   # 10일 이상 유지 — 오래된 크로스
-            elif cross_days_ago <= 3:
-                return 40.0   # 신선한 크로스 (0~2일 전 발생)
-            elif cross_days_ago <= 7:
-                return 25.0   # 3~6일 전
-            else:
-                return 15.0   # 7~9일 전
-        except Exception:
-            pass
-        return 0.0
-
-    def _score_long_trend(self, row: dict, rsi_series, df_120) -> float:
-        """C. MA120 장기 추세(20pt) + RSI 50선 접근(20pt) = 40pt
-        MA120: RSI(2) 전략의 장기추세 필터 개념 — 장기 상승 구조에서 단기 과매도 포착
-        """
+    def _score_trend_reversal(self, row: dict, df_120) -> float:
+        """C. MA25 기울기 전환(20pt) + MA5>MA20 & MA20 기울기(20pt) = 40pt"""
         score = 0.0
 
         try:
-            if df_120 is not None and len(df_120) >= 120:
+            if df_120 is not None and len(df_120) >= 35:
                 close_s = df_120['close'].reset_index(drop=True)
-                ma120_today = float(close_s.iloc[-120:].mean())
+                ma25_today = float(close_s.iloc[-25:].mean())
+                ma25_6d = float(close_s.iloc[-31:-6].mean())
                 close_now = float(row.get('close') or 0)
-                if close_now > 0 and ma120_today > 0:
-                    ratio = close_now / ma120_today
-                    if ratio >= 1.0:
-                        if len(close_s) >= 130:
-                            ma120_10d = float(close_s.iloc[-130:-10].mean())
-                            score += 20 if ma120_today >= ma120_10d else 15
-                        else:
-                            score += 15
-                    elif ratio >= 0.95:
-                        score += 8
-                    elif ratio >= 0.85:
-                        score += 3
+                if close_now > ma25_today and ma25_today > ma25_6d:
+                    score += 20
+                elif close_now > ma25_today:
+                    score += 10
         except Exception:
             pass
 
-        # RSI 50선 접근: 과매도 회복 강도 측정
         try:
-            rsi_now = float(row.get('rsi14') or 30)
-            if rsi_now >= 45:
-                score += 20
-            elif rsi_now >= 38:
-                score += 12
-            elif rsi_now >= 30:
-                score += 6
-            else:
-                score += 2
+            clo5 = float(row.get('clo5') or 0)
+            clo20 = float(row.get('clo20') or 0)
+            if clo5 > 0 and clo20 > 0 and clo5 > clo20:
+                score += 10
         except (TypeError, ValueError):
+            pass
+
+        try:
+            if df_120 is not None and len(df_120) >= 25:
+                close_s = df_120['close'].reset_index(drop=True)
+                ma20_today = float(close_s.iloc[-20:].mean())
+                ma20_5d = float(close_s.iloc[-25:-5].mean())
+                if ma20_today > ma20_5d:
+                    score += 10
+        except Exception:
             pass
 
         return score
