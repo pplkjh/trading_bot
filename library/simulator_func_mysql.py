@@ -1713,11 +1713,12 @@ class simulator_func_mysql:
             )
             self.engine_simulator.execute(sql_minmax)
 
-        # RSI 추적 (B전략 RSI 천장 매도용)
+        # RSI 추적 + rsi_peak 갱신 (B전략 Top Failure Swing 매도용)
         if rsi14 is not None and self.simul_num in (5, 6):
             try:
                 self.engine_simulator.execute(
-                    f"UPDATE all_item_db SET rsi14 = {float(rsi14)} "
+                    f"UPDATE all_item_db SET rsi14 = {float(rsi14)}, "
+                    f"rsi_peak = GREATEST(COALESCE(rsi_peak, 0), {float(rsi14)}) "
                     f"WHERE code_name = '{code_name}' AND sell_date = 0"
                 )
             except Exception:
@@ -1782,7 +1783,7 @@ class simulator_func_mysql:
                                               'score_a', 'score_b', 'score_c', 'score_d',
                                               'score_e', 'score_f', 'score_penalty',
                                               'simul_num',
-                                              'max_high_pct', 'min_low_pct', 'rsi14'])
+                                              'max_high_pct', 'min_low_pct', 'rsi14', 'rsi_peak'])
 
     # 가장 초기에 매수 했을 때 all_item_db 에 추가하는 함수
     def db_to_all_item(self, min_date, df, index, code, code_name, purchase_price, yesterday_close):
@@ -1834,6 +1835,7 @@ class simulator_func_mysql:
         self.df_all_item.loc[0, 'max_high_pct'] = 0.0
         self.df_all_item.loc[0, 'min_low_pct'] = 0.0
         self.df_all_item.loc[0, 'rsi14'] = 0.0
+        self.df_all_item.loc[0, 'rsi_peak'] = 0.0
         if self.simul_num in (4, 5, 6):
             if 'strategy_type' in df.columns:
                 self.df_all_item.loc[0, 'strategy_type'] = df.loc[index, 'strategy_type']
@@ -2192,23 +2194,21 @@ class simulator_func_mysql:
             )
             sell_list = self.engine_simulator.execute(sql).fetchall()
 
-        # Strategy B 중장기 사이클 매도 — 하드SL / MA데드크로스 / RSI천장 / 60거래일 시간청산
+        # Strategy B 중장기 사이클 매도 — 하드SL / RSI Top Failure Swing / 84일 시간청산
         elif self.sell_list_num == 31:
             date_today_str = self.date_rows[i][0]
             sql = (
                 "SELECT code, code_name, rate, present_price, valuation_profit, "
                 "CASE "
                 "  WHEN rate <= -8 THEN '하드SL(-8%)' "
-                "  WHEN ma5 < ma20 THEN 'MA데드크로스' "
-                "  WHEN rsi14 >= 70 THEN 'RSI천장(>=70)' "
-                "  ELSE '시간청산(60d)' "
+                "  WHEN rsi_peak >= 70 AND rsi14 < 70 THEN 'RSI천장이탈(TFS)' "
+                "  ELSE '시간청산(84d)' "
                 "END AS sell_reason "
                 "FROM all_item_db "
                 "WHERE sell_date = '0' "
                 "AND ("
                 "  rate <= -8 "
-                "  OR ma5 < ma20 "
-                "  OR rsi14 >= 70 "
+                "  OR (rsi_peak >= 70 AND rsi14 < 70) "
                 "  OR DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 84"
                 ") GROUP BY code"
             ).format(d=date_today_str)

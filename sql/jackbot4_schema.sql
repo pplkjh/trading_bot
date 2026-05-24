@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS all_item_db (
     max_high_pct DECIMAL(10,4) DEFAULT 0 COMMENT '보유 중 최대 고가 수익률 (%)',
     min_low_pct DECIMAL(10,4) DEFAULT 0 COMMENT '보유 중 최대 저가 손실률 (%)',
     rsi14 DECIMAL(6,2) DEFAULT 0 COMMENT '현재 RSI14 (B전략 RSI 천장 매도용)',
+    rsi_peak DECIMAL(6,2) DEFAULT 0 COMMENT '보유 중 RSI14 최고값 (Top Failure Swing 매도용)',
 
     INDEX idx_code (code),
     INDEX idx_buy_date (buy_date),
