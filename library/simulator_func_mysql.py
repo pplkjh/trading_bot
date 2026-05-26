@@ -82,6 +82,8 @@ class simulator_func_mysql:
 
     # realtime_daily_buy_list 테이블의 check_item컬럼에 특정 종목의 매수 시간을 넣는 함수
     def update_realtime_daily_buy_list(self, code, min_date):
+        if not self.is_simul_table_exist(self.db_name, "realtime_daily_buy_list"):
+            return  # 백테스트 초기 또는 reset 직후 테이블 미생성 시 무시
         sql = "update realtime_daily_buy_list set check_item = '%s' where code = '%s'"
         self.engine_simulator.execute(sql % (min_date, code))
 
