@@ -1342,12 +1342,16 @@ class open_api(QAxWidget):
         logger.debug("get_basic_sell_list 함수 실행")
 
         try:
-            # all_item_db에서 보유 종목 조회
+            # all_item_db + realtime_position_monitor JOIN으로 보유 종목 조회
+            # strategy_type, purchase_price, highest_price 함께 가져옴
             sql = """
-            SELECT code, code_name, rate, present_price, valuation_profit, buy_date
-            FROM all_item_db
-            WHERE sell_date = '0'
-            GROUP BY code
+            SELECT a.code, a.code_name, a.rate, a.present_price, a.valuation_profit,
+                   a.buy_date, a.strategy_type, a.purchase_price,
+                   COALESCE(m.highest_price, a.present_price) AS highest_price
+            FROM all_item_db a
+            LEFT JOIN realtime_position_monitor m ON a.code = m.code
+            WHERE a.sell_date = '0'
+            GROUP BY a.code
             """
             holdings = self.engine_JB.execute(sql).fetchall()
 
@@ -1357,27 +1361,23 @@ class open_api(QAxWidget):
 
             logger.info(f"📊 {len(holdings)}개 보유 종목 기본 매도 로직 적용")
 
-            # ⚠️ 고정 손익률 사용 (고급 전략의 999/-999 값 무시)
-            # 모의투자: rate가 직접 % 값 (-10.53 형식)
-            # 실전: rate가 100 기준 값 (89.47 형식)
-            if self.mod_gubun == 1:  # 모의투자
-                losscut_point = -3.0  # 손절 기준 -3%
-                logger.debug(f"모의투자 모드: 손절 {losscut_point}% (익절은 트레일링 스톱으로 처리)")
-            else:  # 실전
-                losscut_point = 97  # 손절 기준 -3% (100 - 3)
-                logger.debug(f"실전 모드: 손절 {losscut_point} (익절은 트레일링 스톱으로 처리)")
-
             LOSSCUT_DELAY_MINUTES = 30  # 매수 후 N분간 손절 비활성화
             now = datetime.datetime.now()
             sell_list = []
 
             for holding in holdings:
-                code = holding[0]
-                code_name = holding[1]
-                rate = holding[2]  # 수익률 (100 기준)
+                code          = holding[0]
+                code_name     = holding[1]
+                rate          = holding[2]   # 모의투자: % 값 / 실전: 100 기준
                 present_price = holding[3]
                 valuation_profit = holding[4]
-                buy_date_str = holding[5]  # "YYYYMMDDHHMI" 형식
+                buy_date_str  = holding[5]
+                strategy_type = holding[6] if holding[6] else 'A'
+                purchase_price = float(holding[7]) if holding[7] else 0
+                highest_price  = float(holding[8]) if holding[8] else present_price
+
+                # 모의투자/실전 수익률 통일 (% 기준)
+                profit_pct = rate if self.mod_gubun == 1 else rate - 100
 
                 # 매수 후 경과 시간 계산 (손절 유예)
                 losscut_active = True
@@ -1390,16 +1390,46 @@ class open_api(QAxWidget):
                 except Exception:
                     pass
 
-                display_rate = rate if self.mod_gubun == 1 else rate - 100
+                should_sell = False
+                sell_reason = ''
 
-                # 익절 또는 손절 조건 체크
-                # 익절은 advanced(트레일링)에서 처리 — basic fallback에서는 손절만
-                # if rate >= sell_point:
-                #     logger.info(f"  📈 익절: {code_name}({code}) - 수익률 {display_rate:.2f}%", extra={'no_dedup': True})
-                #     sell_list.append(holding)
-                # elif losscut_active and rate <= losscut_point:
-                if losscut_active and rate <= losscut_point:
-                    logger.info(f"  📉 손절: {code_name}({code}) - 수익률 {display_rate:.2f}%", extra={'no_dedup': True})
+                if strategy_type == 'B':
+                    # ── Strategy B: 하드SL -5% / 트레일링스탑(3%활성화, 5%트레일) / 45일 시간청산
+                    if losscut_active and profit_pct <= -5.0:
+                        should_sell = True
+                        sell_reason = f'B하드SL(-5%): {profit_pct:.2f}%'
+
+                    elif purchase_price > 0 and highest_price / purchase_price >= 1.03:
+                        trail_stop_price = highest_price * 0.95
+                        if present_price <= trail_stop_price:
+                            should_sell = True
+                            peak_pct = (highest_price / purchase_price - 1) * 100
+                            sell_reason = f'B트레일링(고점{peak_pct:.1f}%→현재{profit_pct:.2f}%)'
+
+                    else:
+                        # 45일 시간청산
+                        try:
+                            buy_date_only = str(buy_date_str)[:8]
+                            buy_d = datetime.datetime.strptime(buy_date_only, '%Y%m%d')
+                            holding_days = (now - buy_d).days
+                            if holding_days >= 45:
+                                should_sell = True
+                                sell_reason = f'B시간청산(45일)'
+                        except Exception:
+                            pass
+
+                else:
+                    # ── Strategy A / 기타: 기존 -3% 손절
+                    if self.mod_gubun == 1:
+                        losscut_point = -3.0
+                    else:
+                        losscut_point = 97
+                    if losscut_active and rate <= losscut_point:
+                        should_sell = True
+                        sell_reason = f'A손절(-3%): {profit_pct:.2f}%'
+
+                if should_sell:
+                    logger.info(f"  📉 매도: {code_name}({code}) - {sell_reason}", extra={'no_dedup': True})
                     sell_list.append(holding)
 
             logger.info(f"🎯 기본 매도 시그널: {len(sell_list)}개 종목")
