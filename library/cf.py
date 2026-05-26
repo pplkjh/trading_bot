@@ -14,8 +14,9 @@ db_port='3306'
 imi1_accout = "8120963611" # [모의투자 계좌번호를 넣어주세요. 주의! 10자리 계좌번호입니다. 모의투자는 8자리 계좌번호 뒤에 11, 실전은 10이 붙어 있음]
 
 # imi1_simul_num은 알고리즘의 번호이다. 새로운 알고리즘으로 새롭게 database를 구축해서 운영하고 싶을 경우 번호를 2, 3, 4 ... 순차적으로 올려 주면 된다.
-imi1_simul_num=3
-imi1_db_name = "jackbot"+str(imi1_simul_num)+"_imi1"
+# simul_num=4/5/6은 모두 jackbot4_imi1 DB를 공유한다.
+imi1_simul_num=6
+imi1_db_name = "jackbot4_imi1" if imi1_simul_num in (4, 5, 6) else "jackbot"+str(imi1_simul_num)+"_imi1"
 
 
 # 아래는 실전 투자 계좌번호를 넣는다.
