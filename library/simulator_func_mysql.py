@@ -1432,7 +1432,14 @@ class simulator_func_mysql:
                          LIMIT 150)
                     """
                 candidates = self.engine_daily_buy_list.execute(pre_filter_sql).fetchall()
-                logger.debug(f"[num=22] SQL 사전필터 완료 - 후보: {len(candidates)}개")
+                if self.simul_num == 6:
+                    cnt_a = sum(1 for r in candidates if r['d1_diff_rate'] >= 1.5 and r['vol5'] > r['vol20'] * 1.2)
+                    cnt_b = sum(1 for r in candidates if r['rsi14'] <= 54 and r['rsi14'] >= 25)
+                    logger.debug(f"[num=22] SQL 사전필터 완료 - 후보: {len(candidates)}개 (A:{cnt_a} / B:{cnt_b})")
+                elif self.simul_num == 4:
+                    logger.debug(f"[num=22] SQL 사전필터 완료 - 후보: {len(candidates)}개 (A:{len(candidates)})")
+                else:
+                    logger.debug(f"[num=22] SQL 사전필터 완료 - 후보: {len(candidates)}개 (B:{len(candidates)})")
             except Exception as e:
                 logger.debug(f"[num=22] SQL 사전필터 실패: {e}")
                 candidates = []
