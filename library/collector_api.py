@@ -671,6 +671,23 @@ class collector_api():
             self.engine_JB.execute(sql % (self.open_api.today))
             return
 
+        # simul_num=4/5/6: BreakoutStrategyV3 / ReversalStrategyV3 (num=22)
+        # simulator_func_mysql.db_to_realtime_daily_buy_list_num=22 분기에서 처리
+        if self.open_api.simul_num in (4, 5, 6):
+            from library.utils import get_latest_complete_date
+            label = {4: 'Strategy A (Breakout)', 5: 'Strategy B (Reversal)', 6: 'Strategy A+B (sim=6)'}
+            print(f"\n🚀 [{label.get(self.open_api.simul_num, str(self.open_api.simul_num))}] 스코어링 시작")
+            self.open_api.sf.get_date_for_simul()
+            target_date = get_latest_complete_date(self.open_api.sf.date_rows)
+            logger.debug(f"[simul_num={self.open_api.simul_num}] 스코어링 기준날짜: {target_date}")
+            self.open_api.sf.db_to_realtime_daily_buy_list(
+                target_date, target_date, len(self.open_api.sf.date_rows)
+            )
+            sql = "UPDATE setting_data SET today_buy_list='%s' limit 1"
+            self.engine_JB.execute(sql % (self.open_api.today))
+            print(f"✅ [simul_num={self.open_api.simul_num}] 스코어링 완료")
+            return
+
         # 최근 영업일 테이블 찾기 (simul_num=1,2 기존 전략)
         from library.date_based_strategy import get_latest_date_table
 

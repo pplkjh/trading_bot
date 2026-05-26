@@ -1419,14 +1419,30 @@ class open_api(QAxWidget):
                             pass
 
                 else:
-                    # ── Strategy A / 기타: 기존 -3% 손절
-                    if self.mod_gubun == 1:
-                        losscut_point = -3.0
-                    else:
-                        losscut_point = 97
-                    if losscut_active and rate <= losscut_point:
+                    # ── Strategy A: 하드SL -5% / 트레일링스탑(3%활성화, 5%트레일) / 15일 시간청산
+                    # exit analysis 결과: SL-5+Trail(3%,5%) 승률 79.6%, 평균 +8.27%
+                    if losscut_active and profit_pct <= -5.0:
                         should_sell = True
-                        sell_reason = f'A손절(-3%): {profit_pct:.2f}%'
+                        sell_reason = f'A하드SL(-5%): {profit_pct:.2f}%'
+
+                    elif purchase_price > 0 and highest_price / purchase_price >= 1.03:
+                        trail_stop_price = highest_price * 0.95
+                        if present_price <= trail_stop_price:
+                            should_sell = True
+                            peak_pct = (highest_price / purchase_price - 1) * 100
+                            sell_reason = f'A트레일링(고점{peak_pct:.1f}%→현재{profit_pct:.2f}%)'
+
+                    else:
+                        # 15일 시간청산 (돌파 전략 — B의 45일보다 짧게)
+                        try:
+                            buy_date_only = str(buy_date_str)[:8]
+                            buy_d = datetime.datetime.strptime(buy_date_only, '%Y%m%d')
+                            holding_days = (now - buy_d).days
+                            if holding_days >= 15:
+                                should_sell = True
+                                sell_reason = f'A시간청산(15일)'
+                        except Exception:
+                            pass
 
                 if should_sell:
                     logger.info(f"  📉 매도: {code_name}({code}) - {sell_reason}", extra={'no_dedup': True})
