@@ -22,7 +22,7 @@ v3 해결책:
     E. 거래량+MACD 15pt
 
 [매도 전략 — sell_list_num=31]
-  B: 하드SL -7% / RSI피크이탈(rsi_peak>=45 AND rsi14<=rsi_peak-8) / 45일 시간청산
+  B: 하드SL -5% / 트레일링스탑(max_high_pct>=3, rate<=max_high_pct-5) / 45일 시간청산
 """
 
 
@@ -375,7 +375,7 @@ class ReversalStrategyV3:
       - RSI > 55                             : 이미 충분히 회복됨
 
     매도 전략: sell_list_num=31
-      - 하드 SL -8% / RSI피크이탈(rsi_peak>=45 AND rsi14<=rsi_peak-8) / 45일 시간청산
+      - 하드 SL -5% / 트레일링스탑(max_high_pct>=3, rate<=max_high_pct-5) / 45일 시간청산
     """
 
     def calculate_total_score(self, row: dict, df_120, market_data=None, fundamental_data=None) -> dict:
