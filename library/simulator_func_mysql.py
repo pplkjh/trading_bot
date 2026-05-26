@@ -1507,7 +1507,9 @@ class simulator_func_mysql:
                         scored_list.append((row_dict, best_score))
                         logger.debug(f"[num=22] ✅ 합격: {code_name} {best_score}pt ({best_result['strategy_type']})")
 
-            logger.debug(f"[num=22] 스코어링 완료 - 합격: {len(scored_list)}개 / {len(candidates)}개")
+            count_a = sum(1 for item in scored_list if item[0].get('strategy_type') == 'A')
+            count_b = sum(1 for item in scored_list if item[0].get('strategy_type') == 'B')
+            logger.debug(f"[num=22] 스코어링 완료 - 합격: {len(scored_list)}개 (A:{count_a} / B:{count_b}) / 후보: {len(candidates)}개")
             scored_list.sort(key=lambda x: x[1], reverse=True)
             realtime_daily_buy_list = [item[0] for item in scored_list]
 
