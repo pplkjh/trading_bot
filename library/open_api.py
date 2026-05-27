@@ -1698,7 +1698,6 @@ class open_api(QAxWidget):
     # 첫번째 매개변수 gubun 값으로 구분하며 체결구분 접수와 체결시 '0'값, 국내주식 잔고전달은 '1'값, 파생잔고 전달은 '4'가 됩니다. 
     def _receive_chejan_data(self, gubun, item_cnt, fid_list):
         account_num = self.get_chejan_data(9201)
-        logger.debug("_receive_chejan_data: gubun=%s account=%s (self=%s)", gubun, account_num, self.account_number)
 
         # 선택 계좌가 아닐 시 아무 행동도 하지 않는다
         if self.account_number != account_num:
