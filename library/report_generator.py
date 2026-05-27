@@ -297,9 +297,9 @@ def generate_trader_report(trader, trade_history=None):
                 SELECT code, code_name, buy_date, sell_date,
                        purchase_price, holding_amount, sell_price, sell_rate,
                        composite_score, score_a, score_b, score_c,
-                       score_d, score_e, score_f, score_penalty, exit_reason
+                       score_d, score_e, score_f, score_penalty
                 FROM all_item_db
-                WHERE sell_date LIKE %s AND simul_num = 3
+                WHERE sell_date LIKE %s
                 ORDER BY sell_date ASC
             """, (today + '%',))
             sold_cols = [d[0] for d in cur.description]
@@ -312,7 +312,7 @@ def generate_trader_report(trader, trade_history=None):
                        composite_score, score_a, score_b, score_c,
                        score_d, score_e, score_f, score_penalty
                 FROM all_item_db
-                WHERE buy_date LIKE %s AND chegyul_check = '0' AND simul_num = 3
+                WHERE buy_date LIKE %s AND chegyul_check = '0'
                 ORDER BY buy_date ASC
             """, (today + '%',))
             bought_cols = [d[0] for d in cur.description]
@@ -327,7 +327,6 @@ def generate_trader_report(trader, trade_history=None):
                 FROM all_item_db
                 WHERE sell_date = '0'
                   AND chegyul_check = '0'
-                  AND simul_num = 3
                 ORDER BY buy_date ASC
             """)
             held_cols = [d[0] for d in cur.description]
@@ -337,7 +336,7 @@ def generate_trader_report(trader, trade_history=None):
             cur.execute("""
                 SELECT purchase_price, sell_price, holding_amount
                 FROM all_item_db
-                WHERE sell_date != '0' AND simul_num = 3 AND chegyul_check = '0'
+                WHERE sell_date != '0' AND chegyul_check = '0'
             """)
             _all_sold = cur.fetchall()
             all_time_realized = sum(
