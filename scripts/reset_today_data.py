@@ -38,7 +38,7 @@ class TodayDataResetter:
         db_url_base = f"mysql+pymysql://{cf.db_id}:{cf.db_passwd}@{cf.db_ip}:{cf.db_port}"
 
         self.engine_JB = create_engine(
-            f"{db_url_base}/jackbot1_imi1",
+            f"{db_url_base}/{cf.imi1_db_name}",
             encoding='utf-8'
         )
         self.engine_daily_craw = create_engine(

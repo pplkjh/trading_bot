@@ -6,6 +6,7 @@
 import pymysql
 import json
 from library.cf import *
+from library import cf
 from datetime import datetime
 
 def get_connection(db_name=None):
@@ -67,7 +68,7 @@ def collect_db_schema():
     """전체 DB 스키마 정보를 수집하여 딕셔너리로 반환"""
     schema = {
         "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        "main_trading_db": "jackbot1_imi1",  # 실제 운영 DB
+        "main_trading_db": cf.imi1_db_name,  # 실제 운영 DB
         "databases": {}
     }
 
@@ -91,8 +92,10 @@ def collect_db_schema():
         }
 
         # DB 용도 설명
-        if db_name == "jackbot1_imi1":
-            db_info["description"] = "실전 트레이딩 봇 메인 DB"
+        if db_name == cf.imi1_db_name:
+            db_info["description"] = f"실전 트레이딩 봇 메인 DB (simul_num={cf.imi1_simul_num})"
+        elif db_name in ("jackbot1_imi1", "jackbot2_imi1", "jackbot3_imi1"):
+            db_info["description"] = f"구버전 트레이딩 DB ({db_name})"
         elif db_name == "daily_buy_list":
             db_info["description"] = "날짜별 매수 후보 집계 테이블"
         elif db_name == "daily_craw":
@@ -217,10 +220,10 @@ def main():
     print(f"{'='*100}\n")
 
     important_tables = [
-        ('jackbot1_imi1', 'realtime_daily_buy_list', '내일 매수 후보 리스트'),
-        ('jackbot1_imi1', 'possessed_item', '현재 보유 종목'),
-        ('jackbot1_imi1', 'setting_data', '시스템 설정'),
-        ('jackbot1_imi1', 'all_item_db', '전체 종목 DB'),
+        (cf.imi1_db_name, 'realtime_daily_buy_list', '내일 매수 후보 리스트'),
+        (cf.imi1_db_name, 'possessed_item', '현재 보유 종목'),
+        (cf.imi1_db_name, 'setting_data', '시스템 설정'),
+        (cf.imi1_db_name, 'all_item_db', '전체 종목 DB'),
     ]
 
     for db_name, table_name, description in important_tables:
