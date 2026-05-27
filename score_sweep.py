@@ -3,15 +3,22 @@
 Strategy A/B 최소 스코어 임계값 민감도 분석
 
 Usage:
-  python score_sweep.py A     # v4_min_score_a: 80, 90, 100, 110, 120
-  python score_sweep.py B     # v4_min_score_b: 70, 80, 90, 100
-  python score_sweep.py AB    # A -> B 순서대로
+  python score_sweep.py A           # v4_min_score_a: 80, 90, 100, 110, 120
+  python score_sweep.py B           # v4_min_score_b: 70, 80, 90, 100
+  python score_sweep.py AB          # A -> B 순서대로
+  python score_sweep.py A --from 110  # 110 이상 임계값부터 이어서 실행
 
 각 임계값마다 전체 백테스트(reset)를 실행하고 핵심 지표를 비교한다.
 실행 시간: 임계값 1개당 약 30~60분 (3년치 데이터)
+
+결과 저장:
+  backtest_report/sweep/sim{N}_score{T}_{YYYYMMDD_HHMM}.csv  — 개별 run
+  backtest_report/sweep/sim{N}_summary_{YYYYMMDD_HHMM}.csv   — 전략 전체 요약
 """
 import sys
 import os
+import csv
+import pathlib
 import datetime
 
 # cp949 콘솔에서 이모지/특수문자 깨짐 방지 (simulator_func_mysql 내부 print 포함)
@@ -41,7 +48,68 @@ SIMUL_NUM = {
     'A': '4',
     'B': '5',
 }
+SWEEP_DIR = pathlib.Path(__file__).parent / 'backtest_report' / 'sweep'
 # ─────────────────────────────────────────────────────────────────────────
+
+
+SWEEP_FIELDS = ['strategy', 'threshold', 'total_trades', 'win_rate',
+                'avg_profit', 'avg_loss', 'r_ratio', 'avg_hold', 'total_ret', 'sharpe', 'run_at']
+
+
+def save_run_csv(strategy, threshold, metrics, run_ts):
+    """개별 run 결과를 CSV로 저장 — 실패해도 백테스트에 영향 없음"""
+    try:
+        SWEEP_DIR.mkdir(parents=True, exist_ok=True)
+        simul = SIMUL_NUM[strategy]
+        fname = SWEEP_DIR / f"sim{simul}_score{threshold}_{run_ts}.csv"
+        row = {
+            'strategy':     strategy,
+            'threshold':    threshold,
+            'total_trades': metrics['total_trades'],
+            'win_rate':     round(metrics['win_rate'],    2),
+            'avg_profit':   round(metrics['avg_profit'],  4),
+            'avg_loss':     round(metrics['avg_loss'],    4),
+            'r_ratio':      round(metrics['r_ratio'],     4),
+            'avg_hold':     round(metrics['avg_hold'],    2),
+            'total_ret':    round(metrics['total_ret'],   4),
+            'sharpe':       round(metrics['sharpe'],      4),
+            'run_at':       run_ts,
+        }
+        with open(fname, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=SWEEP_FIELDS)
+            writer.writeheader()
+            writer.writerow(row)
+        print(f"  💾 저장: {fname.name}")
+    except Exception as e:
+        print(f"  ⚠️ CSV 저장 실패 (무시): {e}")
+
+
+def save_summary_csv(strategy, results, summary_ts):
+    """전략 전체 sweep 요약을 CSV로 저장"""
+    try:
+        SWEEP_DIR.mkdir(parents=True, exist_ok=True)
+        simul = SIMUL_NUM[strategy]
+        fname = SWEEP_DIR / f"sim{simul}_summary_{summary_ts}.csv"
+        with open(fname, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=SWEEP_FIELDS)
+            writer.writeheader()
+            for r in results:
+                writer.writerow({
+                    'strategy':     strategy,
+                    'threshold':    r['threshold'],
+                    'total_trades': r['total_trades'],
+                    'win_rate':     round(r['win_rate'],    2),
+                    'avg_profit':   round(r['avg_profit'],  4),
+                    'avg_loss':     round(r['avg_loss'],    4),
+                    'r_ratio':      round(r['r_ratio'],     4),
+                    'avg_hold':     round(r['avg_hold'],    2),
+                    'total_ret':    round(r['total_ret'],   4),
+                    'sharpe':       round(r['sharpe'],      4),
+                    'run_at':       summary_ts,
+                })
+        print(f"  💾 요약 저장: {fname.name}")
+    except Exception as e:
+        print(f"  ⚠️ 요약 CSV 저장 실패 (무시): {e}")
 
 
 def get_engine(db_name):
@@ -127,8 +195,10 @@ def run_sweep(strategy, from_threshold=None):
 
     engine = get_engine(db_name)
     results = []
+    summary_ts = datetime.datetime.now().strftime('%Y%m%d_%H%M')
 
     for threshold in thresholds:
+        run_ts = datetime.datetime.now().strftime('%Y%m%d_%H%M')
         print(f"\n{'='*65}")
         print(f"▶  Strategy {strategy}  |  min_score = {threshold}  |  {datetime.datetime.now().strftime('%H:%M:%S')}")
         print(f"{'='*65}")
@@ -150,6 +220,8 @@ def run_sweep(strategy, from_threshold=None):
             results.append(m)
             print(f"  → 거래:{m['total_trades']}  승률:{m['win_rate']:.1f}%  "
                   f"R:{m['r_ratio']:.2f}  총수익:{m['total_ret']:.1f}%  Sharpe:{m['sharpe']:.2f}")
+            # 개별 run 즉시 저장 (프로세스 죽어도 완료된 결과 보존)
+            save_run_csv(strategy, threshold, m, run_ts)
 
     # ── 비교 테이블 출력 ──────────────────────────────────────────
     print(f"\n\n{'='*80}")
@@ -171,6 +243,10 @@ def run_sweep(strategy, from_threshold=None):
             f"{r['sharpe']:>6.2f}"
         )
     print(f"{'='*80}\n")
+
+    # 전략 전체 요약 CSV 저장
+    if results:
+        save_summary_csv(strategy, results, summary_ts)
 
     return results
 
