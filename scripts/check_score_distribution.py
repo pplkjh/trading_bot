@@ -1,6 +1,9 @@
-"""
+﻿"""
 스코어 분포 측정 스크립트 — 현재 scoring 카테고리별 실효 가중치 분석
 """
+import sys
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 import pymysql
 import pandas as pd
 import statistics
@@ -138,3 +141,4 @@ print(f"\nB1 유효 구간(RSI 40~55): {b1_target}/{len(results)} = {b1_target/l
 
 engine_daily.dispose()
 engine_craw.dispose()
+

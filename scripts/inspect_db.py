@@ -1,8 +1,11 @@
-"""
+﻿"""
 데이터베이스 구조 및 데이터 현황 조회 스크립트
 전체 DB, 테이블, 컬럼, 데이터 개수를 한눈에 확인
 실행 시 db_schema.json 파일 자동 생성
 """
+import sys
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 import pymysql
 import json
 from library.cf import *
@@ -341,3 +344,4 @@ if __name__ == "__main__":
         print(f"\n❌ 오류 발생: {e}")
         import traceback
         traceback.print_exc()
+

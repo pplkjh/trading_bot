@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 오늘 날짜 수집 데이터 강제 리셋 유틸리티
 
@@ -15,6 +15,8 @@
 """
 
 import sys
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 import datetime
 import pymysql
 from sqlalchemy import create_engine
@@ -232,3 +234,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

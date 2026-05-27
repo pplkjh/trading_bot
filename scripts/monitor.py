@@ -1,5 +1,5 @@
-"""
-실시간 포트폴리오 모니터링 스크립트
+﻿"""
+실시간 포트폴리오 모니터링 스크립트  (python scripts/monitor.py)
 
 현재 상태:
 - 보유 종목 및 손익
@@ -11,6 +11,9 @@
     python monitor.py --db JackBot1_imi1
 """
 
+import sys
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 import re
 import os
 import pymysql
@@ -631,3 +634,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

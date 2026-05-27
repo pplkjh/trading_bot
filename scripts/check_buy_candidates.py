@@ -1,3 +1,6 @@
+﻿import sys
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 from sqlalchemy import create_engine, text
 import pymysql
 import pandas as pd
@@ -162,3 +165,4 @@ else:
 engine.dispose()
 engine_daily.dispose()
 engine_craw.dispose()
+

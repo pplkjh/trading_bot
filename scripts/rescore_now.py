@@ -1,4 +1,4 @@
-"""
+﻿"""
 rescore_now.py — 오늘 실제 종가 기준 매수 후보 확인 (DB 변경 없음, 프린트만)
 
 사용법:
@@ -6,6 +6,8 @@ rescore_now.py — 오늘 실제 종가 기준 매수 후보 확인 (DB 변경 �
     python rescore_now.py 20260318   # 특정 날짜 지정
 """
 import sys
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 import numpy as np
 import pandas as pd
 import pymysql
@@ -258,3 +260,4 @@ if scored_list:
 else:
     print("합격 종목 없음")
     print(f"(검색: {len(stock_rows)}개, 스킵: {skipped}개)")
+

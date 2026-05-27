@@ -15,6 +15,7 @@ rescore_now_v3.py — sim=6 기준 오늘 종가로 매수 후보 재확인 (DB 
 import sys
 import datetime
 import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 import pandas as pd
 import pymysql
 pymysql.install_as_MySQLdb()

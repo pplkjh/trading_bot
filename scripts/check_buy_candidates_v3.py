@@ -12,6 +12,7 @@ check_buy_candidates_v3.py — Strategy A/B (sim=6) 매수 후보 확인
 """
 import sys
 import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 import pandas as pd
 import pymysql
 pymysql.install_as_MySQLdb()
