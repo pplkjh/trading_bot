@@ -32,7 +32,7 @@ if hasattr(sys.stderr, 'reconfigure'):
 os.environ['JACKBOT_LOG_FILE'] = f"score_sweep_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 os.environ.setdefault('JACKBOT_LOG_NAME', 'simulator')
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from library import cf
 
 # ─── 설정 ────────────────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ def get_engine(db_name):
 def read_metrics(engine, initial_capital):
     """백테스트 완료 후 DB에서 핵심 지표 읽기"""
     try:
-        row = engine.execute("""
+        row = engine.execute(text("""
             SELECT
                 COUNT(*)                                                      AS total_trades,
                 SUM(CASE WHEN sell_rate >= 0 THEN 1 ELSE 0 END)              AS win_count,
@@ -133,7 +133,7 @@ def read_metrics(engine, initial_capital):
                 ))                                                            AS avg_hold
             FROM all_item_db
             WHERE sell_date != 0 AND sell_date != ''
-        """).fetchone()
+        """)).fetchone()
 
         total_trades = int(row[0] or 0)
         win_count    = int(row[1] or 0)
