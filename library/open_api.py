@@ -1059,18 +1059,21 @@ class open_api(QAxWidget):
         prev_close = int(self.get_today_buy_list_close)
         atr14 = self.get_today_buy_list_atr14
         bb_bandwidth = self.get_today_buy_list_bb_bandwidth
+        strategy_type = getattr(self, 'get_today_buy_list_strategy_type', '')
         if atr14 and atr14 > 0:
-            losscut_pct = self.sf.losscut_point / 100  # e.g. -3 → -0.03
+            losscut_pct = self.sf.losscut_point / 100  # e.g. -5 → -0.05
             if current_price > prev_close:
-                # 갭상승: BB스퀴즈 여부에 따라 ATR 배수 차등 적용
-                # BB폭이 좁으면(스퀴즈 해소) 압축 에너지 방출 → 더 넓게 허용
-                if bb_bandwidth > 0 and bb_bandwidth < 0.15:
-                    atr_mult = 2.5  # 스퀴즈 해소 모멘텀
+                if strategy_type == 'A':
+                    # Strategy A 돌파: 갭업 자체가 돌파 신호 — ATR×5 vs +10% 중 더 큰 값으로 허용
+                    max_buy_limit = max(prev_close + atr14 * 5.0, prev_close * 1.10)
+                elif bb_bandwidth > 0 and bb_bandwidth < 0.15:
+                    # BB스퀴즈 해소 모멘텀: 압축 에너지 방출 → 더 넓게 허용
+                    max_buy_limit = prev_close + atr14 * 2.5
                 else:
-                    atr_mult = 1.5  # 일반 갭상승
+                    # 일반 갭상승 (Strategy B 등)
+                    max_buy_limit = prev_close + atr14 * 1.5
             else:
-                atr_mult = 1.0  # 갭하락 or 보합: 기존 유지
-            max_buy_limit = prev_close + atr14 * atr_mult
+                max_buy_limit = prev_close + atr14 * 1.0  # 갭하락 or 보합: 기존 유지
             min_buy_limit = prev_close * (1 + losscut_pct)
         else:
             # ATR 없는 경우 기존 고정 비율로 폴백
@@ -1080,9 +1083,9 @@ class open_api(QAxWidget):
         if min_buy_limit < current_price < max_buy_limit:
             buy_num = self.buy_num_count(self.invest_unit, int(current_price))
             logger.debug(
-                "🛒 매수 주문: %s(%s) 현재가=%s 목표가=%s 수량=%s 금액=%s원",
+                "🛒 매수 주문: %s(%s)[%s] 현재가=%s 목표가=%s 수량=%s 금액=%s원",
                 self.get_today_buy_list_code_name, self.get_today_buy_list_code,
-                current_price, self.get_today_buy_list_close, buy_num,
+                strategy_type, current_price, self.get_today_buy_list_close, buy_num,
                 format(int(current_price) * int(buy_num), ','),
                 extra={'no_dedup': True}
             )
@@ -1100,9 +1103,9 @@ class open_api(QAxWidget):
                 self.buy_check_stop()
         else:
             logger.info(
-                "⛔ 매수 스킵 (가격 범위 초과): %s(%s) 목표가=%s 현재가=%s 허용범위=[%s~%s]",
+                "⛔ 매수 스킵 (가격 범위 초과): %s(%s)[%s] 목표가=%s 현재가=%s 허용범위=[%s~%s]",
                 self.get_today_buy_list_code_name, self.get_today_buy_list_code,
-                self.get_today_buy_list_close, current_price, min_buy_limit, max_buy_limit)
+                strategy_type, self.get_today_buy_list_close, current_price, min_buy_limit, max_buy_limit)
 
     # 오늘 매수 할 종목들을 가져오는 함수
     def get_today_buy_list(self):
@@ -1156,6 +1159,10 @@ class open_api(QAxWidget):
                     self.get_today_buy_list_bb_bandwidth = float(self.sf.df_realtime_daily_buy_list.loc[i, 'bb_bandwidth'] or 0)
                 except Exception:
                     self.get_today_buy_list_bb_bandwidth = 0.0
+                try:
+                    self.get_today_buy_list_strategy_type = str(self.sf.df_realtime_daily_buy_list.loc[i, 'strategy_type'] or '')
+                except Exception:
+                    self.get_today_buy_list_strategy_type = ''
                 # 매수 하기 전에 해당 종목의 check_item을 1로 변경. 즉, 이미 매수 했으니까 다시 매수 하지말라고 체크 하는 로직
                 sql = "UPDATE realtime_daily_buy_list SET check_item='%s' WHERE code='%s'"
                 self.engine_JB.execute(sql % (1, self.get_today_buy_list_code))
