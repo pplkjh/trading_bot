@@ -920,11 +920,14 @@ class open_api(QAxWidget):
     #
     # openapi 매수 요청
     def send_order(self, rqname, screen_no, acc_no, order_type, code, quantity, price, hoga, order_no):
-        # logger.debug("send_order!!!")
         try:
             self.exit_check()
-            self.dynamicCall("SendOrder(QString, QString, QString, int, QString, int, int, QString, QString)",
+            ret = self.dynamicCall("SendOrder(QString, QString, QString, int, QString, int, int, QString, QString)",
                              [rqname, screen_no, acc_no, order_type, code, quantity, price, hoga, order_no])
+            if ret == 0:
+                logger.debug("send_order 성공: %s qty=%s price=%s hoga=%s", code, quantity, price, hoga)
+            else:
+                logger.warning("⚠️ send_order 실패 (ret=%s): %s qty=%s price=%s hoga=%s", ret, code, quantity, price, hoga)
         except Exception as e:
             logger.critical(e)
 
@@ -1695,10 +1698,11 @@ class open_api(QAxWidget):
     # 첫번째 매개변수 gubun 값으로 구분하며 체결구분 접수와 체결시 '0'값, 국내주식 잔고전달은 '1'값, 파생잔고 전달은 '4'가 됩니다. 
     def _receive_chejan_data(self, gubun, item_cnt, fid_list):
         account_num = self.get_chejan_data(9201)
+        logger.debug("_receive_chejan_data: gubun=%s account=%s (self=%s)", gubun, account_num, self.account_number)
 
         # 선택 계좌가 아닐 시 아무 행동도 하지 않는다
         if self.account_number != account_num:
-            logger.info(f"{self.account_number} != {account_num}")
+            logger.warning("⚠️ chejan 계좌 불일치: self.account_number=%s != chejan_account=%s", self.account_number, account_num)
             return
 
         # 체결구분 접수와 체결
