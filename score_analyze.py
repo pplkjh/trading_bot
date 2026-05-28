@@ -17,12 +17,17 @@ Usage:
   - 중간 결과가 DB에 보존됨 (프로세스 죽어도 쿼리로 확인 가능)
 """
 import sys
+import os
 import datetime
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
+# jackbot.log와 분리 (실전 트레이더 로그 오염 방지)
+os.environ['JACKBOT_LOG_FILE'] = f"score_analyze_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+os.environ.setdefault('JACKBOT_LOG_NAME', 'simulator')
 
 from sqlalchemy import create_engine
 from library import cf
