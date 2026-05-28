@@ -75,6 +75,16 @@ class TraderAdvanced(QMainWindow):
         # 고급 전략 엔진 초기화
         self.init_advanced_strategy()
 
+        # 투자 운용보고서 초기화
+        try:
+            from library.investment_report import InvestmentReport
+            self._reporter = InvestmentReport(self.open_api.engine_JB)
+            self._reporter.ensure_exit_reason_column()
+            logger.info("📊 투자보고서 모듈 초기화 완료")
+        except Exception as _re:
+            self._reporter = None
+            logger.warning(f"투자보고서 초기화 실패 (무시): {_re}")
+
         logger.info("=" * 80)
         logger.info("🚀 고급 전략 트레이더 초기화 완료")
         logger.info("=" * 80)
@@ -585,6 +595,16 @@ class TraderAdvanced(QMainWindow):
                             self._sell_cooldown[sell_code] = {'count': 0, 'last_time': 0}
                         self._sell_cooldown[sell_code]['count'] += 1
                         self._sell_cooldown[sell_code]['last_time'] = now_ts
+
+                        # 투자보고서 비동기 업데이트 (체결 완료 후 5초 대기 → DB 반영 후 생성)
+                        if self._reporter:
+                            import threading
+                            def _delayed_report():
+                                import time as _time
+                                _time.sleep(5)
+                                self._reporter.generate_async()
+                            threading.Thread(target=_delayed_report, daemon=True,
+                                             name='ReportDelay').start()
 
                 except Exception as e:
                     logger.error(f"매도 실행 오류 ({sell_code}): {e}")
