@@ -351,15 +351,13 @@ class InvestmentReport:
         row += 1
 
         sub_hdrs = ['전략', '거래수', '승률', '평균수익률', '평균보유']
-        for i, (col, hdr) in enumerate(zip('BCDE' + ('E',), sub_hdrs)):
+        for i, hdr in enumerate(sub_hdrs):
             actual_col = i + 2  # B=2
             c = ws.cell(row=row, column=actual_col, value=hdr)
             c.font  = _S.FT_HDR
             c.fill  = PatternFill('solid', fgColor='5B9BD5')
             c.alignment = _S.AL_C
             c.border = _S.BD
-            if i == 4:  # 5번째 컬럼 E
-                ws.column_dimensions['F'].width = 12
         ws.row_dimensions[row].height = 20
         row += 1
 
