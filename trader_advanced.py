@@ -80,7 +80,9 @@ class TraderAdvanced(QMainWindow):
             from library.investment_report import InvestmentReport
             self._reporter = InvestmentReport(self.open_api.engine_JB)
             self._reporter.ensure_exit_reason_column()
-            logger.info("📊 투자보고서 모듈 초기화 완료")
+            # open_api 에도 연결 → 매수 체결 시 자동 업데이트
+            self.open_api._reporter = self._reporter
+            logger.info("📊 투자보고서 모듈 초기화 완료 (매수/매도 자동 갱신 활성화)")
         except Exception as _re:
             self._reporter = None
             logger.warning(f"투자보고서 초기화 실패 (무시): {_re}")

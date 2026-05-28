@@ -552,6 +552,13 @@ class open_api(QAxWidget):
         except Exception as e:
             logger.warning(f"⚠️  realtime_position_monitor 추가 실패: {e}")
 
+        # 투자보고서 비동기 업데이트 (매수 체결 → 보고서 즉시 갱신)
+        try:
+            if getattr(self, '_reporter', None):
+                self._reporter.generate_async()
+        except Exception:
+            pass
+
     def check_balance(self):
 
         # logger.debug("check_balance 함수에 들어왔습니다!")
