@@ -223,6 +223,19 @@ class TradingDashboard:
 
             if len(positions) > 10:
                 print(f"  ... 외 {len(positions) - 10}개 종목")
+
+            # ── 합산 행 ──
+            total_eval   = sum(pos.get('current_price', 0) * pos.get('quantity', 0) for pos in positions)
+            total_cost   = sum(pos.get('buy_price', 0)     * pos.get('quantity', 0) for pos in positions)
+            total_pnl    = total_eval - total_cost
+            total_pnl_r  = total_pnl / total_cost * 100 if total_cost > 0 else 0.0
+            pnl_sign     = "+" if total_pnl >= 0 else ""
+            pnl_color    = "[+]" if total_pnl > 0 else "[-]" if total_pnl < 0 else "[=]"
+            print("  " + "─" * 110)
+            print(f"  {'합계':<20}"
+                  f"  총 평가금액 {total_eval:>14,}원"
+                  f"   총 평가손익 {pnl_color} {pnl_sign}{total_pnl:>12,}원"
+                  f"  ({pnl_sign}{total_pnl_r:.2f}%)")
         else:
             print("  보유 종목이 없습니다.")
         print()
