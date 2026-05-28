@@ -556,13 +556,13 @@ class TraderAdvanced(QMainWindow):
                             'profit_rate': sell_rate
                         })
 
-                        # 매도사유 DB 저장 (리포트용)
+                        # 매도사유 DB 저장 (리포트용 — exit_reason 컬럼이 있는 DB만 유효)
                         try:
                             self.open_api.engine_JB.execute(
                                 "UPDATE all_item_db SET exit_reason=%s "
-                                "WHERE code=%s AND sell_date='0' AND simul_num=3 "
+                                "WHERE code=%s AND sell_date='0' AND simul_num=%s "
                                 "ORDER BY buy_date DESC LIMIT 1",
-                                (trade_type, sell_code)
+                                (trade_type, sell_code, cf.imi1_simul_num)
                             )
                         except Exception as _e:
                             logger.debug(f"exit_reason 저장 실패 ({sell_code}): {_e}")
