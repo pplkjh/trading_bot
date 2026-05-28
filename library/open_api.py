@@ -1656,7 +1656,48 @@ class open_api(QAxWidget):
                 logger.warning(f"⚠️  realtime_position_monitor 삭제 실패: {e}")
 
         else:
-            logger.debug("매도 체결 처리: possessed_item에 %s 없음", code)
+            # possessed_item에 없는 경우 = 당일 매수·매도 종목 (오늘 산 주식을 오늘 팜)
+            # chejan 체결가(FID 10)로 직접 all_item_db 업데이트
+            logger.debug("매도 체결 처리: possessed_item에 %s 없음 — chejan 체결가로 직접 기록", code)
+            try:
+                sell_price = abs(int(self.get_chejan_data(10)))  # FID 10: 체결가
+                if sell_price > 0:
+                    buy_row = self.engine_JB.execute(
+                        f"SELECT purchase_price, holding_amount FROM all_item_db "
+                        f"WHERE code='{code}' AND sell_date='0' ORDER BY buy_date DESC LIMIT 1"
+                    ).fetchone()
+                    if buy_row and buy_row[0]:
+                        purchase_price_buy = int(buy_row[0])
+                        holding_amount     = int(buy_row[1])
+                        sell_rate_val  = (sell_price / purchase_price_buy - 1) * 100 \
+                                         if purchase_price_buy > 0 else 0.0
+                        realized       = (sell_price - purchase_price_buy) * holding_amount
+                        self.engine_JB.execute(
+                            f"UPDATE all_item_db "
+                            f"SET chegyul_check='0', sell_date='{self.today_detail}', "
+                            f"sell_price={sell_price}, sell_rate={sell_rate_val:.4f}, "
+                            f"realized_profit={realized} "
+                            f"WHERE code='{code}' AND sell_date='0' "
+                            f"ORDER BY buy_date DESC LIMIT 1"
+                        )
+                        # realtime_position_monitor에서도 삭제
+                        try:
+                            self.engine_JB.execute(
+                                f"DELETE FROM realtime_position_monitor WHERE code='{code}'"
+                            )
+                        except Exception:
+                            pass
+                        logger.info(
+                            f"✅ 당일매수·매도 sell 기록 (possessed 없음): "
+                            f"{code} {sell_price:,}원 {sell_rate_val:.2f}% "
+                            f"실현손익 {realized:+,}원"
+                        )
+                    else:
+                        logger.warning(f"⚠️  sell_final_check: all_item_db에도 {code} 없음")
+                else:
+                    logger.warning(f"⚠️  sell_final_check: chejan 체결가 0 ({code}), 기록 불가")
+            except Exception as _sfc_e:
+                logger.warning(f"⚠️  sell_final_check fallback 실패 ({code}): {_sfc_e}")
 
     def delete_all_item(self, code):
         # 팔았으면 즉각 possess db에서 삭제한다. 왜냐하면 checgyul_check 들어가기 직전에 possess_db를 최신화 하긴 하지만 possess db 최신화와 chegyul_check 사이에 매도가 이뤄져서 receive로 가게 되면 sell_date를 찍어버리기 때문에 checgyul_check 입장에서는 possess에는 존재하고 all_db는 sell_date찍혀있다고 판단해서 새롭게 all_db추가해버린다.
