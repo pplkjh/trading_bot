@@ -177,6 +177,7 @@ def get_portfolio_status(db_name: str):
         SELECT
             p.code,
             COALESCE(a.code_name, p.code) as code_name,
+            COALESCE(a.strategy_type, '?') as strategy_type,
             p.date,
             p.puchase_price,
             p.holding_amount,
@@ -185,7 +186,7 @@ def get_portfolio_status(db_name: str):
             p.rate
         FROM possessed_item p
         LEFT JOIN (
-            SELECT code, code_name
+            SELECT code, code_name, strategy_type
             FROM all_item_db
             WHERE sell_date = '0'
             GROUP BY code
@@ -216,7 +217,8 @@ def get_portfolio_status(db_name: str):
                 total_value  += value
                 total_profit += row['valuation_profit']
 
-                print(f"\n[{idx+1}] {code} - {row['code_name']}")
+                st = str(row.get('strategy_type', '?') or '?')
+                print(f"\n[{idx+1}] [{st}] {code} - {row['code_name']}")
                 print(f"  매수일:     {row['date']}")
                 print(f"  매수가:     {row['puchase_price']:>10,}원")
                 print(f"  현재가:     {row['present_price']:>10,}원")
@@ -277,6 +279,7 @@ def get_portfolio_status(db_name: str):
         SELECT
             code,
             code_name,
+            COALESCE(strategy_type, '?') as strategy_type,
             buy_date as trade_date,
             purchase_price,
             holding_amount,
@@ -292,6 +295,7 @@ def get_portfolio_status(db_name: str):
         SELECT
             code,
             code_name,
+            COALESCE(strategy_type, '?') as strategy_type,
             sell_date as trade_date,
             purchase_price,
             holding_amount,
@@ -315,10 +319,12 @@ def get_portfolio_status(db_name: str):
             print("-"*100)
 
             for idx, row in df_today.iterrows():
+                st = str(row.get('strategy_type', '?') or '?')
+                st_tag = f"[{st}]"
                 if row['type'] == 'BUY':
                     amount = int(row['holding_amount']) if row['holding_amount'] else 0
                     total = int(row['purchase_price']) * amount
-                    print(f"  🟢 매수  {row['code']} ({row['code_name']:<12})  "
+                    print(f"  🟢 매수  {st_tag} {row['code']} ({row['code_name']:<12})  "
                           f"{int(row['purchase_price']):>8,}원 × {amount:>4}주 = {total:>12,}원  "
                           f"({row['trade_date'][8:10]}:{row['trade_date'][10:12]})")
                 else:
@@ -331,7 +337,7 @@ def get_portfolio_status(db_name: str):
                     emoji  = '🔴' if rate >= 0 else '🔵'
                     reason = sell_reason_map.get(str(row['code']), '')
                     reason_str = f"  [{reason}]" if reason else ''
-                    print(f"  {emoji} 매도  {row['code']} ({row['code_name']:<12})  "
+                    print(f"  {emoji} 매도  {st_tag} {row['code']} ({row['code_name']:<12})  "
                           f"{sell_p:>8,}원  "
                           f"수익률 {sign}{rate:.2f}%  실현손익 {sign}{profit:,}원  "
                           f"({row['trade_date'][8:10]}:{row['trade_date'][10:12]}){reason_str}")
@@ -400,13 +406,14 @@ def get_portfolio_status(db_name: str):
                 for rank, (_, row) in enumerate(df_candidates.iterrows(), 1):
                     code = str(_v(row, 'code', 'N/A'))
                     code_name = str(_v(row, 'code_name', 'N/A'))
+                    st = str(_v(row, 'strategy_type', '?') or '?')
                     if code in bought_today:
                         status = '✅ 매수완료'
                     elif code in skip_reasons:
                         status = skip_reasons[code]
                     else:
                         status = '⏳ 미매수'
-                    print(f"\n[{rank}] {code} - {code_name}  {status}")
+                    print(f"\n[{rank}] [{st}] {code} - {code_name}  {status}")
 
                     close = _v(row, 'close')
 

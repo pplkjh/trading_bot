@@ -3,18 +3,22 @@
 Strategy A/B 스코어 구간별 성과 분석
 
 Usage:
-  python score_analyze.py A    # simulator4에서 Strategy A 분석
-  python score_analyze.py B    # simulator5에서 Strategy B 분석
-  python score_analyze.py AB   # 둘 다
+  python score_analyze.py A           # Strategy A 백테스트 + 분석
+  python score_analyze.py B           # Strategy B 백테스트 + 분석
+  python score_analyze.py AB          # 둘 다 백테스트 + 분석
+  python score_analyze.py A  --analyze-only   # 기존 DB 결과만 분석 (백테스트 생략)
+  python score_analyze.py B  --analyze-only   # 장중 트레이더와 병행 가능
+  python score_analyze.py AB --analyze-only   # 가장 빠름 (수초)
 
 동작 방식:
-  1. 최저 임계값(A=70, B=60)으로 백테스트 한 번 실행
-  2. all_item_db에 저장된 composite_score 기준으로 구간별 집계
-  3. 비교 테이블 출력
+  1. [기본] 최저 임계값(A=70, B=60)으로 백테스트 한 번 실행 → DB에 결과 저장
+  2. [--analyze-only] 백테스트 건너뜀 — 기존 DB에 쌓인 sell_rate/composite_score 그대로 사용
+  3. all_item_db에 저장된 composite_score 기준으로 구간별 집계
+  4. 비교 테이블 + min_score 자동 추천 출력
 
-기존 score_sweep 대비 장점:
-  - 9번 → 2번 실행으로 단축 (~5h vs ~20h)
-  - 중간 결과가 DB에 보존됨 (프로세스 죽어도 쿼리로 확인 가능)
+주의:
+  백테스트(run_backtest)는 daily_craw를 수백만 쿼리로 읽어 실전 트레이더와 충돌 가능.
+  장중에는 반드시 --analyze-only 사용할 것.
 """
 import sys
 import os
@@ -27,18 +31,21 @@ if hasattr(sys.stderr, 'reconfigure'):
 
 # jackbot.log와 분리 (실전 트레이더 로그 오염 방지)
 os.environ['JACKBOT_LOG_FILE'] = f"score_analyze_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+os.environ['JACKBOT_LOG_LEVEL'] = 'DEBUG'   # 백테스트 파일 로그는 DEBUG 전부 기록
 os.environ.setdefault('JACKBOT_LOG_NAME', 'simulator')
 
 from sqlalchemy import create_engine
 from library import cf
 
 # ── 설정 ─────────────────────────────────────────────────────────
-MIN_SCORE = {'A': 70, 'B': 60}       # 최저 임계값 (이 이상 전부 매수)
+# 스코어링 v3.1 이후: A 최대 200pt(동일), B 최대 200pt(동일, 백테스트 실효 160pt)
+# 분포 전체를 보기 위해 하한 임계값을 낮게 설정
+MIN_SCORE = {'A': 60, 'B': 50}       # 최저 임계값 (이 이상 전부 매수, 넓은 그물)
 
-# 분석할 스코어 구간 (하한 inclusive)
+# 분석할 스코어 구간 (하한 inclusive) — 재백테스트 후 분포 확인용
 BUCKETS = {
-    'A': [70, 80, 90, 100, 110, 120],
-    'B': [60, 70, 80, 90, 100],
+    'A': [60, 70, 80, 90, 100, 110, 120],   # A: 역U자 수정으로 하위 분포 확인
+    'B': [50, 60, 70, 80, 90, 100, 110],    # B: 컴포넌트 재배분으로 분포 이동 가능
 }
 
 DB_NAME  = {'A': 'simulator4', 'B': 'simulator5'}
@@ -158,24 +165,30 @@ def analyze(strategy):
     print(hdr)
     print("-" * 75)
 
+    cumul_results = []   # min_score 권장값 계산용
     for lo in buckets:
         subset = [(score, rate) for score, rate in rows
                   if score is not None and float(score) >= lo]
 
         if not subset:
-            print(f"{'≥'+str(lo):>10} | {'(없음)':>5}")
+            print(f"{'>='+str(lo):>10} | {'(없음)':>5}")
             continue
 
         rates = [float(r) for _, r in subset]
         wins  = [r for r in rates if r >= 0]
         loses = [r for r in rates if r < 0]
 
-        total     = len(rates)
-        win_rate  = len(wins) / total * 100
+        total      = len(rates)
+        win_rate   = len(wins) / total * 100
         avg_profit = sum(wins) / len(wins)   if wins  else 0.0
         avg_loss   = sum(loses) / len(loses) if loses else 0.0
         r_ratio    = abs(avg_profit / avg_loss) if avg_loss != 0 else 0.0
         avg_ret    = sum(rates) / total
+
+        cumul_results.append({
+            'threshold': lo, 'total': total,
+            'win_rate': win_rate, 'avg_ret': avg_ret, 'r_ratio': r_ratio,
+        })
 
         print(
             f"{'>='+str(lo):>10} | "
@@ -187,21 +200,64 @@ def analyze(strategy):
             f"{avg_ret:>+6.2f}%"
         )
 
+    # ── min_score 권장값 자동 추론 ─────────────────────────────────
+    if len(cumul_results) >= 2:
+        print()
+        print("  ── 📌 min_score 권장값 분석 ──")
+
+        # 기준 1: avg_ret 최고점 (수익률 기준)
+        best_ret  = max(cumul_results, key=lambda x: x['avg_ret'])
+        # 기준 2: R_ratio 최고점 (손익비 기준)
+        best_r    = max(cumul_results, key=lambda x: x['r_ratio'])
+        # 기준 3: 승률 최고 중 avg_ret도 평균 이상인 것
+        avg_ret_mean = sum(x['avg_ret'] for x in cumul_results) / len(cumul_results)
+        best_wr   = max(
+            (x for x in cumul_results if x['avg_ret'] >= avg_ret_mean),
+            key=lambda x: x['win_rate'], default=best_ret
+        )
+
+        print(f"  수익률 최고  → min_score = {best_ret['threshold']:>4}  "
+              f"(avg {best_ret['avg_ret']:+.2f}%, WR {best_ret['win_rate']:.1f}%, n={best_ret['total']})")
+        print(f"  손익비 최고  → min_score = {best_r['threshold']:>4}  "
+              f"(R={best_r['r_ratio']:.2f}, avg {best_r['avg_ret']:+.2f}%, n={best_r['total']})")
+        print(f"  승률+수익 균형 → min_score = {best_wr['threshold']:>4}  "
+              f"(WR {best_wr['win_rate']:.1f}%, avg {best_wr['avg_ret']:+.2f}%, n={best_wr['total']})")
+        print()
+        # 최종 추천: 3개 기준 중 중간값 선택
+        candidates = sorted(set([
+            best_ret['threshold'], best_r['threshold'], best_wr['threshold']
+        ]))
+        recommended = candidates[len(candidates) // 2]
+        print(f"  💡 권장 min_score (중앙값 기준): {recommended}")
+        print(f"     → cf.py: v4_min_score_{strategy.lower()} = {recommended}")
+
     print(f"{'='*80}\n")
 
 
 def main():
-    target = sys.argv[1].upper() if len(sys.argv) > 1 else 'AB'
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    flags = [a for a in sys.argv[1:] if a.startswith('--')]
+
+    target = args[0].upper() if args else 'AB'
     if target not in ('A', 'B', 'AB'):
         print(__doc__)
         sys.exit(1)
+
+    analyze_only = '--analyze-only' in flags
+
+    if analyze_only:
+        print("=" * 65)
+        print("  [--analyze-only] 백테스트 생략 — 기존 DB 결과로 분석")
+        print("  (장중 트레이더와 병행 가능, 수초 내 완료)")
+        print("=" * 65)
 
     strategies = ['A', 'B'] if target == 'AB' else [target]
 
     start = datetime.datetime.now()
 
     for s in strategies:
-        run_backtest(s)
+        if not analyze_only:
+            run_backtest(s)
         analyze(s)
 
     elapsed = datetime.datetime.now() - start

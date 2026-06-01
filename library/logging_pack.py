@@ -37,7 +37,9 @@ if _log_file_override:
     _log_dir = pathlib.Path(__file__).parent.parent.absolute() / 'backtest_report'
     os.makedirs(_log_dir, exist_ok=True)
     file_path = _log_dir / _log_file_override
-    _file_log_level = logging.INFO
+    # JACKBOT_LOG_LEVEL=DEBUG 이면 백테스트 로그도 DEBUG 전부 기록
+    _env_level = os.environ.get('JACKBOT_LOG_LEVEL', '').upper()
+    _file_log_level = logging.DEBUG if _env_level == 'DEBUG' else logging.INFO
 elif _log_name == 'simulator':
     file_path = _log_base / 'simulator.log'
     _file_log_level = logging.DEBUG

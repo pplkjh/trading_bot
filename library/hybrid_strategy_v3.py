@@ -11,15 +11,23 @@ v3 해결책:
   B: RSI 과매도 바닥 패턴 확인 후 중장기 사이클 상승 구간 포착
 
 [배점]
-  Strategy A: 200pt 만점
-    돌파강도(d1_diff+거래량) 70 + BB돌파위치 40 + MACD전환초입 30
-    + RSI50돌파초입 30 + 단기MA정렬시작 20 + ADX초입 10
-  Strategy B: 200pt 만점 (백테스트 시 펀더멘털 제외 → 최대 160pt)
-    A. RSI 신호 80pt (BFS 30 + 다이버전스 10 + RSI9/14크로스 40)
-    B. 펀더멘털 품질 40pt (실전 전용, PER/ROA)
-    C. 장기 추세 40pt (MA120 장기추세 20 + RSI 50선 접근 20)
-    D. BB 사이클 위치 25pt (BB하단터치 15 + BB현재위치 10)
-    E. 거래량+MACD 15pt
+  Strategy A: 200pt 만점  (v3.2 — 상관분석 심층 연구 기반 재조정 2026-05-29)
+    score_a. 돌파강도 50pt  — d1_diff+거래량, 역U자 (피크 2.5~4% / 1.5~3x)
+             ※ penalty: d1_diff>5% -10pt, vol_ratio>4.5x -8pt (갭 과대 = 다음날 역전 위험)
+    score_b. BB돌파위치+단기MA 60pt
+    score_c. ADX방향성 10pt — ADX초입(15~28) + +DI>-DI + ADX상승 확인 (df_120 활용)
+    score_d. MACD전환초입 30pt
+    score_e. RSI50돌파초입 30pt
+    score_f. BB활성도 20pt — bb_bandwidth 기반 실거래 품질 (구: 압축도, 방향 역전)
+             ※ 상관분석(r=-0.0945): 타이트BB=가짜돌파/유동성부족, 활성BB=실매수세
+
+  Strategy B: 200pt 만점  (v3.2 — 상관분석 심층 연구 기반 재조정 2026-05-29)
+    score_a. RSI 신호 65pt       (BFS 25 + 다이버전스 8 + RSI9/14크로스 32)
+    score_b. 펀더멘털 품질 40pt   (실전 전용, PER/ROA)
+    score_c. 장기 추세 55pt      (MA120 장기추세 28 + RSI 50선 접근 27)  ← 상향 (r=+0.081)
+    score_d. BB 사이클 위치 10pt  (BB하단터치 6 + BB현재위치 4)  ← 추가 하향 (r=+0.011)
+    score_e. 거래량+MACD 15pt
+    score_f. 회복 모멘텀 15pt    (RSI 저점 이후 일평균 상승속도) ← 상향 (r=+0.1316 최고)
 
 [매도 전략 — sell_list_num=31]
   B: 하드SL -5% / 트레일링스탑(max_high_pct>=3, rate<=max_high_pct-5) / 45일 시간청산
@@ -50,6 +58,20 @@ def _calc_bb_lower_series(df_120):
         return bb_middle - 2 * bb_std
     except Exception:
         return None
+
+
+def _calc_adx_series(df_120):
+    """df_120(daily_craw)에서 ADX/+DI/-DI 시계열 계산.
+    Returns (adx_series, plus_di_series, minus_di_series) 또는 (None, None, None).
+    """
+    try:
+        from library.technical_indicators import calculate_adx
+        adx_s, plus_di_s, minus_di_s = calculate_adx(
+            df_120['high'], df_120['low'], df_120['close']
+        )
+        return adx_s, plus_di_s, minus_di_s
+    except Exception:
+        return None, None, None
 
 
 def _calc_rsi9_series(df_120):
@@ -106,20 +128,20 @@ class BreakoutStrategyV3:
             base['total'] = -999.0
             return base
 
-        # score_a: 돌파 강도 (d1_diff_rate + 거래량 급증) — 70pt
+        # score_a: 돌파 강도 — 50pt (역U자: d1_diff 2.5~4% 피크, vol_ratio 1.5~3x 피크)
         sa = self._score_breakout_strength(row)
         # score_b: BB 돌파 위치 + 단기MA 정렬 시작 — 60pt
         sb = self._score_bb_and_ma(row)
-        # score_c: ADX 초입 — 10pt
-        sc = self._score_adx_early(row)
+        # score_c: ADX 방향성 초입 (df_120 필요) — 10pt
+        sc = self._score_adx_early(row, df_120)
         # score_d: MACD 전환 초입 (df_120 필요) — 30pt
         sd = self._score_macd_crossover(row, df_120)
         # score_e: RSI 50 상향 돌파 초입 (df_120 필요) — 30pt
         se = self._score_rsi_cross50(row, df_120)
-        # score_f: 미사용
-        sf = 0.0
+        # score_f: BB 압축도 — 20pt (bb_bandwidth 기반 횡보 압축 품질)
+        sf = self._score_compression(row)
 
-        penalty = self._penalty(row)
+        penalty = self._penalty(row, score_a=sa)
 
         total = sa + sb + sc + sd + se + sf + penalty
 
@@ -186,31 +208,50 @@ class BreakoutStrategyV3:
         return None
 
     def _score_breakout_strength(self, row: dict) -> float:
-        """d1_diff_rate(35pt) + 거래량급증(35pt) = 70pt"""
+        """돌파 강도 — 역U자형 (피크 구간에서 만점, 과도하면 감점)
+
+        d1_diff_rate (25pt):
+          1.5~2.5% : 선형 상승 (0 → 25pt)
+          2.5~4.0% : 만점 25pt  ← 적당한 돌파
+          4.0~6.0% : 선형 하강 (25 → 0pt)
+          6.0% 초과: 0pt (이미 갭 급등, 다음날 추격 위험)
+
+        거래량 급증 vol5/vol20 (25pt):
+          1.2~1.5x : 선형 상승 (0 → 25pt)
+          1.5~3.0x : 만점 25pt  ← 건강한 수요 급증
+          3.0~5.0x : 선형 하강 (25 → 0pt)
+          5.0x 초과: 0pt (투기성 단타 급등 의심)
+
+        합계: 50pt
+        """
         score = 0.0
 
-        # d1_diff_rate: 2.5~5% 구간 만점
+        # d1_diff_rate: 2.5~4.0% 피크, 역U자
         try:
             d1 = float(row.get('d1_diff_rate') or 0)
             if 1.5 <= d1 < 2.5:
-                score += 35 * (d1 - 1.5) / 1.0
-            elif 2.5 <= d1 <= 5.0:
-                score += 35
-            elif 5.0 < d1 <= 8.0:
-                score += 35 * (8.0 - d1) / 3.0  # 5~8% 구간 감점 (갭 과대)
+                score += 25 * (d1 - 1.5) / 1.0        # 0 → 25pt
+            elif 2.5 <= d1 <= 4.0:
+                score += 25                             # 만점
+            elif 4.0 < d1 <= 6.0:
+                score += 25 * (6.0 - d1) / 2.0        # 25 → 0pt
+            # d1 > 6.0: 0pt (갭 과대, 이미 오른 종목)
         except (TypeError, ValueError):
             pass
 
-        # 거래량 급증: vol5/vol20
+        # 거래량 급증: 1.5~3.0x 피크, 역U자
         try:
             vol5 = float(row.get('vol5') or 0)
             vol20 = float(row.get('vol20') or 1)
             if vol20 > 0:
                 ratio = vol5 / vol20
-                if ratio >= 2.0:
-                    score += 35
-                elif ratio >= 1.2:
-                    score += 35 * (ratio - 1.2) / 0.8
+                if 1.2 <= ratio < 1.5:
+                    score += 25 * (ratio - 1.2) / 0.3  # 0 → 25pt
+                elif 1.5 <= ratio <= 3.0:
+                    score += 25                          # 만점
+                elif 3.0 < ratio <= 5.0:
+                    score += 25 * (5.0 - ratio) / 2.0  # 25 → 0pt
+                # ratio > 5.0: 0pt (투기성 급등)
         except (TypeError, ZeroDivisionError):
             pass
 
@@ -253,19 +294,53 @@ class BreakoutStrategyV3:
 
         return score
 
-    def _score_adx_early(self, row: dict) -> float:
-        """ADX 초입 범위 (18~28): 10pt"""
+    def _score_adx_early(self, row: dict, df_120) -> float:
+        """ADX 방향성 초입 — 10pt
+
+        기존 문제: ADX 레벨(18~28)만 확인 → -DI>+DI(하락추세)도 점수 부여 (r=+0.019)
+        개선:
+          ① +DI > -DI 필수 (row의 plus_di/minus_di 사용)
+          ② ADX 15~28 구간 기본 7pt
+          ③ df_120으로 ADX 시계열 재계산 → 5일 전 대비 상승 중이면 +3pt (최대 10pt)
+
+        조건 미달 시 0pt:
+          - plus_di ≤ minus_di (하락 방향)
+          - ADX < 15 (추세 없음)
+          - ADX > 30 (성숙 추세, penalty와 중복)
+        """
         try:
-            adx = float(row.get('adx') or 0)
-            if 18 <= adx <= 28:
-                return 10.0
-            elif 15 <= adx < 18:
-                return 10 * (adx - 15) / 3
-            elif 28 < adx <= 33:
-                return 10 * (33 - adx) / 5
+            adx      = float(row.get('adx')      or 0)
+            plus_di  = float(row.get('plus_di')  or 0)
+            minus_di = float(row.get('minus_di') or 0)
         except (TypeError, ValueError):
+            return 0.0
+
+        # ① 방향성 필수: +DI > -DI
+        if plus_di <= minus_di or (plus_di + minus_di) <= 0:
+            return 0.0
+
+        # ② ADX 레벨 기본 점수
+        if adx < 15:
+            return 0.0
+        elif adx <= 25:
+            level_score = 7.0
+        elif adx <= 30:
+            level_score = 7.0 * (30.0 - adx) / 5.0
+        else:
+            return 0.0  # ADX > 30: 성숙 추세
+
+        # ③ ADX 상승 방향 보너스 (df_120에서 재계산)
+        adx_rising = False
+        try:
+            if df_120 is not None and len(df_120) >= 20:
+                adx_s, _, _ = _calc_adx_series(df_120)
+                if adx_s is not None and len(adx_s) >= 6:
+                    adx_rising = float(adx_s.iloc[-1]) > float(adx_s.iloc[-6])
+        except Exception:
             pass
-        return 0.0
+
+        bonus = 3.0 if adx_rising else 0.0
+        return round(min(10.0, level_score + bonus), 2)
 
     def _score_macd_crossover(self, row: dict, df_120) -> float:
         """MACD 전환 초입: histogram>0(15pt) + 최근 5일 내 음→양 전환(15pt) = 30pt"""
@@ -319,7 +394,40 @@ class BreakoutStrategyV3:
 
         return score
 
-    def _penalty(self, row: dict) -> float:
+    def _score_compression(self, row: dict) -> float:
+        """BB 활성도 — 돌파 종목의 실거래 품질 지표 (구: BB압축도, 방향 역전)
+
+        [상관분석 결과 및 연구 근거]
+        - 상관분석(r=-0.0945): 과도한 압축(tight BB) 종목이 오히려 더 낮은 수익률
+        - John Bollinger의 "head fake" 경고: 좁은 BB + 낮은 유동성 = 가짜돌파 트랩
+        - 실거래 품질: 최근 20일 활발히 거래된 종목(moderate~wide BB)이 돌파 지속성 높음
+        - 과도한 압축 종목 = 기관 관심 없음, 유동성 부족 → 단일 세력 단발성 급등 의심
+        - 한국 개별주 모멘텀 역전 효과 연구: 진짜 수요 없는 좁은 BB 종목의 돌파는 반전 위험
+
+        [방향 역전: 타이트 → 패널티, 활성 → 보상]
+        bb_bandwidth ≥ 0.10  → 20pt  (활성 거래, 건강한 변동성, 실매수세 확인)
+        0.07 < bw < 0.10     → 선형 상승 (10 → 20pt)
+        0.05 < bw ≤ 0.07     → 선형 상승  (0 → 10pt)
+        bw ≤ 0.05            →  0pt  (유동성 부족, 가짜돌파 의심)
+
+        합계: 20pt
+        """
+        try:
+            bw = float(row.get('bb_bandwidth') or 0)
+            if bw <= 0:
+                return 0.0
+            if bw <= 0.05:
+                return 0.0                                     # 유동성 부족, 가짜돌파
+            elif bw <= 0.07:
+                return 10.0 * (bw - 0.05) / 0.02             # 0 → 10pt
+            elif bw <= 0.10:
+                return 10.0 + 10.0 * (bw - 0.07) / 0.03     # 10 → 20pt
+            else:
+                return 20.0                                    # 활성 거래, 만점
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _penalty(self, row: dict, score_a: float = 0) -> float:
         penalty = 0.0
 
         # RSI > 65: 과열 징후
@@ -351,6 +459,39 @@ class BreakoutStrategyV3:
         except (TypeError, ZeroDivisionError):
             pass
 
+        # score_a 극단값 패널티 — 실증 r=-0.2738, 30pt 임계점 기반
+        # 근거: 한국 개별주 단기 모멘텀 역전 효과 (학술 연구 확인)
+        #   score_a 0~30pt: 승률 80%+, avg +8%  ← 건강한 돌파
+        #   score_a 30~50pt: 승률 67%,  avg +2%  ← 과도한 돌파 → 개인 추격 / 기관 출회
+        # 역U자로 이미 원재료(d1, vol) 극단값은 0pt 처리됨
+        # 단, d1 & vol 동시 피크 = score_a 40~50pt 구간은 composite 추가 억제 필요
+        if score_a > 40:
+            penalty -= 20   # d1+vol 동시 최대 → 강한 반전 위험
+        elif score_a > 30:
+            penalty -= 10   # d1+vol 고점 권 → 중간 반전 위험
+
+        # 기존 d1/vol 극단 패널티 유지 (score_a가 0pt로 떨어지는 구간 추가 억제)
+        try:
+            d1 = float(row.get('d1_diff_rate') or 0)
+            if d1 > 5.0:
+                penalty -= 10   # 5% 초과 갭 → 다음날 갭 메우기 역전 위험
+            elif d1 > 4.0:
+                penalty -= 5
+        except (TypeError, ValueError):
+            pass
+
+        try:
+            vol5 = float(row.get('vol5') or 0)
+            vol20 = float(row.get('vol20') or 1)
+            if vol20 > 0:
+                ratio = vol5 / vol20
+                if ratio > 4.5:
+                    penalty -= 8   # 4.5x 초과 거래량 → 투기성 단타 역전 의심
+                elif ratio > 3.5:
+                    penalty -= 3
+        except (TypeError, ZeroDivisionError, ValueError):
+            pass
+
         return penalty
 
 
@@ -362,12 +503,13 @@ class ReversalStrategyV3:
     """
     RSI 과매도 바닥 패턴 확인 후 중장기 사이클 상승 구간 포착
 
-    [배점] 200pt 만점 (백테스트 시 펀더멘털 B 제외 → 최대 160pt)
-      A. RSI 신호                    80pt  (BFS 30 + 다이버전스 10 + RSI9/14크로스 40)
+    [배점] 200pt 만점 (v3.2 — 2026-05-29, 백테스트 시 펀더멘털 B 제외 → 최대 160pt)
+      A. RSI 신호                    65pt  (BFS 25 + 다이버전스 8 + RSI9/14크로스 32)
       B. 펀더멘털 품질               40pt  ← 실전 전용, 백테스트=0
-      C. 장기 추세                   40pt  (MA120 장기추세 20 + RSI 50선 접근 20)
-      D. BB 사이클 위치              25pt
+      C. 장기 추세                   55pt  (MA120 장기추세 28 + RSI 50선 접근 27) [r=+0.081]
+      D. BB 사이클 위치              10pt  (BB하단터치 6 + BB현재위치 4) ← 추가 하향 [r=+0.011]
       E. 거래량 + MACD               15pt
+      F. 회복 모멘텀                 15pt  (RSI 저점 이후 일평균 상승속도) ← 상향 [r=+0.1316]
 
     자동 탈락 조건 (auto_reject):
       - 최근 30일 내 RSI trough > 30         : 진짜 과매도 없음
@@ -404,7 +546,7 @@ class ReversalStrategyV3:
         sc = self._score_long_trend(row, rsi_series, df_120)
         sd = self._score_bb_cycle(row, df_120)
         se = self._score_volume_macd(row)
-        sf = 0.0
+        sf = self._score_recovery_momentum(rsi_series)
         penalty = self._penalty(row)
         total = sa + sb + sc + sd + se + sf + penalty
 
@@ -452,7 +594,7 @@ class ReversalStrategyV3:
         return None
 
     def _score_rsi_signals(self, row: dict, rsi_series, rsi9_series, df_120) -> float:
-        """A. Bottom Failure Swing(30pt) + RSI 다이버전스(10pt) + RSI9/14 크로스(40pt) = 80pt"""
+        """A. Bottom Failure Swing(25pt) + RSI 다이버전스(8pt) + RSI9/14 크로스(32pt) = 65pt"""
         score = 0.0
         score += self._bfs_score(rsi_series)
         score += self._divergence_score(rsi_series, df_120)
@@ -460,7 +602,7 @@ class ReversalStrategyV3:
         return score
 
     def _bfs_score(self, rsi_series) -> float:
-        """RSI Bottom Failure Swing 패턴 탐지 — 30pt
+        """RSI Bottom Failure Swing 패턴 탐지 — 25pt
         trough1(<30) → H1 반등 → trough2(>trough1) → 현재 RSI > H1 = BFS 완성
         """
         if rsi_series is None or len(rsi_series) < 30:
@@ -502,17 +644,17 @@ class ReversalStrategyV3:
 
             current_rsi = float(rsi[n - 1])
             if current_rsi > h1_val:
-                return 30.0  # BFS 완성: 현재 RSI가 H1 돌파
+                return 25.0  # BFS 완성: 현재 RSI가 H1 돌파
             # H1 돌파 전 — 진행률 비례 부분 점수
             denom = max(h1_val - trough2_val, 0.1)
             progress = (current_rsi - trough2_val) / denom
-            return min(15.0, max(0.0, 15.0 * progress))
+            return min(12.0, max(0.0, 12.0 * progress))
         except Exception:
             pass
         return 0.0
 
     def _divergence_score(self, rsi_series, df_120) -> float:
-        """RSI 강세 다이버전스 — 10pt (가격 낮은 저점 + RSI 높은 저점)"""
+        """RSI 강세 다이버전스 — 8pt (가격 낮은 저점 + RSI 높은 저점)"""
         if rsi_series is None or df_120 is None or len(df_120) < 20:
             return 0.0
         try:
@@ -531,15 +673,15 @@ class ReversalStrategyV3:
             rsi2 = float(rsi_series.iloc[p2_idx])
 
             if price2 < price1 * 0.99 and rsi2 > rsi1 + 2:
-                return 10.0
+                return 8.0
             elif price2 < price1 and rsi2 > rsi1:
-                return 5.0
+                return 4.0
         except Exception:
             pass
         return 0.0
 
     def _rsi9_cross_score(self, rsi_series, rsi9_series) -> float:
-        """RSI 9/14 골든크로스 — 40pt (단기 모멘텀 가속 신호)"""
+        """RSI 9/14 골든크로스 — 32pt (단기 모멘텀 가속 신호)"""
         if rsi9_series is None or rsi_series is None:
             return 0.0
         try:
@@ -556,7 +698,7 @@ class ReversalStrategyV3:
                     gap_now = rsi14[-1] - rsi9[-1]
                     gap_3d = rsi14[-4] - rsi9[-4]
                     if gap_now < 3 and gap_now < gap_3d:
-                        return 5.0
+                        return 4.0
                 return 0.0
 
             # RSI9 > RSI14: 마지막으로 RSI9 <= RSI14 였던 날 탐색
@@ -568,19 +710,21 @@ class ReversalStrategyV3:
                     break
 
             if cross_days_ago is None:
-                return 15.0   # 10일 이상 유지 — 오래된 크로스
+                return 12.0   # 10일 이상 유지 — 오래된 크로스
             elif cross_days_ago <= 3:
-                return 40.0   # 신선한 크로스 (0~2일 전 발생)
+                return 32.0   # 신선한 크로스 (0~2일 전 발생)
             elif cross_days_ago <= 7:
-                return 25.0   # 3~6일 전
+                return 20.0   # 3~6일 전
             else:
-                return 15.0   # 7~9일 전
+                return 12.0   # 7~9일 전
         except Exception:
             pass
         return 0.0
 
     def _score_long_trend(self, row: dict, rsi_series, df_120) -> float:
-        """C. MA120 장기 추세(20pt) + RSI 50선 접근(20pt) = 40pt"""
+        """C. MA120 장기 추세(28pt) + RSI 50선 접근(27pt) = 55pt
+        상관분석(r=+0.081)에서 가장 유효한 컴포넌트 → 비중 상향 (40→55pt)
+        """
         score = 0.0
 
         try:
@@ -593,26 +737,26 @@ class ReversalStrategyV3:
                     if ratio >= 1.0:
                         if len(close_s) >= 130:
                             ma120_10d = float(close_s.iloc[-130:-10].mean())
-                            score += 20 if ma120_today >= ma120_10d else 15
+                            score += 28 if ma120_today >= ma120_10d else 21
                         else:
-                            score += 15
+                            score += 21
                     elif ratio >= 0.95:
-                        score += 8
+                        score += 11
                     elif ratio >= 0.85:
-                        score += 3
+                        score += 4
         except Exception:
             pass
 
         try:
             rsi_now = float(row.get('rsi14') or 30)
             if rsi_now >= 45:
-                score += 20
+                score += 27
             elif rsi_now >= 38:
-                score += 12
+                score += 16
             elif rsi_now >= 30:
-                score += 6
+                score += 8
             else:
-                score += 2
+                score += 3
         except (TypeError, ValueError):
             pass
 
@@ -654,7 +798,10 @@ class ReversalStrategyV3:
         return score
 
     def _score_bb_cycle(self, row: dict, df_120) -> float:
-        """D. BB 하단 터치 후 복귀(15pt) + BB 현재 위치(10pt) = 25pt"""
+        """D. BB 하단 터치 후 복귀(6pt) + BB 현재 위치(4pt) = 10pt
+        상관분석(r=+0.011)에서 거의 무효 → 비중 추가 하향 (25→15→10pt)
+        해방된 5pt는 r=+0.1316 최고 상관의 score_f(회복모멘텀)로 이전
+        """
         score = 0.0
 
         try:
@@ -669,7 +816,7 @@ class ReversalStrategyV3:
                         for k in range(len(recent_close))
                         if recent_bb_l[k] == recent_bb_l[k]
                     ):
-                        score += 15
+                        score += 6  # 9 → 6pt
         except Exception:
             pass
 
@@ -681,13 +828,63 @@ class ReversalStrategyV3:
             if bb_range > 0:
                 pos = (close - bb_lower) / bb_range
                 if 0.10 <= pos <= 0.40:
-                    score += 10
+                    score += 4  # 6 → 4pt
                 elif 0.40 < pos <= 0.55:
-                    score += 10 * (0.55 - pos) / 0.15
+                    score += 4 * (0.55 - pos) / 0.15
         except (TypeError, ZeroDivisionError):
             pass
 
         return score
+
+    def _score_recovery_momentum(self, rsi_series) -> float:
+        """F. 회복 모멘텀 — RSI 저점 이후 일평균 상승 속도 = 15pt (10→15pt 상향)
+
+        Strategy B는 RSI 과매도 이후 반등 구간을 포착하는 전략.
+        RSI 저점에서 현재까지 얼마나 빠르게 회복하는지가 매수 강도를 반영한다.
+        상관분석(r=+0.1316): Strategy B 전체 컴포넌트 중 최고 상관 → 비중 상향.
+        해방 재원: score_d (BB사이클, r=+0.011) 5pt 이전.
+
+        계산:
+          - 최근 30일 내 RSI 최저점(trough) 탐색 (trough ≤ 35 조건)
+          - daily_gain = (현재 RSI - trough) / 저점 이후 경과일
+
+        ≥ 3pt/일 → 15pt  (강한 회복, 단기 반전 모멘텀)
+        ≥ 2pt/일 → 10pt
+        ≥ 1pt/일 →  5pt
+        < 1pt/일 →  0pt  (회복 속도 불충분)
+        """
+        try:
+            if rsi_series is None or len(rsi_series) < 10:
+                return 0.0
+            series = rsi_series.reset_index(drop=True)
+            n = len(series)
+            rsi_now = float(series.iloc[-1])
+
+            # 최근 30일 내 RSI 최저점 탐색 (trough ≤ 35)
+            lookback = series.iloc[max(0, n - 30):-1]
+            if lookback.empty:
+                return 0.0
+            trough_val = float(lookback.min())
+            if trough_val > 35:
+                return 0.0  # 진짜 과매도 바닥 없음
+
+            trough_local_idx = int(lookback.values.argmin())
+            trough_abs_idx = (n - 30 if n >= 30 else 0) + trough_local_idx
+            days_since = (n - 1) - trough_abs_idx
+            if days_since <= 0:
+                return 0.0
+
+            daily_gain = (rsi_now - trough_val) / days_since
+            if daily_gain >= 3.0:
+                return 15.0   # 10 → 15pt
+            elif daily_gain >= 2.0:
+                return 10.0   #  7 → 10pt
+            elif daily_gain >= 1.0:
+                return 5.0    #  4 →  5pt
+            else:
+                return 0.0
+        except Exception:
+            return 0.0
 
     def _score_volume_macd(self, row: dict) -> float:
         """E. 반등 거래량(8pt) + MACD 전환(7pt) = 15pt"""

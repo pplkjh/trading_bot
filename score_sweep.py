@@ -30,6 +30,7 @@ if hasattr(sys.stderr, 'reconfigure'):
 
 # 로그 파일 분리 (백테스트 로그와 겹치지 않도록)
 os.environ['JACKBOT_LOG_FILE'] = f"score_sweep_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+os.environ['JACKBOT_LOG_LEVEL'] = 'DEBUG'   # 백테스트 파일 로그는 DEBUG 전부 기록
 os.environ.setdefault('JACKBOT_LOG_NAME', 'simulator')
 
 from sqlalchemy import create_engine, text

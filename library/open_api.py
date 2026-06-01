@@ -496,24 +496,27 @@ class open_api(QAxWidget):
                     self.sf.df_all_item.loc[0, 'ma60'] = df.loc[0, 'clo60'] if 'clo60' in df.columns else 0
                     self.sf.df_all_item.loc[0, 'ma120'] = df.loc[0, 'clo120'] if 'clo120' in df.columns else 0
 
-        # 스코어 컬럼: realtime_daily_buy_list에서 읽어서 저장
+        # 스코어 + strategy_type: realtime_daily_buy_list에서 읽어서 저장
         try:
             score_row = self.engine_JB.execute(
-                "SELECT composite_score, score_a, score_b, score_c, score_d, score_e, score_f, score_penalty "
+                "SELECT composite_score, score_a, score_b, score_c, score_d, score_e, score_f, score_penalty, strategy_type "
                 "FROM realtime_daily_buy_list WHERE code = '%s' LIMIT 1" % str(code)
             ).fetchone()
             if score_row:
                 for _col, _val in zip(
                     ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty'],
-                    score_row
+                    score_row[:8]
                 ):
                     self.sf.df_all_item.loc[0, _col] = float(_val) if _val else 0
+                self.sf.df_all_item.loc[0, 'strategy_type'] = str(score_row[8] or 'A')
             else:
                 for _col in ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']:
                     self.sf.df_all_item.loc[0, _col] = 0
+                self.sf.df_all_item.loc[0, 'strategy_type'] = 'A'
         except Exception:
             for _col in ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']:
                 self.sf.df_all_item.loc[0, _col] = 0
+            self.sf.df_all_item.loc[0, 'strategy_type'] = 'A'
         self.sf.df_all_item.loc[0, 'simul_num'] = self.sf.simul_num
 
         # 컬럼 중에 nan 값이 있는 경우 0으로 변경 -> 이렇게 안하면 아래 데이터베이스에 넣을 때
@@ -1313,10 +1316,15 @@ class open_api(QAxWidget):
                     'current_price': current_price
                 })
 
-            # all_item_db에 없는 종목 로그 출력
+            # all_item_db에 없는 종목 로그 출력 (중복 경고 억제 — 세션당 1회만 출력)
             if skipped_codes:
-                logger.warning(f"⚠️  all_item_db에 매수 정보가 없는 {len(skipped_codes)}개 종목 건너뜀: {', '.join(skipped_codes)}")
-                logger.info("💡 수동 매수 종목이거나 DB 동기화 문제일 수 있습니다")
+                already_warned = getattr(self, '_warned_missing_codes', set())
+                new_missing = [c for c in skipped_codes if c not in already_warned]
+                if new_missing:
+                    logger.warning(f"⚠️  all_item_db에 매수 정보가 없는 {len(new_missing)}개 종목 건너뜀: {', '.join(new_missing)}")
+                    logger.warning("💡 수동 매수 종목이거나 DB 동기화 문제 — all_item_db에 수동 INSERT 필요")
+                    logger.warning("   SQL: INSERT INTO all_item_db (code, code_name, buy_date, purchase_price, holding_amount, sell_date, strategy_type) VALUES (...)")
+                    self._warned_missing_codes = already_warned | set(new_missing)
 
             if len(positions) == 0:
                 logger.warning("⚠️  고급 청산 전략을 적용할 종목이 없습니다")
@@ -1347,6 +1355,115 @@ class open_api(QAxWidget):
             import traceback
             traceback.print_exc()
             return []
+
+    def get_sell_list(self):
+        """
+        통합 매도 리스트 — Strategy A/B 분기, ATR 기반 트레일링
+        exit_strategy.get_live_sell_signals() 에 위임
+        (get_basic_sell_list + get_advanced_sell_list 통합 대체)
+
+        Returns
+        -------
+        (sell_list, sell_signals_detail)
+          sell_list          : [[code, name, rate, price, profit], ...]
+          sell_signals_detail: [{'code','name','price','profit_rate','reason'}, ...]
+        """
+        from library.exit_strategy import get_live_sell_signals
+
+        # ── 1. 보유 종목 조회 ────────────────────────────────────────────────
+        try:
+            sql = """
+            SELECT a.code, a.code_name, a.buy_date, a.strategy_type,
+                   a.purchase_price, a.present_price,
+                   COALESCE(m.highest_price, a.present_price) AS highest_price
+            FROM all_item_db a
+            LEFT JOIN realtime_position_monitor m ON a.code = m.code
+            WHERE a.sell_date = '0'
+            """
+            rows = self.engine_JB.execute(sql).fetchall()
+        except Exception as e:
+            logger.error(f"[get_sell_list] 보유 종목 조회 실패: {e}")
+            return [], []
+
+        if not rows:
+            return [], []
+
+        # ── 2. ATR / ADX 배치 조회 (daily_buy_list — 가장 가까운 거래일) ────
+        codes = [str(r[0]).zfill(6) for r in rows]
+        indicator_map = {}
+        try:
+            import pymysql as _pymysql
+            for offset in range(5):  # 오늘부터 최대 4거래일 전까지 탐색
+                remaining = [c for c in codes if c not in indicator_map]
+                if not remaining:
+                    break   # 모든 종목 찾음
+                tbl = (datetime.datetime.now() - datetime.timedelta(days=offset)).strftime('%Y%m%d')
+                ph = ','.join(['%s'] * len(remaining))
+                try:
+                    _con = _pymysql.connect(
+                        user=cf.db_id, passwd=cf.db_passwd,
+                        host=cf.db_ip, port=int(cf.db_port),
+                        db='daily_buy_list', charset='utf8'
+                    )
+                    _cur = _con.cursor()
+                    _cur.execute(f"SELECT code, adx, atr14 FROM `{tbl}` WHERE code IN ({ph})", remaining)
+                    for _r in _cur.fetchall():
+                        indicator_map[str(_r[0]).zfill(6)] = {
+                            'adx':   float(_r[1] or 0),
+                            'atr14': float(_r[2] or 0),
+                        }
+                    _cur.close()
+                    _con.close()
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.warning(f"[get_sell_list] ATR/ADX 조회 실패 — 트레일링 고정 fallback: {e}")
+
+        # ── 3. positions 구성 ────────────────────────────────────────────────
+        positions = []
+        for r in rows:
+            code          = str(r[0]).zfill(6)
+            entry_price   = float(r[4] or 0)
+            current_price = float(r[5] or 0)
+            highest_price = float(r[6] or current_price)
+            positions.append({
+                'code':          code,
+                'code_name':     r[1],
+                'buy_date':      str(r[2] or ''),
+                'strategy_type': str(r[3] or 'A'),
+                'entry_price':   entry_price,
+                'current_price': current_price,
+                'highest_price': highest_price,
+            })
+
+        # ── 4. 매도 시그널 생성 ──────────────────────────────────────────────
+        sell_signals = get_live_sell_signals(positions, indicator_map)
+
+        # ── 5. 반환 형식 변환 ────────────────────────────────────────────────
+        sell_list           = []
+        sell_signals_detail = []
+
+        for sig in sell_signals:
+            pct        = sig['profit_pct']
+            rate_value = (100 + pct) if self.mod_gubun != 1 else pct   # 실전=100기준, 모의=그대로
+            sell_list.append([
+                sig['code'],
+                sig['code_name'],
+                rate_value,
+                int(sig['current_price']),
+                0,
+            ])
+            sell_signals_detail.append({
+                'code':        sig['code'],
+                'name':        sig['code_name'],
+                'price':       int(sig['current_price']),
+                'profit_rate': pct,
+                'reason':      sig['reason'],
+                'priority':    50,
+            })
+
+        logger.info(f"🎯 통합 매도 시그널: {len(sell_list)}개 종목")
+        return sell_list, sell_signals_detail
 
     def get_basic_sell_list(self):
         """
@@ -1417,7 +1534,9 @@ class open_api(QAxWidget):
                         sell_reason = f'B하드SL(-5%): {profit_pct:.2f}%'
 
                     elif purchase_price > 0 and highest_price / purchase_price >= 1.03:
-                        trail_stop_price = highest_price * 0.95
+                        # 플로어: 트레일링 활성화 이후 최소 +1% 보장 (손실 청산 방지)
+                        # 예) 고점 +3% → trail=max(0.95×high, 1.01×buy) = 1.01×buy (+1% 보장)
+                        trail_stop_price = max(highest_price * 0.95, purchase_price * 1.01)
                         if present_price <= trail_stop_price:
                             should_sell = True
                             peak_pct = (highest_price / purchase_price - 1) * 100
@@ -1437,13 +1556,13 @@ class open_api(QAxWidget):
 
                 else:
                     # ── Strategy A: 하드SL -5% / 트레일링스탑(3%활성화, 5%트레일) / 15일 시간청산
-                    # exit analysis 결과: SL-5+Trail(3%,5%) 승률 79.6%, 평균 +8.27%
                     if losscut_active and profit_pct <= -5.0:
                         should_sell = True
                         sell_reason = f'A하드SL(-5%): {profit_pct:.2f}%'
 
                     elif purchase_price > 0 and highest_price / purchase_price >= 1.03:
-                        trail_stop_price = highest_price * 0.95
+                        # 플로어: 트레일링 활성화 이후 최소 +1% 보장 (손실 청산 방지)
+                        trail_stop_price = max(highest_price * 0.95, purchase_price * 1.01)
                         if present_price <= trail_stop_price:
                             should_sell = True
                             peak_pct = (highest_price / purchase_price - 1) * 100
@@ -1638,10 +1757,28 @@ class open_api(QAxWidget):
         """).fetchall()
         if get_list:
             item = get_list[0]
+            sell_price = abs(int(item.present_price))
+
+            # purchase_price / holding_amount 조회 → sell_rate, realized_profit 정확 계산
+            buy_row2 = self.engine_JB.execute(
+                f"SELECT purchase_price, holding_amount FROM all_item_db "
+                f"WHERE code='{code}' AND sell_date='0' ORDER BY buy_date DESC LIMIT 1"
+            ).fetchone()
+            if buy_row2 and buy_row2[0] and int(buy_row2[0]) > 0 and sell_price > 0:
+                purchase_price2 = int(buy_row2[0])
+                holding_amount2 = int(buy_row2[1])
+                sell_rate_val2  = (sell_price / purchase_price2 - 1) * 100
+                realized2       = (sell_price - purchase_price2) * holding_amount2
+            else:
+                # fallback: possessed_item.rate (stale 가능) 사용
+                sell_rate_val2 = float(item.rate or 0)
+                realized2      = int(item.valuation_profit or 0)
+
             sql = f"""UPDATE all_item_db
                 SET chegyul_check = '0',
                  sell_date = '{self.today_detail}', valuation_profit = {item.valuation_profit},
-                 sell_rate = {item.rate}, sell_price = {item.present_price}
+                 sell_rate = {sell_rate_val2:.4f}, sell_price = {sell_price},
+                 realized_profit = {realized2}
                 WHERE code = '{code}' and sell_date = '0' ORDER BY buy_date desc LIMIT 1"""
             self.engine_JB.execute(sql)
 

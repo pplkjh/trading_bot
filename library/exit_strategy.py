@@ -1,13 +1,17 @@
 """
-Advanced Exit Strategy Module
-고급 청산 전략 시스템
+Exit Strategy Module — 통합 매도 전략
 
-청산 방식:
-1. ATR 기반 동적 손절/익절
-2. 트레일링 스톱 (수익 보호)
-3. 시간 기반 청산 (최대 보유기간)
-4. 팩터 스코어 기반 청산 (조건 악화)
-5. 부분 청산 (피라미딩)
+[백테스트용] ExitStrategy 클래스 + get_exit_signals()
+  - ADX/ATR/BB 지표 기반 동적 청산 (daily_craw DB 직접 조회)
+  - simulator5(Strategy B 백테스트) 에서 사용
+
+[실전 라이브용] get_live_sell_signals(positions, indicator_map)
+  - Strategy A/B 분기, ATR 기반 트레일링, open_api.get_sell_list()에서 호출
+  - 새 전략 추가 시 LIVE_EXIT_STRATEGY_MAP 에 등록만 하면 됨
+
+  전략별 로직:
+    A (돌파): 하드SL(-5%) → 트레일링(ATR×mult, floor+1%) → 15일 시간청산
+    B (반전): 하드SL(-5%) → ATR목표가(primary) → 트레일링(secondary) → 45일 시간청산
 """
 
 import logging
@@ -148,10 +152,14 @@ class ExitStrategy:
         --------
         Tuple[bool, float, str] : (청산 여부, 트레일링 스톱 가격, 사유)
         """
-        current_gain = (current_price / entry_price - 1)
-
-        # 트레일링 스톱 활성화 체크
-        if current_gain < self.trailing_stop_activation:
+        # 트레일링 스톱 활성화 체크 — 최고가(highest_price) 기준
+        # ⚠️ 버그 수정: current_price → highest_price
+        # current_price로 체크하면 고점 달성 후 되돌릴 때 비활성화되어 플로어가 의미없어짐
+        # 예) 매수10,000 → 고점10,300(+3%) → 현재10,100(+1%):
+        #   잘못된 방식: current_gain=1% < 3% → 비활성화 → 빠져도 안팜
+        #   올바른 방식: highest_gain=3% ≥ 3% → 활성화 유지 → 플로어에서 익절
+        highest_gain = (highest_price / entry_price - 1)
+        if highest_gain < self.trailing_stop_activation:
             return False, 0, ""
 
         # ATR 기반 또는 고정 비율로 trailing 스톱 계산
@@ -793,6 +801,264 @@ def get_exit_signals(
 
     return exit_signals
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  실전 라이브 매도 전략
+#  ─ 백테스트용 ExitStrategy 클래스와 완전히 독립
+#  ─ open_api.get_sell_list() → get_live_sell_signals() 경로로만 호출
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import datetime as _dt
+
+# ── 공통 파라미터 ──────────────────────────────────────────────────────────────
+_HARD_SL_PCT        = -0.05   # 하드 손절 -5%
+_TRAILING_ACT_PCT   =  0.03   # 트레일링 발동: 고점 +3%
+_TRAILING_FLOOR_PCT =  0.01   # 트레일링 플로어: 매입가 +1%
+_TRAILING_PCT_CAP   =  0.05   # 최고가 대비 최대 후퇴 허용폭 5% (ATR이 너무 클 때 추적 보장)
+_LOSSCUT_DELAY_MIN  =  30     # 손절 유예: 매수 후 30분
+
+# ── 전략별 트레일링 배율 ────────────────────────────────────────────────────────
+# Strategy A (돌파): ADX 기반 — 강한 추세일수록 넓게 줘서 추세를 끝까지 탐
+#   ADX ≥ 25 → 2.5x  /  ADX 20~25 → 2.0x  /  ADX < 20 → 1.5x
+# Strategy B (반전): 고정 1.0x — 상승 조짐 꺾이면 빠르게 수익 보호
+_B_TRAILING_MULT = 1.0
+
+
+def _live_atr_mult(adx: float) -> float:
+    """Strategy A 전용 — ADX 기반 ATR 배율 (추세 강도에 따라 트레일링 거리 조정)"""
+    if adx >= 25:
+        return 2.5
+    if adx >= 20:
+        return 2.0
+    return 1.5
+
+
+def _live_losscut_active(buy_date_str: str) -> bool:
+    """매수 후 30분 이내면 손절 유예 반환 (True = 손절 가능)"""
+    try:
+        buy_dt  = _dt.datetime.strptime(str(buy_date_str)[:12], '%Y%m%d%H%M')
+        elapsed = (_dt.datetime.now() - buy_dt).total_seconds() / 60
+        return elapsed >= _LOSSCUT_DELAY_MIN
+    except Exception:
+        return True   # 파싱 실패 → 유예 없이 손절 허용
+
+
+def _live_holding_days(buy_date_str: str) -> int:
+    """보유 일수 계산"""
+    try:
+        buy_dt = _dt.datetime.strptime(str(buy_date_str)[:8], '%Y%m%d')
+        return (_dt.datetime.now() - buy_dt).days
+    except Exception:
+        return 0
+
+
+def _live_check_hard_sl(profit_pct: float, losscut_active: bool):
+    """공통: 하드 손절 -5%  →  (triggered, reason)"""
+    if losscut_active and profit_pct <= (_HARD_SL_PCT * 100):
+        return True, f'하드SL({profit_pct:.2f}%)'
+    return False, ''
+
+
+def _live_check_trailing(entry: float, highest: float, current: float,
+                          atr: float, mult: float):
+    """
+    공통: ATR 기반 트레일링 스톱
+      발동: highest ≥ entry × (1 + 3%)
+      거리: max(highest - ATR×mult,  highest × 0.95)
+            → ATR이 크면 5% 고정 추적으로 자동 전환 (최고가 추적 보장)
+            → ATR이 작으면 ATR 기반 (더 타이트할 때만 적용)
+      플로어: max(stop, entry × 1.01)
+
+    mult: 호출자가 전략에 맞게 결정해서 넘겨줌
+          A → _live_atr_mult(adx)   (ADX 기반 가변)
+          B → _B_TRAILING_MULT=1.0  (고정 타이트)
+
+    반환: (triggered, stop_price, reason)
+    """
+    if entry <= 0 or (highest / entry) < (1 + _TRAILING_ACT_PCT):
+        return False, 0.0, ''
+
+    pct_stop = highest * (1 - _TRAILING_PCT_CAP)              # 최고가의 5% 이내 추적 보장
+    atr_stop = (highest - atr * mult) if atr > 0 else pct_stop
+    raw_stop = max(atr_stop, pct_stop)   # 둘 중 높은 쪽 (더 타이트한 쪽) 사용
+    stop     = max(raw_stop, entry * (1 + _TRAILING_FLOOR_PCT))
+
+    peak_pct = (highest / entry - 1) * 100
+    cur_pct  = (current / entry - 1) * 100
+
+    if current <= stop:
+        return True, stop, f'트레일링(고점+{peak_pct:.1f}%→현재{cur_pct:.2f}%)'
+    return False, stop, ''
+
+
+def _live_check_atr_target(entry: float, current: float,
+                             atr: float, adx: float):
+    """
+    Strategy B 전용: ATR 목표가 도달 시 익절
+      목표가 = entry + ATR × mult
+    반환: (triggered, target_price, reason)
+    """
+    if entry <= 0 or atr <= 0:
+        return False, 0.0, ''
+
+    mult   = _live_atr_mult(adx)
+    target = entry + atr * mult
+    pct    = (current / entry - 1) * 100
+
+    if current >= target:
+        return True, target, f'ATR목표가(+{pct:.2f}%)'
+    return False, target, ''
+
+
+# ── 전략별 매도 함수 ───────────────────────────────────────────────────────────
+
+def strategy_a_exit(pos: dict, ind: dict) -> tuple:
+    """
+    Strategy A — 돌파 전략 매도
+    하드SL(-5%) → 트레일링(ATR×mult, floor+1%) → 15일 시간청산
+
+    pos: {'entry_price', 'highest_price', 'current_price', 'buy_date'}
+    ind: {'atr14', 'adx'}
+    반환: (should_sell: bool, reason: str, stop_price: float)
+    """
+    entry    = float(pos.get('entry_price',   0))
+    highest  = float(pos.get('highest_price', entry))
+    current  = float(pos.get('current_price', entry))
+    buy_date = pos.get('buy_date', '')
+    atr      = float(ind.get('atr14', 0))
+    adx      = float(ind.get('adx',   0))
+
+    profit_pct     = (current / entry - 1) * 100 if entry > 0 else 0
+    losscut_active = _live_losscut_active(buy_date)
+    holding_days   = _live_holding_days(buy_date)
+
+    # 1. 하드 SL -5%
+    hit, reason = _live_check_hard_sl(profit_pct, losscut_active)
+    if hit:
+        return True, f'A_{reason}', entry * (1 + _HARD_SL_PCT)
+
+    # 2. 트레일링 스톱 (ADX 기반 배율 — 추세 강할수록 넓게)
+    hit, stop, reason = _live_check_trailing(entry, highest, current, atr, _live_atr_mult(adx))
+    if hit:
+        return True, f'A_{reason}', stop
+
+    # 3. 시간청산 15일 (돌파 모멘텀 소멸 기준)
+    if holding_days >= 15:
+        return True, f'A_시간청산({holding_days}일)', 0.0
+
+    return False, '', 0.0
+
+
+def strategy_b_exit(pos: dict, ind: dict) -> tuple:
+    """
+    Strategy B — 반전 전략 매도
+    하드SL(-5%) → 트레일링(ATR×1.0 고정, 타이트) → 45일 시간청산
+
+    트레일링 배율 _B_TRAILING_MULT=1.0 고정:
+      - 반전 종목은 상승 조짐 꺾이면 빠르게 수익 보호
+      - ADX 배율 불필요 (반전 진입 시점은 대부분 ADX < 20, 추세 약함)
+      - A(1.5~2.5x)보다 타이트하게 → 수익 더 빨리 확정
+
+    pos: {'entry_price', 'highest_price', 'current_price', 'buy_date'}
+    ind: {'atr14', 'adx'}
+    반환: (should_sell: bool, reason: str, stop_price: float)
+    """
+    entry    = float(pos.get('entry_price',   0))
+    highest  = float(pos.get('highest_price', entry))
+    current  = float(pos.get('current_price', entry))
+    buy_date = pos.get('buy_date', '')
+    atr      = float(ind.get('atr14', 0))
+
+    profit_pct     = (current / entry - 1) * 100 if entry > 0 else 0
+    losscut_active = _live_losscut_active(buy_date)
+    holding_days   = _live_holding_days(buy_date)
+
+    # 1. 하드 SL -5%
+    hit, reason = _live_check_hard_sl(profit_pct, losscut_active)
+    if hit:
+        return True, f'B_{reason}', entry * (1 + _HARD_SL_PCT)
+
+    # 2. 트레일링 스톱 (ATR×1.0 고정 — 상승세 꺾이면 빠르게 대응)
+    hit, stop, reason = _live_check_trailing(entry, highest, current, atr, _B_TRAILING_MULT)
+    if hit:
+        return True, f'B_{reason}', stop
+
+    # 3. 시간청산 45일
+    if holding_days >= 45:
+        return True, f'B_시간청산({holding_days}일)', 0.0
+
+    return False, '', 0.0
+
+
+# ── 전략 레지스트리 — 새 전략 추가 시 여기에만 등록 ───────────────────────────
+LIVE_EXIT_STRATEGY_MAP = {
+    'A': strategy_a_exit,
+    'B': strategy_b_exit,
+    # 'C': strategy_c_exit,   # 향후 추가 예시
+}
+
+
+def get_live_sell_signals(positions: list, indicator_map: dict = None) -> list:
+    """
+    실전 통합 매도 시그널 생성 — open_api.get_sell_list() 에서 호출
+
+    Parameters
+    ----------
+    positions : list of dict
+        [{ 'code', 'code_name', 'strategy_type',
+           'entry_price', 'highest_price', 'current_price', 'buy_date' }, ...]
+    indicator_map : dict
+        { code: {'atr14': float, 'adx': float}, ... }
+        없으면 ATR=0 (트레일링 고정 -5% fallback 자동 적용)
+
+    Returns
+    -------
+    list of dict
+        [{ 'code', 'code_name', 'current_price', 'entry_price',
+           'profit_pct', 'reason', 'stop_price', 'strategy_type' }, ...]
+    """
+    if indicator_map is None:
+        indicator_map = {}
+
+    sell_signals = []
+
+    for pos in positions:
+        code          = pos.get('code', '')
+        strategy_type = pos.get('strategy_type', 'A')
+        ind           = indicator_map.get(code, {})
+
+        exit_fn = LIVE_EXIT_STRATEGY_MAP.get(strategy_type, strategy_a_exit)
+
+        try:
+            should_sell, reason, stop_price = exit_fn(pos, ind)
+        except Exception as e:
+            logger.warning(f"[exit_live] {code} 매도 체크 오류: {e}")
+            continue
+
+        if should_sell:
+            entry   = float(pos.get('entry_price',   0))
+            current = float(pos.get('current_price', 0))
+            pct     = (current / entry - 1) * 100 if entry > 0 else 0
+
+            sell_signals.append({
+                'code':          code,
+                'code_name':     pos.get('code_name', code),
+                'current_price': current,
+                'entry_price':   entry,
+                'profit_pct':    pct,
+                'reason':        reason,
+                'stop_price':    stop_price,
+                'strategy_type': strategy_type,
+            })
+            logger.info(
+                f"📉 매도시그널: {pos.get('code_name', code)}({code})"
+                f" [{strategy_type}] {reason}  수익: {pct:+.2f}%"
+            )
+
+    return sell_signals
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     # 테스트 코드

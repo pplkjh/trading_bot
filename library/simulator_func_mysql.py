@@ -1460,10 +1460,16 @@ class simulator_func_mysql:
 
             # 종목별 스코어링
             scored_list = []
+            total_cands = len(candidates)
+            if total_cands > 0:
+                print(f"  [스코어링] {date_rows_today} 후보 {total_cands}개 처리 중...", flush=True)
             for idx, row in enumerate(candidates):
                 code = row['code']
                 code_name = row['code_name']
-                logger.debug(f"[num=22] 스코어링 {idx+1}/{len(candidates)}: {code_name}({code})")
+                # 10개마다 진행상황 콘솔 출력 (hang 여부 확인)
+                if idx % 10 == 0:
+                    print(f"  [스코어링] {idx+1}/{total_cands} {code_name}", end='\r', flush=True)
+                logger.debug(f"[num=22] 스코어링 {idx+1}/{total_cands}: {code_name}({code})")
                 try:
                     df_120 = pd.read_sql(
                         f"SELECT * FROM `{code_name}` WHERE code = '{code}'"
@@ -2211,21 +2217,23 @@ class simulator_func_mysql:
 
         # Strategy B 과매도 반등 매도 — 하드SL -5% / 트레일링스탑(3%활성화, 5%트레일) / 45일 시간청산
         # 트레일링스탑: max_high_pct >= 3 (고점 3% 달성) 이후
-        #              rate <= max_high_pct - 5 (고점 대비 5% 하락) → 이익 보호 청산
+        #              rate <= GREATEST(max_high_pct - 5, 1.0) → 고점 대비 5% 하락, 단 최소 +1% 보장
+        #              (예) 고점 +3%: 트리거 = max(-2%, +1%) = +1% → 손실 청산 방지
+        #              (예) 고점 +8%: 트리거 = max(+3%, +1%) = +3% → 자연스러운 트레일
         elif self.sell_list_num == 31:
             date_today_str = self.date_rows[i][0]
             sql = (
                 "SELECT code, code_name, rate, present_price, valuation_profit, "
                 "CASE "
                 "  WHEN rate <= -5 THEN '하드SL(-5%)' "
-                "  WHEN max_high_pct >= 3 AND rate <= max_high_pct - 5 THEN '트레일링스탑' "
+                "  WHEN max_high_pct >= 3 AND rate <= GREATEST(max_high_pct - 5, 1.0) THEN '트레일링스탑' "
                 "  ELSE '시간청산(45d)' "
                 "END AS sell_reason "
                 "FROM all_item_db "
                 "WHERE sell_date = '0' "
                 "AND ("
                 "  rate <= -5 "
-                "  OR (max_high_pct >= 3 AND rate <= max_high_pct - 5) "
+                "  OR (max_high_pct >= 3 AND rate <= GREATEST(max_high_pct - 5, 1.0)) "
                 "  OR DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 45"
                 ") GROUP BY code"
             ).format(d=date_today_str)

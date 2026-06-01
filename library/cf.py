@@ -21,7 +21,7 @@ imi1_db_name = "jackbot4_imi1" if imi1_simul_num in (4, 5, 6) else "jackbot"+str
 
 # 아래는 실전 투자 계좌번호를 넣는다.
 real_account=""
-real_simul_num=1
+real_simul_num=6
 real_db_name="jackbot"+str(real_simul_num)
 
 
@@ -82,5 +82,12 @@ v2_fundamental_collect_interval = 1
 v2_dynamic_weights = True
 
 # ===== v4 Scoring (simul_num=4/5/6) =====
-v4_min_score_a = 100   # BreakoutStrategyV3 minimum buy threshold (200pt max)
-v4_min_score_b = 90    # ReversalStrategyV3 minimum buy threshold (200pt max)
+# v3.2 스코어링 재조정 (2026-05-29):
+#   A: score_f 방향 역전 (BB압축도→BB활성도, 타이트BB=0pt, 활성BB=20pt)
+#      penalty 추가: d1_diff>5% -10pt, d1_diff>4% -5pt, vol_ratio>4.5x -8pt, >3.5x -3pt
+#   B: score_d 10pt(15→10), score_f 15pt(10→15) [r=+0.1316 최고 상관 상향]
+# min_score 재산출 필요 (백테스트 후 score_analyze.py AB로 갱신):
+#   A: 이전 v3.1 기준 70pt — score_f 역전+penalty로 점수분포 변동 → 재검토 필요
+#   B: 이전 v3.1 기준 80pt — score_d/score_f 재배분으로 점수분포 변동 → 재검토 필요
+v4_min_score_a = 100    # BreakoutStrategyV3 (200pt max) — v3.2 백테스트 후 재산출 필요
+v4_min_score_b = 80    # ReversalStrategyV3 (200pt max) — v3.2 백테스트 후 재산출 필요

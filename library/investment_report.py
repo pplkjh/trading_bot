@@ -37,7 +37,10 @@ except ImportError:
 # ─── 유틸 ─────────────────────────────────────────────────────────────────────
 
 def _parse_date(s):
-    """YYYYMMDD → datetime.date | '0'/''/None → None"""
+    """YYYYMMDD(HHMI) → datetime.date | '0'/''/None → None
+    buy_date/sell_date 포맷: 'YYYYMMDDHHMI' (12자리) 또는 'YYYYMMDD' (8자리)
+    앞 8자리만 날짜로 사용.
+    """
     if not s or str(s).strip() in ('0', ''):
         return None
     try:
@@ -45,6 +48,23 @@ def _parse_date(s):
         return datetime.date(int(s[:4]), int(s[4:6]), int(s[6:8]))
     except Exception:
         return None
+
+
+def _parse_time(s):
+    """'YYYYMMDDHHMI' 또는 'HHMM' → 'HH:MM' | 없으면 ''"""
+    if not s or str(s).strip() in ('0', ''):
+        return ''
+    try:
+        s = str(s).strip()
+        if len(s) >= 12:        # YYYYMMDDHHMI
+            t = s[8:12]
+        elif len(s) == 4:       # HHMM
+            t = s
+        else:
+            return ''
+        return f"{t[:2]}:{t[2:4]}"
+    except Exception:
+        return ''
 
 
 def _hold_days(buy_date_str, sell_date_str):
@@ -58,7 +78,7 @@ def _hold_days(buy_date_str, sell_date_str):
 
 
 def _fmt_date(s):
-    """YYYYMMDD → 'YYYY-MM-DD' | None → ''"""
+    """YYYYMMDD(HHMI) → 'YYYY-MM-DD' | None → ''"""
     d = _parse_date(s)
     return d.strftime('%Y-%m-%d') if d else ''
 
@@ -77,6 +97,26 @@ def _i(val, default=0):
         return int(val) if val is not None else default
     except Exception:
         return default
+
+
+def _infer_exit_reason(t, hold_days):
+    """exit_reason이 없을 때 수익률·보유기간·전략으로 역추론 (표시 전용)"""
+    db_reason = str(t.get('exit_reason', '') or '').strip()
+    if db_reason:
+        return db_reason           # DB에 실제 사유가 있으면 그대로 사용
+
+    rate     = _f(t.get('sell_rate'))
+    strategy = str(t.get('strategy_type', '') or '').strip().upper()
+
+    if rate <= -4.5:
+        return '손절 (-5%)'
+    if strategy == 'A' and hold_days >= 15:
+        return '시간청산 (15일)'
+    if strategy == 'B' and hold_days >= 45:
+        return '시간청산 (45일)'
+    if rate >= 3.0:
+        return '트레일링 스톱'
+    return '미분류'
 
 
 # ─── 스타일 상수 ──────────────────────────────────────────────────────────────
@@ -396,28 +436,43 @@ class InvestmentReport:
         for i, (hdr, w) in enumerate(headers, 1):
             self._set_hdr(ws, 1, i, hdr, width=w, height=22)
 
-        # sell_date 기준 집계
-        sell_day  = defaultdict(lambda: {'cnt': 0, 'wins': 0, 'sum_ret': 0.0, 'realized': 0})
-        buy_day   = defaultdict(int)
+        # ── 날짜별 집계 (키: YYYYMMDD 8자리 — 시간 부분 제거) ──
+        sell_day = defaultdict(lambda: {'cnt': 0, 'wins': 0, 'sum_ret': 0.0, 'realized': 0})
+        buy_day  = defaultdict(int)
 
         for t in trades:
-            bd = str(t.get('buy_date', '') or '').strip()
-            if bd and bd != '0':
-                buy_day[bd] += 1
+            # buy_date 앞 8자리만 날짜 키로 사용
+            bd_raw = str(t.get('buy_date', '') or '').strip()
+            if bd_raw and bd_raw not in ('0', '') and len(bd_raw) >= 8:
+                buy_day[bd_raw[:8]] += 1
 
             if not self._is_holding(t):
-                sd  = str(t.get('sell_date', '') or '').strip()
+                sd_raw = str(t.get('sell_date', '') or '').strip()
+                if not sd_raw or sd_raw in ('0', '') or len(sd_raw) < 8:
+                    continue
+                sd_key = sd_raw[:8]   # YYYYMMDD
                 ret = _f(t.get('sell_rate'))
                 rl  = _i(t.get('realized_profit'))
-                sell_day[sd]['cnt']      += 1
-                sell_day[sd]['sum_ret']  += ret
-                sell_day[sd]['realized'] += rl
+                sell_day[sd_key]['cnt']      += 1
+                sell_day[sd_key]['sum_ret']  += ret
+                sell_day[sd_key]['realized'] += rl
                 if ret >= 0:
-                    sell_day[sd]['wins'] += 1
+                    sell_day[sd_key]['wins'] += 1
 
-        dates = sorted(sell_day.keys(), reverse=True)
+        # 매수/매도 날짜 합집합 → 오름차순 정렬 후 누적 계산, 표시는 내림차순
+        all_dates = sorted(set(sell_day.keys()) | set(buy_day.keys()))
+
+        # 과거→최신 순서로 누적 실현손익 계산
+        cumulative_map = {}
         cumulative = 0
-        for r, d in enumerate(dates, 2):
+        for d in all_dates:
+            cumulative += sell_day[d]['realized']
+            cumulative_map[d] = cumulative
+
+        # 표시는 최신→과거 (내림차순)
+        display_dates = list(reversed(all_dates))
+
+        for r, d in enumerate(display_dates, 2):
             info = sell_day[d]
             cnt  = info['cnt']
             wins = info['wins']
@@ -425,44 +480,55 @@ class InvestmentReport:
             wr   = wins / cnt * 100 if cnt else 0
             avg  = info['sum_ret'] / cnt if cnt else 0
             rl   = info['realized']
-            cumulative += rl
+            cum  = cumulative_map[d]
 
-            is_pos = rl >= 0
-            fill = (PatternFill('solid', fgColor='E8F4E8') if is_pos
-                    else PatternFill('solid', fgColor='FAE0D8')) if r % 2 == 0 else \
-                   (PatternFill('solid', fgColor='D5EDDA') if is_pos
-                    else PatternFill('solid', fgColor='F9D6CE'))
+            is_pos = rl >= 0 if cnt else True   # 매수만 있는 날은 중립
+            if cnt == 0:
+                # 매수만 있는 날 — 중립 색상
+                fill = PatternFill('solid', fgColor='EEF4FF') if r % 2 == 0 \
+                       else _S.FILL_WHITE
+            elif r % 2 == 0:
+                fill = PatternFill('solid', fgColor='E8F4E8') if is_pos \
+                       else PatternFill('solid', fgColor='FAE0D8')
+            else:
+                fill = PatternFill('solid', fgColor='D5EDDA') if is_pos \
+                       else PatternFill('solid', fgColor='F9D6CE')
 
             row_vals = [
-                _fmt_date(d),
-                buy_day.get(d, 0),
-                cnt,
+                _fmt_date(d),           # YYYY-MM-DD
+                buy_day.get(d, 0),      # 매수 건수
+                cnt,                    # 매도 건수
                 wins,
                 loss,
-                f'{wr:.1f}%',
-                f'{avg:+.2f}%',
-                rl,
-                cumulative,
+                f'{wr:.1f}%' if cnt else '-',
+                f'{avg:+.2f}%' if cnt else '-',
+                rl if cnt else '',
+                cum,
             ]
             for ci, val in enumerate(row_vals, 1):
                 c = ws.cell(row=r, column=ci, value=val)
-                c.font = (_S.FT_PROF if is_pos else _S.FT_LOSS) if ci >= 8 else _S.FT_NRM
+                if ci >= 8 and cnt:
+                    c.font = _S.FT_PROF if is_pos else _S.FT_LOSS
+                else:
+                    c.font = _S.FT_NRM
                 c.fill = fill
                 c.alignment = _S.AL_C if ci == 1 else _S.AL_R
                 c.border = _S.BD
             ws.row_dimensions[r].height = 18
 
-        # 합계 행
-        if dates:
-            r = len(dates) + 2
-            all_cnt  = sum(sell_day[d]['cnt']      for d in dates)
-            all_wins = sum(sell_day[d]['wins']      for d in dates)
-            all_ret  = sum(sell_day[d]['sum_ret']   for d in dates)
-            all_rl   = sum(sell_day[d]['realized']  for d in dates)
+        # ── 합계 행 ──
+        sell_dates = [d for d in all_dates if sell_day[d]['cnt'] > 0]
+        if sell_dates:
+            r = len(display_dates) + 2
+            all_cnt  = sum(sell_day[d]['cnt']     for d in sell_dates)
+            all_wins = sum(sell_day[d]['wins']     for d in sell_dates)
+            all_ret  = sum(sell_day[d]['sum_ret']  for d in sell_dates)
+            all_rl   = sum(sell_day[d]['realized'] for d in sell_dates)
             all_wr   = all_wins / all_cnt * 100 if all_cnt else 0
-            all_avg  = all_ret / all_cnt           if all_cnt else 0
+            all_avg  = all_ret  / all_cnt         if all_cnt else 0
 
-            for ci, val in enumerate(['합 계', '', all_cnt, all_wins, all_cnt - all_wins,
+            for ci, val in enumerate(['합 계', sum(buy_day.values()), all_cnt,
+                                       all_wins, all_cnt - all_wins,
                                        f'{all_wr:.1f}%', f'{all_avg:+.2f}%',
                                        all_rl, all_rl], 1):
                 c = ws.cell(row=r, column=ci, value=val)
@@ -516,10 +582,10 @@ class InvestmentReport:
                 str(t.get('code', '')),                             # 종목코드
                 str(t.get('code_name', '')),                        # 종목명
                 bd.strftime('%Y-%m-%d') if bd else '',              # 매수일
-                str(t.get('buy_time', '') or ''),                   # 매수시간
+                _parse_time(t.get('buy_date')),                     # 매수시간 (buy_date 뒤 4자리)
                 _i(t.get('purchase_price')),                        # 매수가
                 _i(t.get('holding_amount')),                        # 수량
-                _i(t.get('item_total_purchase')),                   # 매수금액
+                _i(t.get('item_total_purchase')) or (_i(t.get('purchase_price')) * _i(t.get('holding_amount'))),  # 매수금액 (DB=0이면 단가×수량)
                 _f(t.get('composite_score')),                       # 종합점수
                 _f(t.get('score_a')),                               # A
                 _f(t.get('score_b')),                               # B
@@ -529,9 +595,9 @@ class InvestmentReport:
                 _f(t.get('score_f')),                               # F
                 '보유중' if holding else '매도완료',                 # 상태
                 sd.strftime('%Y-%m-%d') if sd else '',              # 매도일
-                str(t.get('sell_time', '') or '') if not holding else '',  # 매도시간
+                _parse_time(t.get('sell_date')) if not holding else '',  # 매도시간
                 _i(t.get('sell_price')) if not holding else '',     # 매도가
-                str(t.get('exit_reason', '') or '') if not holding else '',  # 매도사유
+                _infer_exit_reason(t, hd) if not holding else '',           # 매도사유 (추론 포함)
                 hd,                                                 # 보유일
                 rate if not holding else '',                        # 수익률
                 _i(t.get('realized_profit')) if not holding else '',  # 실현손익
@@ -601,7 +667,7 @@ class InvestmentReport:
                 bd.strftime('%Y-%m-%d') if bd else '',
                 _i(t.get('purchase_price')),
                 _i(t.get('holding_amount')),
-                _i(t.get('item_total_purchase')),
+                _i(t.get('item_total_purchase')) or (_i(t.get('purchase_price')) * _i(t.get('holding_amount'))),
                 _f(t.get('composite_score')),
                 f'{hd}일',
                 _f(t.get('d1_diff_rate')),

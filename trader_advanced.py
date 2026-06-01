@@ -425,64 +425,16 @@ class TraderAdvanced(QMainWindow):
         self.open_api.rate_check()
 
         try:
-            if self.use_advanced_sell and self.advanced_engine_ready:
-                # 고급 청산 전략
-                logger.info("🎯 고급 청산 전략으로 매도 리스트 생성")
-
-                sell_signals = self.open_api.get_advanced_sell_list()
-
-                # 고급 매도 리스트를 기존 형식으로 변환
-                # 형식: [code, code_name, rate, present_price, valuation_profit]
-                # rate: 모의투자=직접 % 값, 실전=100 기준 값 (auto_trade_sell_stock 규약)
-                self.sell_list = []
-                self.sell_signals_detail = []  # 대시보드용: reason/priority 보존
-                for signal in sell_signals:
-                    if signal['decision']['should_exit']:
-                        profit_pct = signal.get('profit_pct', 0)  # % 단위 (e.g. -5.51)
-                        if self.open_api.mod_gubun != 1:  # 실전: 100 기준으로 변환
-                            rate_value = 100 + profit_pct
-                        else:  # 모의투자: 그대로
-                            rate_value = profit_pct
-                        self.sell_list.append([
-                            signal['code'],
-                            signal.get('code_name', signal['code']),  # 종목명
-                            rate_value,
-                            int(signal.get('current_price', 0)),      # present_price
-                            0                                         # valuation_profit (미사용)
-                        ])
-                        self.sell_signals_detail.append({
-                            'code':        signal['code'],
-                            'name':        signal.get('code_name', signal['code']),
-                            'price':       int(signal.get('current_price', 0)),
-                            'profit_rate': profit_pct,
-                            'reason':      signal['decision'].get('reason', '매도 시그널'),
-                            'priority':    signal['decision'].get('priority', 50),
-                        })
-
-                logger.info(f"고급 청산: {len(self.sell_list)}개 매도 시그널")
-
-                # exit_strategy.py가 모든 손절/익절을 통합 처리
-                # (긴급손절 ATR×3, 고정손절 -5%, 트레일링, ATR목표가, 시간청산)
-                if sell_signals is None or len(sell_signals) == 0:
-                    self.sell_signals_detail = []
-                    logger.debug("고급 청산 조건 미충족 — 청산 없음")
-
-            else:
-                # 기존 방식 (고급 전략 사용 안함)
-                self.sell_signals_detail = []
-                logger.info("📉 기본 방식으로 매도 리스트 생성")
-                # 실전 전용 기본 매도 로직 사용 (simulator 코드 사용 안함)
-                self.sell_list = self.open_api.get_basic_sell_list()
-
+            # exit_strategy.get_live_sell_signals() — Strategy A/B 분기, ATR 기반 트레일링
+            self.sell_list, self.sell_signals_detail = self.open_api.get_sell_list()
             logger.debug(f"매도 리스트: {self.sell_list}")
 
         except Exception as e:
             import traceback
             logger.error(f"❌ 매도 리스트 생성 오류: {e}", extra={'no_dedup': True})
             logger.error(traceback.format_exc(), extra={'no_dedup': True})
-            logger.warning("기본 방식으로 재시도합니다")
-            # 실전 전용 기본 매도 로직 사용 (simulator 코드 사용 안함)
-            self.sell_list = self.open_api.get_basic_sell_list()
+            self.sell_list           = []
+            self.sell_signals_detail = []
 
     def auto_trade_sell_stock(self):
         """
@@ -738,6 +690,7 @@ class TraderAdvanced(QMainWindow):
 
             # 보유 종목 코드 목록으로 atr14/adx 배치 조회 (트레일링 스톱 가격 계산용)
             _indicator_map = {}
+            _strategy_map  = {}   # {code: 'A' or 'B'} — 스탑가 계산 배율 결정용
             if hasattr(self.open_api, 'opw00018_output') and 'multi' in self.open_api.opw00018_output:
                 try:
                     import pymysql
@@ -760,6 +713,17 @@ class TraderAdvanced(QMainWindow):
                             for _r in _cur.fetchall():
                                 _indicator_map[str(_r[0]).zfill(6)] = {'adx': float(_r[1] or 0), 'atr14': float(_r[2] or 0)}
                         _con.close()
+
+                    # strategy_type 배치 조회 (all_item_db) — B 종목 스탑가 배율 구분용
+                    if _codes:
+                        _ph2 = ','.join(['%s'] * len(_codes))
+                        _rows_st = self.open_api.engine_JB.execute(
+                            f"SELECT code, strategy_type FROM all_item_db "
+                            f"WHERE code IN ({_ph2}) AND sell_date='0'",
+                            _codes
+                        ).fetchall()
+                        for _r in _rows_st:
+                            _strategy_map[str(_r[0]).zfill(6)] = str(_r[1] or 'A')
                 except Exception as _e:
                     logger.debug(f"indicator 배치 조회 오류: {_e}")
 
@@ -812,14 +776,27 @@ class TraderAdvanced(QMainWindow):
                         if highest_price:
                             position_data['highest_price'] = highest_price
                             # 트레일링 스톱 가격 계산
-                            ind = _indicator_map.get(code, {})
-                            adx = ind.get('adx', 0)
+                            ind  = _indicator_map.get(code, {})
+                            adx  = ind.get('adx', 0)
                             atr14 = ind.get('atr14', 0)
+                            st   = _strategy_map.get(code, 'A')
                             if atr14 > 0:
-                                trail_mult = 2.5 if adx >= 25 else (2.0 if adx >= 20 else 1.5)
-                                trail_act  = 3.0 if adx >= 25 else (4.0 if adx >= 20 else 5.0)
-                                position_data['trailing_stop_price'] = int(highest_price - atr14 * trail_mult)
-                                position_data['trail_active'] = profit_rate >= trail_act
+                                # exit_strategy.py와 동일 배율 사용
+                                if st == 'B':
+                                    trail_mult = 1.0   # B(반전): 고정 1.0x
+                                else:
+                                    trail_mult = 2.5 if adx >= 25 else (2.0 if adx >= 20 else 1.5)  # A(돌파): ADX 기반
+                                buy_price_disp = position_data.get('buy_price', 0)
+                                # exit_strategy._live_check_trailing과 동일 로직:
+                                # ATR이 클 때 5% 고정 추적으로 전환하여 최고가 추적 보장
+                                pct_stop  = int(highest_price * 0.95)
+                                atr_stop  = int(highest_price - atr14 * trail_mult)
+                                raw_stop  = max(atr_stop, pct_stop)
+                                floor_price = int(buy_price_disp * 1.01) if buy_price_disp > 0 else 0
+                                position_data['trailing_stop_price'] = max(floor_price, raw_stop) if floor_price > 0 else raw_stop
+                                # 트레일 활성 여부: highest_gain 기준으로 판단 (exit_strategy.py와 동일)
+                                highest_gain_pct = (highest_price / buy_price_disp - 1) * 100 if buy_price_disp > 0 else 0
+                                position_data['trail_active'] = highest_gain_pct >= 3.0  # exit_strategy.py 기준 고정
 
                         positions.append(position_data)
 
