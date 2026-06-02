@@ -141,17 +141,18 @@ COMMENT='simul_num=4/5/6 매매 기록 (strategy_type으로 A/B 구분)';
 
 -- ================================================
 -- 4. possessed_item
+-- ⚠️ puchase_price: 오타이지만 Kiwoom API 원본 그대로 유지 (코드 전체가 이 컬럼명 사용)
 -- ================================================
 CREATE TABLE IF NOT EXISTS possessed_item (
     `index` INT AUTO_INCREMENT PRIMARY KEY,
+    date VARCHAR(20),
     code VARCHAR(10) NOT NULL,
     code_name VARCHAR(100) NOT NULL,
     holding_amount INT NOT NULL,
-    purchase_price INT NOT NULL,
+    puchase_price INT NOT NULL,
     present_price INT NOT NULL,
     valuation_profit BIGINT DEFAULT 0,
     rate DECIMAL(10,2) DEFAULT 0,
-    first_buy_date VARCHAR(20),
     INDEX idx_code (code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
