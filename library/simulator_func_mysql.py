@@ -247,17 +247,18 @@ class simulator_func_mysql:
             self.invest_min_limit_rate = 0.97
 
         elif self.simul_num == 6:
-            # Strategy A+B 혼합 — jackbot4_imi1 (실전 운영)
+            # Strategy A+B 혼합 — 백테스트: simulator6 / 실전: jackbot4_imi1
             self.simul_start_date = "20230102"
             self.use_min = False
             self.only_nine_buy = False
             self.db_to_realtime_daily_buy_list_num = 22
-            self.sell_list_num = 31   # 실전: get_basic_sell_list A/B 분기 (SL-5%+Trail+시간청산)
+            self.sell_list_num = 20   # 방향성 검증: 익절+6% / 손절-5% / 시간청산
             self.start_invest_price = 10000000
             self.invest_unit = self._resolve_invest_unit(self.start_invest_price)
             self.limit_money = 300000
-            self.sell_point = 6       # 참고용
-            self.losscut_point = -5   # 참고용 (실제는 get_basic_sell_list에서 직접 처리)
+            self.sell_point = 6
+            self.losscut_point = -5
+            self.time_stop_days = 20  # A/B 혼합 중간값 (A=20일, B=45일)
             self.max_positions = 999
             self.invest_limit_rate = 1.02
             self.invest_min_limit_rate = 0.97
