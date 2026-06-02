@@ -83,11 +83,13 @@ v2_dynamic_weights = True
 
 # ===== v4 Scoring (simul_num=4/5/6) =====
 # v3.2 스코어링 재조정 (2026-05-29):
-#   A: score_f 방향 역전 (BB압축도→BB활성도, 타이트BB=0pt, 활성BB=20pt)
-#      penalty 추가: d1_diff>5% -10pt, d1_diff>4% -5pt, vol_ratio>4.5x -8pt, >3.5x -3pt
+#   A: score_f 방향 역전 (BB압축도→BB활성도), score_a 과도 돌파 패널티 추가
+#      score_a > 40pt → -20pt / score_a > 30pt → -10pt (한국 개별주 단기 역전 효과 실증)
 #   B: score_d 10pt(15→10), score_f 15pt(10→15) [r=+0.1316 최고 상관 상향]
-# min_score 재산출 필요 (백테스트 후 score_analyze.py AB로 갱신):
-#   A: 이전 v3.1 기준 70pt — score_f 역전+penalty로 점수분포 변동 → 재검토 필요
-#   B: 이전 v3.1 기준 80pt — score_d/score_f 재배분으로 점수분포 변동 → 재검토 필요
-v4_min_score_a = 100    # BreakoutStrategyV3 (200pt max) — v3.2 백테스트 후 재산출 필요
-v4_min_score_b = 80    # ReversalStrategyV3 (200pt max) — v3.2 백테스트 후 재산출 필요
+#
+# min_score 확정 (2026-06-02, 백테스트 score_analyze.py + 상관분석 기반):
+#   A=100: 구간별 분석에서 >=100이 avg수익 최고, composite 음의 상관 최소화
+#   B=90:  백테스트 단조성 확인 (높을수록 좋음), 실전에서 펀더멘털 +40pt 가점
+#          → 백테스트 90 ≈ 실전 90~130 (펀더멘털 가점 반영 시 진입 기준 실질 상향)
+v4_min_score_a = 100    # BreakoutStrategyV3 — 백테스트 composite 최적 구간
+v4_min_score_b = 90     # ReversalStrategyV3 — 펀더멘털 가점 감안한 보수적 기준
