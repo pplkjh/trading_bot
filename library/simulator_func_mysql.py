@@ -218,12 +218,13 @@ class simulator_func_mysql:
             self.use_min = False
             self.only_nine_buy = False
             self.db_to_realtime_daily_buy_list_num = 22
-            self.sell_list_num = 20   # sim=3과 동일 조건으로 매수 전략 비교
+            self.sell_list_num = 20   # 방향성 검증: 익절+6% / 손절-5% / 시간청산 20일
             self.start_invest_price = 10000000
             self.invest_unit = self._resolve_invest_unit(self.start_invest_price)
             self.limit_money = 300000
-            self.sell_point = 6
-            self.losscut_point = -3
+            self.sell_point = 6       # 익절 기준 (실전 트레일링 평균 근사)
+            self.losscut_point = -5   # 손절 기준 — 실전 하드 SL(-5%)과 일치
+            self.time_stop_days = 20  # 시간청산 — 실전 A 시간청산(15일) 근사
             self.max_positions = 999
             self.invest_limit_rate = 1.02
             self.invest_min_limit_rate = 0.97
@@ -234,12 +235,13 @@ class simulator_func_mysql:
             self.use_min = False
             self.only_nine_buy = False
             self.db_to_realtime_daily_buy_list_num = 22
-            self.sell_list_num = 31   # B 전략 전용: 하드SL -8% / MA데드크로스 / RSI>=70 / 84일 시간청산
+            self.sell_list_num = 20   # 방향성 검증: 익절+6% / 손절-5% / 시간청산 45일
             self.start_invest_price = 10000000
             self.invest_unit = self._resolve_invest_unit(self.start_invest_price)
             self.limit_money = 300000
-            self.sell_point = 6       # sell_list_num=31에서 직접 사용 안함 (참고용)
-            self.losscut_point = -8   # 하드 SL 기준 (sell_list_num=31에서 직접 쿼리)
+            self.sell_point = 6       # 익절 기준
+            self.losscut_point = -5   # 손절 기준 — 실전 하드 SL(-5%)과 일치
+            self.time_stop_days = 45  # 시간청산 — 실전 B 시간청산(45일)과 일치
             self.max_positions = 999
             self.invest_limit_rate = 1.02
             self.invest_min_limit_rate = 0.97
@@ -2191,18 +2193,27 @@ class simulator_func_mysql:
                 "OR ALLDB.rate <= '%s')"
            sell_list = self.engine_simulator.execute(sql % (self.diff_point * (-1), self.losscut_point)).fetchall()
 
-        # 스윙 매도: 익절/손절 OR 5/20 데드크로스 (simul_num=3 전용)
-        # all_item_db 컬럼은 ma5, ma20 (clo5/clo20 아님)
+        # 방향성 검증 매도: 익절/손절 + 시간청산 (MA 데드크로스 제거)
+        # - 익절: +sell_point% 도달 → 매수 방향 맞음 (WIN)
+        # - 손절: losscut_point% 도달 → 매수 방향 틀림 (LOSS)
+        # - 시간청산: time_stop_days 초과 보유 → 방향성 미확인 강제 정리
+        # - 데드크로스 제거: 익절/손절 중간 애매한 청산 → 승률 해석 오염 방지
         elif self.sell_list_num == 20:
+            date_today_str = self.date_rows[i][0]
+            td = getattr(self, 'time_stop_days', 20)
             sql = (
                 "SELECT code, code_name, rate, present_price, valuation_profit, "
                 "CASE WHEN rate >= {sp} THEN '익절(+{sp:.0f}%%)' "
                 "     WHEN rate <= {lc} THEN '손절({lc:.0f}%%)' "
-                "     ELSE 'MA데드크로스' END AS sell_reason "
+                "     ELSE '시간청산({td}일)' END AS sell_reason "
                 "FROM all_item_db "
                 "WHERE sell_date = '0' "
-                "AND ((rate >= {sp}) OR (rate <= {lc}) OR (ma5 < ma20)) GROUP BY code"
-            ).format(sp=self.sell_point, lc=self.losscut_point)
+                "AND ("
+                "  (rate >= {sp}) "
+                "  OR (rate <= {lc}) "
+                "  OR DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= {td}"
+                ") GROUP BY code"
+            ).format(sp=self.sell_point, lc=self.losscut_point, d=date_today_str, td=td)
             sell_list = self.engine_simulator.execute(sql).fetchall()
 
         # MA 데드크로스만으로 청산 (TP/SL 없음) — max/min 잠재력 분석용 백테스트

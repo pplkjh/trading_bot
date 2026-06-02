@@ -462,13 +462,13 @@ class BreakoutStrategyV3:
         # score_a 극단값 패널티 — 실증 r=-0.2738, 30pt 임계점 기반
         # 근거: 한국 개별주 단기 모멘텀 역전 효과 (학술 연구 확인)
         #   score_a 0~30pt: 승률 80%+, avg +8%  ← 건강한 돌파
-        #   score_a 30~50pt: 승률 67%,  avg +2%  ← 과도한 돌파 → 개인 추격 / 기관 출회
+        #   score_a 30~50pt: 승률 58~67%, avg +2%  ← 과도한 돌파 → 개인 추격 / 기관 출회
         # 역U자로 이미 원재료(d1, vol) 극단값은 0pt 처리됨
         # 단, d1 & vol 동시 피크 = score_a 40~50pt 구간은 composite 추가 억제 필요
         if score_a > 40:
             penalty -= 20   # d1+vol 동시 최대 → 강한 반전 위험
         elif score_a > 30:
-            penalty -= 10   # d1+vol 고점 권 → 중간 반전 위험
+            penalty -= 10   # d1+vol 고점권 → 중간 반전 위험
 
         # 기존 d1/vol 극단 패널티 유지 (score_a가 0pt로 떨어지는 구간 추가 억제)
         try:
