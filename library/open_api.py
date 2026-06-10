@@ -190,6 +190,8 @@ class open_api(QAxWidget):
             exit(1)
         # 여기에 이렇게 true로 고정해놔야 exit check 할때 false 인 경우에 들어갔을 때  today_buy_code is null 이런 에러 안생긴다.
         self.jango_is_null = True
+        self.inst_today = {}    # OPT10045 당일 순매수 (collector 모드)
+        self.inst_history = {}  # OPT10045 전체 기간 순매수 (backfill 모드)
 
         self.py_gubun = False
 
@@ -394,6 +396,10 @@ class open_api(QAxWidget):
             self._opt10001(rqname, trcode)
         elif rqname == "opt20006_req":
             self._opt20006(rqname, trcode)
+        elif rqname == "opt10045_coll_req":
+            self._collect_opt10045(rqname, trcode)
+        elif rqname == "opt10045_backfill_req":
+            self._backfill_opt10045(rqname, trcode)
         elif rqname == "send_order_req":
             pass
         else:
@@ -542,13 +548,14 @@ class open_api(QAxWidget):
             (code, code_name, entry_price, entry_date, current_price, highest_price, last_update)
             VALUES ('%s', '%s', %d, '%s', %d, %d, NOW())
             ON DUPLICATE KEY UPDATE
-                current_price = %d,
-                highest_price = GREATEST(highest_price, %d),
+                entry_price = VALUES(entry_price),
+                entry_date = VALUES(entry_date),
+                current_price = VALUES(current_price),
+                highest_price = VALUES(highest_price),
                 last_update = NOW()
             """
             self.engine_JB.execute(sql_insert_monitor % (
                 code, code_name, purchase_price, self.today_detail,
-                purchase_price, purchase_price,
                 purchase_price, purchase_price
             ))
             logger.debug(f"✅ realtime_position_monitor 추가: {code_name}({code})")
@@ -1095,6 +1102,11 @@ class open_api(QAxWidget):
         # 현재가가 매수 가격 최저 범위와 매수 가격 최고 범위 안에 들어와 있다면 매수 한다.
         if min_buy_limit < current_price < max_buy_limit:
             buy_num = self.buy_num_count(self.invest_unit, int(current_price))
+            if buy_num <= 0:
+                logger.warning("⚠️ 매수 불가 — 현재가(%s)가 투자단위(%s) 이상 (수량 0): %s(%s)",
+                               current_price, self.invest_unit,
+                               self.get_today_buy_list_code_name, self.get_today_buy_list_code)
+                return
             logger.debug(
                 "🛒 매수 주문: %s(%s)[%s] 현재가=%s 목표가=%s 수량=%s 금액=%s원",
                 self.get_today_buy_list_code_name, self.get_today_buy_list_code,
@@ -1938,7 +1950,15 @@ class open_api(QAxWidget):
                         try:
                             if chegyul_fail_amount_temp == "0":
                                 logger.info("✅ 매수 체결 완료 (신규): %s", code)
+                                fill_qty = abs(int(self.get_chejan_data(911) or 0))
                                 self.db_to_all_item(order_num, code, 0, purchase_price, 0)
+                                # rate_check() 실행 전 당일 매도 시 realized_profit=0 방지
+                                if fill_qty > 0:
+                                    self.engine_JB.execute(
+                                        f"UPDATE all_item_db SET holding_amount={fill_qty} "
+                                        f"WHERE code='{code}' AND sell_date='0' "
+                                        f"ORDER BY buy_date DESC LIMIT 1"
+                                    )
                             else:
                                 logger.debug("매수 부분 체결 (신규): %s", code)
                                 self.db_to_all_item(order_num, code, 1, purchase_price, 0)
@@ -2081,6 +2101,92 @@ class open_api(QAxWidget):
                 self.ohlcv['volume'].append(int(volume_val) if volume_val.strip() else 0)
         except Exception as e:
             logger.critical(e)
+
+    def _collect_opt10045(self, rqname, trcode):
+        """OPT10045 (종목별기관매매추이) 수신 — 첫 행에서 기관/외국인 당일 순매수량 추출.
+        GetCommDataEx 인덱스: [7]=기관당일순매수, [9]=외국인당일순매수 (test_opt_inst.py 실증).
+        """
+        try:
+            data = self.dynamicCall("GetCommDataEx(QString,QString)", trcode, rqname)
+            if not data or len(data) == 0:
+                return
+            row = data[0]
+            if len(row) < 10:
+                return
+
+            def _parse_int(s):
+                try:
+                    return int(str(s).replace('+', '').replace(' ', '').replace(',', ''))
+                except (ValueError, TypeError):
+                    return None
+
+            self.inst_today['inst_net_buy'] = _parse_int(row[7])
+            self.inst_today['foreign_net_buy'] = _parse_int(row[9])
+        except Exception as e:
+            logger.error(f"_collect_opt10045 오류: {e}")
+
+    def _backfill_opt10045(self, rqname, trcode):
+        """OPT10045 backfill 수신 — 모든 행을 self.inst_history에 누적 저장.
+        페이지가 여러 개일 때도 호출될 때마다 기존 dict에 추가된다.
+        """
+        try:
+            data = self.dynamicCall("GetCommDataEx(QString,QString)", trcode, rqname)
+            if not data:
+                return
+
+            def _parse_int(s):
+                try:
+                    return int(str(s).replace('+', '').replace(' ', '').replace(',', ''))
+                except (ValueError, TypeError):
+                    return None
+
+            for row in data:
+                if len(row) < 10:
+                    continue
+                date_str = str(row[0]).strip()
+                if not date_str or len(date_str) != 8:
+                    continue
+                self.inst_history[date_str] = {
+                    'inst_net_buy':    _parse_int(row[7]),
+                    'foreign_net_buy': _parse_int(row[9]),
+                }
+        except Exception as e:
+            logger.error(f"_backfill_opt10045 오류: {e}")
+
+    def get_inst_history(self, code, start_date, end_date):
+        """OPT10045로 start_date~end_date 전 기간 기관/외국인 순매수 수집 (페이지 자동 처리).
+        Returns: {date_str: {'inst_net_buy': int|None, 'foreign_net_buy': int|None}, ...}
+        """
+        self.inst_history = {}
+        self.set_input_value("종목코드", code)
+        self.set_input_value("시작일자", start_date)
+        self.set_input_value("종료일자", end_date)
+        self.set_input_value("기관추정단가구분", "1")
+        self.set_input_value("외인추정단가구분", "1")
+        self.comm_rq_data("opt10045_backfill_req", "OPT10045", 0, "0103")
+
+        while self.remained_data:
+            self.set_input_value("종목코드", code)
+            self.set_input_value("시작일자", start_date)
+            self.set_input_value("종료일자", end_date)
+            self.set_input_value("기관추정단가구분", "1")
+            self.set_input_value("외인추정단가구분", "1")
+            self.comm_rq_data("opt10045_backfill_req", "OPT10045", 2, "0103")
+
+        return dict(self.inst_history)
+
+    def get_inst_data_today(self, code, date):
+        """OPT10045로 특정 날짜의 기관/외국인 당일 순매수량 조회 (collector 모드 전용).
+        Returns: {'inst_net_buy': int|None, 'foreign_net_buy': int|None}
+        """
+        self.inst_today = {'inst_net_buy': None, 'foreign_net_buy': None}
+        self.set_input_value("종목코드", code)
+        self.set_input_value("시작일자", date)
+        self.set_input_value("종료일자", date)
+        self.set_input_value("기관추정단가구분", "1")
+        self.set_input_value("외인추정단가구분", "1")
+        self.comm_rq_data("opt10045_coll_req", "OPT10045", 0, "0102")
+        return dict(self.inst_today)
 
     # 보통 금액은 천의 자리마다 콤마를 사용해서 표시합니다. 이를 위해 open_api 클래스에 change_format이라는 정적 메서드(static method)를 추가합니다. change_format 메서드는 입력된 문자열에 대해 lstrip 메서드를 통해 문자열 왼쪽에 존재하는 '-' 또는 '0'을 제거합니다. 그리고 format 함수를 통해 천의 자리마다 콤마를 추가한 문자열로 변경합니다.
     # startswith(prefix, [start, [end]])
@@ -2330,6 +2436,13 @@ class open_api(QAxWidget):
                         self._flush_intraday_candle(code, self._intraday_candles[code])
                         del self._intraday_candles[code]
                     getattr(self, '_entry_price_cache', {}).pop(code, None)
+                    # _receive_chejan_data DELETE 실패 대비 안전망
+                    try:
+                        self.engine_JB.execute(
+                            f"DELETE FROM realtime_position_monitor WHERE code = '{code}'"
+                        )
+                    except Exception:
+                        pass
             self._prev_intraday_codes = current_codes
 
             for holding in holdings:
