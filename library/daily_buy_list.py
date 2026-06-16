@@ -65,10 +65,65 @@ class daily_buy_list():
         elif len(rows) == 0:
             return False
 
+    def _load_nasdaq_lookup(self):
+        """nasdaq_index / sox_index 로드 → date_str 기준 T-1 NASDAQ 값 bisect 조회용 dict"""
+        try:
+            import pandas as _pd
+            nq = _pd.read_sql(
+                "SELECT date, close FROM nasdaq_index ORDER BY date ASC",
+                self.engine_daily_craw
+            )
+            sx = _pd.read_sql(
+                "SELECT date, close FROM sox_index ORDER BY date ASC",
+                self.engine_daily_craw
+            )
+            if len(nq) < 6 or len(sx) < 2:
+                return {}
+            nq['n1'] = nq['close'].pct_change(1).fillna(0)
+            nq['n5'] = nq['close'].pct_change(5).fillna(0)
+            sx['s1'] = sx['close'].pct_change(1).fillna(0)
+            return {
+                'nq_dates': nq['date'].astype(str).tolist(),
+                'nq_n1':    nq['n1'].tolist(),
+                'nq_n5':    nq['n5'].tolist(),
+                'sx_dates': sx['date'].astype(str).tolist(),
+                'sx_s1':    sx['s1'].tolist(),
+            }
+        except Exception as e:
+            logger.debug(f"nasdaq lookup 로드 실패 (스킵): {e}")
+            return {}
+
+    def _get_nasdaq_vals(self, lookup, date_str):
+        """Korean date_str T → NASDAQ T-1 값 반환. 데이터 없으면 (None, None, None)"""
+        if not lookup:
+            return None, None, None
+        try:
+            import bisect
+            date_str = str(date_str)
+            nq_dates = lookup['nq_dates']
+            idx = bisect.bisect_left(nq_dates, date_str) - 1
+            if idx < 0:
+                return None, None, None
+            n1 = lookup['nq_n1'][idx]
+            n5 = lookup['nq_n5'][idx]
+            sx_dates = lookup['sx_dates']
+            sx_idx = bisect.bisect_left(sx_dates, date_str) - 1
+            s1 = lookup['sx_s1'][sx_idx] if sx_idx >= 0 else None
+            return n1, n5, s1
+        except Exception:
+            return None, None, None
+
     def daily_buy_list(self):
         logger.debug("daily_buy_list 시작")
         self.date_rows_setting()
         self.get_stock_item_all()
+
+        # NASDAQ/SOX lookup 로드 (없는 환경에서도 None으로 graceful)
+        nasdaq_lookup = self._load_nasdaq_lookup()
+        if nasdaq_lookup:
+            logger.debug("nasdaq lookup 로드 완료")
+        else:
+            logger.debug("nasdaq lookup 없음 (daily_craw에 nasdaq_index/sox_index 없음)")
 
         latest_complete = get_latest_complete_date(self.date_rows)
         logger.debug(f"daily_buy_list 기준날짜: {latest_complete} (장마감={'Y' if latest_complete == self.today else 'N'})")
@@ -115,6 +170,10 @@ class daily_buy_list():
             created_count += 1
             logger.debug(f"{current_date} 테이블 생성 시작")
             print(f"  📅 daily_buy_list 생성 중: {current_date} ({k+1}/{total_dates})", flush=True)
+
+            # NASDAQ/SOX T-1 값 (날짜 공통)
+            nasdaq_1d_ret, nasdaq_5d_ret, sox_1d_ret = self._get_nasdaq_vals(
+                nasdaq_lookup, current_date)
 
             multi_list = list()
 
@@ -202,17 +261,33 @@ class daily_buy_list():
                     candle_pattern_score, bb_bandwidth = 0.0, 0.0
 
                 # 3. 오늘 데이터에 기술적 지표 추가
-                rows_with_indicators = [
-                    tuple(row) + (
-                        rsi14, bb_upper, bb_middle, bb_lower, atr14,
-                        macd, macd_signal, macd_histogram,
-                        adx, plus_di, minus_di,
-                        obv, mfi14, cmf20,
-                        ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_a, ichimoku_senkou_b,
-                        pivot, pivot_s1, pivot_s2, pivot_r1, pivot_r2,
-                        candle_pattern_score, bb_bandwidth
-                    ) for row in rows
+                # dict 방식으로 추출 — inst_net_buy/foreign_net_buy 컬럼이 없는 테이블도 None으로 처리
+                _base_cols = [
+                    'date', 'check_item', 'code', 'code_name', 'd1_diff_rate',
+                    'close', 'open', 'high', 'low', 'volume',
+                    'clo5', 'clo10', 'clo20', 'clo40', 'clo60', 'clo80', 'clo100', 'clo120',
+                    'clo5_diff_rate', 'clo10_diff_rate', 'clo20_diff_rate', 'clo40_diff_rate',
+                    'clo60_diff_rate', 'clo80_diff_rate', 'clo100_diff_rate', 'clo120_diff_rate',
+                    'yes_clo5', 'yes_clo10', 'yes_clo20', 'yes_clo40', 'yes_clo60',
+                    'yes_clo80', 'yes_clo100', 'yes_clo120',
+                    'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80', 'vol100', 'vol120',
+                    'inst_net_buy', 'foreign_net_buy',
                 ]
+                _indicator_vals = (
+                    rsi14, bb_upper, bb_middle, bb_lower, atr14,
+                    macd, macd_signal, macd_histogram,
+                    adx, plus_di, minus_di,
+                    obv, mfi14, cmf20,
+                    ichimoku_tenkan, ichimoku_kijun, ichimoku_senkou_a, ichimoku_senkou_b,
+                    pivot, pivot_s1, pivot_s2, pivot_r1, pivot_r2,
+                    candle_pattern_score, bb_bandwidth,
+                    nasdaq_1d_ret, nasdaq_5d_ret, sox_1d_ret,
+                )
+                rows_with_indicators = []
+                for row in rows:
+                    row_d = dict(row)
+                    base = tuple(row_d.get(c) for c in _base_cols)
+                    rows_with_indicators.append(base + _indicator_vals)
                 multi_list += rows_with_indicators
 
             logger.debug(f"{current_date} 루프 완료 - {len(multi_list)}개 종목 수집됨")
@@ -228,6 +303,7 @@ class daily_buy_list():
                              'yes_clo100', 'yes_clo120',
                              'vol5', 'vol10', 'vol20', 'vol40', 'vol60', 'vol80',
                              'vol100', 'vol120',
+                             'inst_net_buy', 'foreign_net_buy',
                              'rsi14', 'bb_upper', 'bb_middle', 'bb_lower', 'atr14',
                              'macd', 'macd_signal', 'macd_histogram',
                              'adx', 'plus_di', 'minus_di',
@@ -235,7 +311,8 @@ class daily_buy_list():
                              'ichimoku_tenkan', 'ichimoku_kijun',
                              'ichimoku_senkou_a', 'ichimoku_senkou_b',
                              'pivot', 'pivot_s1', 'pivot_s2', 'pivot_r1', 'pivot_r2',
-                             'candle_pattern_score', 'bb_bandwidth']
+                             'candle_pattern_score', 'bb_bandwidth',
+                             'nasdaq_1d_ret', 'nasdaq_5d_ret', 'sox_1d_ret']
                 # to_sql을 500행 청크로 나눠서 COM 콜백 차단 방지
                 import numpy as np
                 chunk_size = 500

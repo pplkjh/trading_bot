@@ -530,6 +530,55 @@ class collector_api():
             df.to_sql(table_name, engine_craw, if_exists='append', index=False)
             logger.debug(f"{table_name} {len(df)}행 저장 완료")
 
+    def collect_nasdaq_index(self):
+        """Yahoo Finance v8 API로 NASDAQ/SOX 지수 최신 데이터 수집
+        → daily_craw DB의 nasdaq_index, sox_index 테이블에 저장.
+        최근 10일치 pull 후 신규 날짜만 삽입 (yfinance 미사용 — requests만 사용).
+        """
+        import datetime as _dt
+        import pandas as pd
+        import requests as _req
+
+        engine_craw = self.open_api.engine_daily_craw
+        end_ts   = int((_dt.datetime.now() + _dt.timedelta(days=1)).timestamp())
+        start_ts = int((_dt.datetime.now() - _dt.timedelta(days=10)).timestamp())
+        headers  = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+
+        for ticker, table_name in [('^IXIC', 'nasdaq_index'), ('^SOX', 'sox_index')]:
+            try:
+                encoded = ticker.replace('^', '%5E')
+                url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded}"
+                       f"?period1={start_ts}&period2={end_ts}&interval=1d")
+                resp = _req.get(url, headers=headers, timeout=30)
+                resp.raise_for_status()
+                result = resp.json()['chart']['result'][0]
+                timestamps = result['timestamp']
+                q = result['indicators']['quote'][0]
+
+                df = pd.DataFrame({
+                    'date':   pd.to_datetime(timestamps, unit='s').strftime('%Y%m%d'),
+                    'open':   q.get('open'),
+                    'high':   q.get('high'),
+                    'low':    q.get('low'),
+                    'close':  q.get('close'),
+                    'volume': q.get('volume'),
+                }).dropna(subset=['close'])
+
+                # 이미 있는 날짜 제외
+                try:
+                    existing = pd.read_sql(f"SELECT date FROM `{table_name}`", engine_craw)
+                    existing_dates = set(existing['date'].astype(str).tolist())
+                    df = df[~df['date'].isin(existing_dates)]
+                except Exception:
+                    pass
+
+                if not df.empty:
+                    df.to_sql(table_name, engine_craw, if_exists='append', index=False)
+                    logger.debug(f"{table_name} {len(df)}행 저장 ({df['date'].min()}~{df['date'].max()})")
+
+            except Exception as e:
+                logger.warning(f"collect_nasdaq_index [{ticker}] 실패: {e}")
+
     def collect_stock_fundamental(self):
         """OPT10001 (주식기본정보요청)으로 전 종목 펀더멘털 수집
         → daily_buy_list DB의 sf_YYYYMMDD 날짜별 테이블에 저장
@@ -1921,6 +1970,33 @@ class collector_api():
 
         self.update_status("DB 저장 중...")
         df_temp.to_sql(name=code_name, con=self.open_api.engine_daily_craw, if_exists='append', index=False)
+
+        # OPT10045: 기관/외국인 당일 순매수량 수집 → 최신 행 UPDATE
+        # 컬럼이 없는 테이블은 ALTER TABLE로 자동 추가 (이미 있으면 예외 무시)
+        try:
+            inst = self.open_api.get_inst_data_today(code, ref_date)
+            inst_val = inst.get('inst_net_buy')
+            foreign_val = inst.get('foreign_net_buy')
+            if inst_val is not None or foreign_val is not None:
+                for col in ('inst_net_buy', 'foreign_net_buy'):
+                    try:
+                        self.open_api.engine_daily_craw.execute(
+                            f"ALTER TABLE `{code_name}` ADD COLUMN {col} INT DEFAULT NULL"
+                        )
+                    except Exception:
+                        pass
+                set_parts = []
+                if inst_val is not None:
+                    set_parts.append(f"inst_net_buy = {inst_val}")
+                if foreign_val is not None:
+                    set_parts.append(f"foreign_net_buy = {foreign_val}")
+                if set_parts:
+                    self.open_api.engine_daily_craw.execute(
+                        f"UPDATE `{code_name}` SET {', '.join(set_parts)} WHERE date = '{ref_date}'"
+                    )
+        except Exception as e:
+            logger.error(f"OPT10045 수집 실패 ({code_name}): {e}")
+
         index_name = ''.join(c for c in code_name if c.isalnum())
         if deleted:
             try:

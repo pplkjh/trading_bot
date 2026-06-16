@@ -263,6 +263,24 @@ class simulator_func_mysql:
             self.invest_limit_rate = 1.02
             self.invest_min_limit_rate = 0.97
 
+        elif self.simul_num == 7:
+            # Strategy A+B+NASDAQ — 백테스트: simulator7 / 실전: jackbot7_imi1
+            # sim=6 대비: BreakoutStrategyV4(atr_rate 패널티 제거) + score_h(NASDAQ 20pt)
+            self.simul_start_date = "20230102"
+            self.use_min = False
+            self.only_nine_buy = False
+            self.db_to_realtime_daily_buy_list_num = 22
+            self.sell_list_num = 20   # 방향성 검증: 익절+6% / 손절-5% / 시간청산
+            self.start_invest_price = 10000000
+            self.invest_unit = self._resolve_invest_unit(self.start_invest_price)
+            self.limit_money = 300000
+            self.sell_point = 6
+            self.losscut_point = -5
+            self.time_stop_days = 20
+            self.max_positions = 999
+            self.invest_limit_rate = 1.02
+            self.invest_min_limit_rate = 0.97
+
         # ==================== 기존 전략 (20번대로 이동) ====================
 
         elif self.simul_num == 21:
@@ -626,12 +644,11 @@ class simulator_func_mysql:
         if price < self.invest_unit:
             _df = self.df_realtime_daily_buy_list
             _score = int(_df.loc[j, 'composite_score']) if 'composite_score' in _df.columns else 0
-            _sa = int(_df.loc[j, 'score_a']) if 'score_a' in _df.columns else 0
-            _sb = int(_df.loc[j, 'score_b']) if 'score_b' in _df.columns else 0
-            _sc = int(_df.loc[j, 'score_c']) if 'score_c' in _df.columns else 0
-            _sd = int(_df.loc[j, 'score_d']) if 'score_d' in _df.columns else 0
-            _se = int(_df.loc[j, 'score_e']) if 'score_e' in _df.columns else 0
-            print(f"  ✅ 매수: {code_name} ({code}) | 총{_score}pt [A모멘텀:{_sa} B평균회귀:{_sb} C추세:{_sc} D거래량:{_sd} E시장:{_se}]")
+            _cols = ['score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_g']
+            _parts = [f"{c[-1]}:{int(_df.loc[j, c])}" for c in _cols if c in _df.columns]
+            _st = str(_df.loc[j, 'strategy_type']) if 'strategy_type' in _df.columns else ''
+            _st_tag = f" [{_st}]" if _st else ''
+            print(f"  ✅ 매수: {code_name} ({code}){_st_tag} | 총{_score}pt  {' '.join(_parts)}")
 
             # 매수를 하게 되면 all_item_db 테이블에 반영을 한다.
             self.db_to_all_item(date, self.df_realtime_daily_buy_list, j,
@@ -778,7 +795,7 @@ class simulator_func_mysql:
                                                                  'rsi14', 'bb_upper', 'bb_middle', 'bb_lower', 'atr14',
                                                                  'composite_score',
                                                                  'score_a', 'score_b', 'score_c', 'score_d',
-                                                                 'score_e', 'score_f', 'score_penalty'])
+                                                                 'score_e', 'score_f', 'score_g', 'score_penalty'])
 
         self.len_df_realtime_daily_buy_list = len(self.df_realtime_daily_buy_list)
 
@@ -1383,11 +1400,21 @@ class simulator_func_mysql:
                 strategies = [ReversalStrategyV3()]
                 min_score = cf.v4_min_score_b
                 logger.debug(f"[num=22] simul_num=5 ReversalStrategyV3 시작 - 기준날짜: {date_rows_today}")
-            else:  # simul_num == 6
+            elif self.simul_num == 6:
                 from library.hybrid_strategy_v3 import BreakoutStrategyV3, ReversalStrategyV3
                 strategies = [BreakoutStrategyV3(), ReversalStrategyV3()]
                 min_score = min(cf.v4_min_score_a, cf.v4_min_score_b)
                 logger.debug(f"[num=22] simul_num=6 A+B 혼합 시작 - 기준날짜: {date_rows_today}")
+            elif self.simul_num == 7:
+                from library.hybrid_strategy_v4 import BreakoutStrategyV4, ReversalStrategyV4
+                strategies = [BreakoutStrategyV4(), ReversalStrategyV4()]
+                min_score = min(cf.v5_min_score_a, cf.v5_min_score_b)
+                logger.debug(f"[num=22] simul_num=7 A+B+NASDAQ 혼합 시작 - 기준날짜: {date_rows_today}")
+            else:
+                from library.hybrid_strategy_v3 import BreakoutStrategyV3, ReversalStrategyV3
+                strategies = [BreakoutStrategyV3(), ReversalStrategyV3()]
+                min_score = min(cf.v4_min_score_a, cf.v4_min_score_b)
+                logger.debug(f"[num=22] simul_num={self.simul_num} fallback A+B 혼합 시작")
 
             # SQL 사전 필터: 전략별 특성에 맞는 후보 선별
             try:
@@ -1415,8 +1442,7 @@ class simulator_func_mysql:
                         ORDER BY a.rsi14 ASC
                         LIMIT 150
                     """
-                else:  # sim=6
-                    # A+B 각각 독립 필터 후 UNION — A 최대 150 + B 최대 150 = 최대 300 (중복 제거)
+                else:  # sim=6: A후보 + B후보 UNION
                     pre_filter_sql = f"""
                         (SELECT a.* FROM `{date_rows_today}` a
                          WHERE NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code=b.code)
@@ -1437,9 +1463,13 @@ class simulator_func_mysql:
                          LIMIT 150)
                     """
                 candidates = self.engine_daily_buy_list.execute(pre_filter_sql).fetchall()
-                if self.simul_num == 6:
-                    cnt_a = sum(1 for r in candidates if r['d1_diff_rate'] >= 1.5 and r['vol5'] > r['vol20'] * 1.2)
-                    cnt_b = sum(1 for r in candidates if r['rsi14'] <= 54 and r['rsi14'] >= 25)
+                if self.simul_num in (6, 7):
+                    cnt_a = sum(1 for r in candidates
+                                if (r['d1_diff_rate'] or 0) >= 1.5
+                                and (r['vol5'] or 0) > (r['vol20'] or 1) * 1.2)
+                    cnt_b = sum(1 for r in candidates
+                                if (r['rsi14'] is not None)
+                                and 25 <= float(r['rsi14']) <= 54)
                     logger.debug(f"[num=22] SQL 사전필터 완료 - 후보: {len(candidates)}개 (A:{cnt_a} / B:{cnt_b})")
                 elif self.simul_num == 4:
                     logger.debug(f"[num=22] SQL 사전필터 완료 - 후보: {len(candidates)}개 (A:{len(candidates)})")
@@ -1461,6 +1491,36 @@ class simulator_func_mysql:
             except Exception as e:
                 logger.debug(f"[num=22] kospi_index 로드 실패: {e}")
 
+            # sf_YYYYMMDD 테이블에서 펀더멘털 로드
+            # 실전(오늘 날짜): sf_{today} 존재 → 펀더멘털 스코어 활성화
+            # 백테스트(과거 날짜): sf_ 테이블 없음 → fundamental_data=None → score_b=0 (Look-ahead bias 방지)
+            fundamental_dict = {}
+            try:
+                sf_row = self.engine_daily_buy_list.execute(
+                    "SELECT TABLE_NAME FROM information_schema.tables "
+                    "WHERE table_schema = 'daily_buy_list' AND TABLE_NAME LIKE 'sf_2%%' "
+                    f"AND TABLE_NAME <= 'sf_{date_rows_today}' "
+                    "ORDER BY TABLE_NAME DESC LIMIT 1"
+                ).fetchone()
+                if sf_row:
+                    sf_table = sf_row[0]
+                    fund_df = pd.read_sql(
+                        f"SELECT code, roe, pbr, per, credit_rate FROM `{sf_table}`",
+                        self.engine_daily_buy_list
+                    )
+                    for _, fr in fund_df.iterrows():
+                        fundamental_dict[str(fr['code']).zfill(6)] = {
+                            'roe':         fr['roe'],
+                            'pbr':         fr['pbr'],
+                            'per':         fr['per'],
+                            'credit_rate': fr['credit_rate'],
+                        }
+                    logger.debug(f"[num=22] {sf_table} 펀더멘털 로드 완료 - {len(fundamental_dict)}개")
+                else:
+                    logger.debug(f"[num=22] sf 테이블 없음 ({date_rows_today} 이전) — 펀더멘털 미사용")
+            except Exception as e:
+                logger.debug(f"[num=22] 펀더멘털 로드 실패: {e}")
+
             # 종목별 스코어링
             scored_list = []
             total_cands = len(candidates)
@@ -1472,7 +1532,6 @@ class simulator_func_mysql:
                 # 10개마다 진행상황 콘솔 출력 (hang 여부 확인)
                 if idx % 10 == 0:
                     print(f"  [스코어링] {idx+1}/{total_cands} {code_name}", end='\r', flush=True)
-                logger.debug(f"[num=22] 스코어링 {idx+1}/{total_cands}: {code_name}({code})")
                 try:
                     df_120 = pd.read_sql(
                         f"SELECT * FROM `{code_name}` WHERE code = '{code}'"
@@ -1487,9 +1546,10 @@ class simulator_func_mysql:
                     continue
 
                 row_dict = dict(row)
+                fd = fundamental_dict.get(code) or None
 
                 if len(strategies) == 1:
-                    result = strategies[0].calculate_total_score(row_dict, df_120, market_data)
+                    result = strategies[0].calculate_total_score(row_dict, df_120, market_data, fd)
                     if not result['auto_reject'] and result['total'] >= min_score:
                         row_dict['composite_score'] = int(result['total'])
                         row_dict['score_a']       = result['score_a']
@@ -1498,32 +1558,46 @@ class simulator_func_mysql:
                         row_dict['score_d']       = result['score_d']
                         row_dict['score_e']       = result['score_e']
                         row_dict['score_f']       = result['score_f']
+                        row_dict['score_g']       = result['score_g']
+                        row_dict['score_h']       = result.get('score_h', 0)
                         row_dict['score_penalty'] = result['score_penalty']
                         row_dict['strategy_type'] = result['strategy_type']
                         scored_list.append((row_dict, result['total']))
-                        logger.debug(f"[num=22] ✅ 합격: {code_name} {result['total']}pt ({result['strategy_type']})")
+                        logger.debug(f"[num=22] {idx+1}/{total_cands}: {code_name}({code}) → {result['strategy_type']} {result['total']:.0f}pt ✅")
+                    elif not result['auto_reject']:
+                        logger.debug(f"[num=22] {idx+1}/{total_cands}: {code_name}({code}) → {result['strategy_type']} {result['total']:.0f}pt")
                 else:
                     # sim=6: 두 전략 모두 계산, 높은 점수 선택
                     best_result = None
                     best_score = -9999
                     for strategy in strategies:
-                        r = strategy.calculate_total_score(row_dict, df_120, market_data)
+                        r = strategy.calculate_total_score(row_dict, df_120, market_data, fd)
                         if not r['auto_reject'] and r['total'] > best_score:
                             best_score = r['total']
                             best_result = r
-                    if best_result is not None and best_score >= (cf.v4_min_score_a if best_result['strategy_type'] == 'A' else cf.v4_min_score_b):
-                        best_score = best_result['total']
-                        row_dict['composite_score'] = int(best_score)
-                        row_dict['score_a']       = best_result['score_a']
-                        row_dict['score_b']       = best_result['score_b']
-                        row_dict['score_c']       = best_result['score_c']
-                        row_dict['score_d']       = best_result['score_d']
-                        row_dict['score_e']       = best_result['score_e']
-                        row_dict['score_f']       = best_result['score_f']
-                        row_dict['score_penalty'] = best_result['score_penalty']
-                        row_dict['strategy_type'] = best_result['strategy_type']
-                        scored_list.append((row_dict, best_score))
-                        logger.debug(f"[num=22] ✅ 합격: {code_name} {best_score}pt ({best_result['strategy_type']})")
+                    if best_result is not None:
+                        st = best_result['strategy_type']
+                        if self.simul_num == 7:
+                            min_sc = cf.v5_min_score_a if st == 'A' else cf.v5_min_score_b
+                        else:
+                            min_sc = cf.v4_min_score_a if st == 'A' else cf.v4_min_score_b
+                        if best_score >= min_sc:
+                            best_score = best_result['total']
+                            row_dict['composite_score'] = int(best_score)
+                            row_dict['score_a']       = best_result['score_a']
+                            row_dict['score_b']       = best_result['score_b']
+                            row_dict['score_c']       = best_result['score_c']
+                            row_dict['score_d']       = best_result['score_d']
+                            row_dict['score_e']       = best_result['score_e']
+                            row_dict['score_f']       = best_result['score_f']
+                            row_dict['score_g']       = best_result['score_g']
+                            row_dict['score_h']       = best_result.get('score_h', 0)
+                            row_dict['score_penalty'] = best_result['score_penalty']
+                            row_dict['strategy_type'] = best_result['strategy_type']
+                            scored_list.append((row_dict, best_score))
+                            logger.debug(f"[num=22] {idx+1}/{total_cands}: {code_name}({code}) → {st} {best_score:.0f}pt ✅")
+                        else:
+                            logger.debug(f"[num=22] {idx+1}/{total_cands}: {code_name}({code}) → {st} {best_score:.0f}pt")
 
             count_a = sum(1 for item in scored_list if item[0].get('strategy_type') == 'A')
             count_b = sum(1 for item in scored_list if item[0].get('strategy_type') == 'B')
@@ -1632,7 +1706,7 @@ class simulator_func_mysql:
             df_realtime_daily_buy_list['code'] = df_realtime_daily_buy_list['code'].astype(str).str.zfill(6)
 
             # 섹션별 스코어 컬럼 주입 (num=21/22: row_dict에 이미 저장됨, 나머지: 0)
-            score_cols = ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']
+            score_cols = ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_g', 'score_h', 'score_penalty']
             if self.db_to_realtime_daily_buy_list_num in (21, 22) and isinstance(realtime_daily_buy_list[0], dict):
                 for col in score_cols:
                     df_realtime_daily_buy_list[col] = [row.get(col, 0) for row in realtime_daily_buy_list]
@@ -1805,7 +1879,9 @@ class simulator_func_mysql:
                                               'item_total_purchase', 'valuation_price',
                                               'composite_score',
                                               'score_a', 'score_b', 'score_c', 'score_d',
-                                              'score_e', 'score_f', 'score_penalty',
+                                              'score_e', 'score_f', 'score_g',
+                                              *(['score_h'] if self.simul_num == 7 else []),
+                                              'score_penalty',
                                               'simul_num',
                                               'max_high_pct', 'min_low_pct', 'rsi14', 'rsi_peak'])
 
@@ -1853,14 +1929,19 @@ class simulator_func_mysql:
         self.df_all_item.loc[0, 'ma120'] = df.loc[index, 'clo120'] if 'clo120' in df.columns else 0
 
         self.df_all_item.loc[0, 'valuation_profit'] = int(0)
-        for _col in ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']:
+        _score_cols_all_item = ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d',
+                                'score_e', 'score_f', 'score_g']
+        if self.simul_num == 7:
+            _score_cols_all_item.append('score_h')
+        _score_cols_all_item.append('score_penalty')
+        for _col in _score_cols_all_item:
             self.df_all_item.loc[0, _col] = df.loc[index, _col] if _col in df.columns else 0
         self.df_all_item.loc[0, 'simul_num'] = self.simul_num
         self.df_all_item.loc[0, 'max_high_pct'] = 0.0
         self.df_all_item.loc[0, 'min_low_pct'] = 0.0
         self.df_all_item.loc[0, 'rsi14'] = 0.0
         self.df_all_item.loc[0, 'rsi_peak'] = 0.0
-        if self.simul_num in (4, 5, 6):
+        if self.simul_num in (4, 5, 6, 7):
             if 'strategy_type' in df.columns:
                 self.df_all_item.loc[0, 'strategy_type'] = df.loc[index, 'strategy_type']
             elif self.simul_num == 4:
@@ -3040,6 +3121,7 @@ class simulator_func_mysql:
                 IFNULL(score_d, 0) as score_d,
                 IFNULL(score_e, 0) as score_e,
                 IFNULL(score_f, 0) as score_f,
+                IFNULL(score_g, 0) as score_g,
                 IFNULL(score_penalty, 0) as score_penalty
             FROM all_item_db
             WHERE sell_date != 0 AND sell_date != ''
@@ -3144,7 +3226,7 @@ class simulator_func_mysql:
                 'code', 'code_name', 'buy_date', 'sell_date',
                 'purchase_price', 'sell_price', 'sell_rate',
                 'holding_amount', 'holding_days', 'composite_score',
-                'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty'
+                'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_g', 'score_penalty'
             ])
             df_trades.to_csv(csv_path, index=False, encoding='utf-8-sig')
 

@@ -769,7 +769,8 @@ class TraderAdvanced(QMainWindow):
                             'current_price': current_price,
                             'profit_rate': profit_rate,
                             'profit': int(item[4]) if len(item) > 4 else 0,
-                            'losscut_delay': losscut_delay_active
+                            'losscut_delay': losscut_delay_active,
+                            'strategy_type': _strategy_map.get(code, 'A'),
                         }
 
                         # highest_price 추가 (있으면)

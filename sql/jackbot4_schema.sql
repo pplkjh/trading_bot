@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS all_item_db (
     score_d DECIMAL(6,2) DEFAULT 0 COMMENT 'D. 거래량',
     score_e DECIMAL(6,2) DEFAULT 0 COMMENT 'E. 시장상대강도',
     score_f DECIMAL(6,2) DEFAULT 0 COMMENT 'F. 다중시간프레임',
+    score_g DECIMAL(6,2) DEFAULT 0 COMMENT 'G. 기관/외국인수급',
     score_penalty DECIMAL(6,2) DEFAULT 0 COMMENT '패널티',
     simul_num INT DEFAULT 4 COMMENT '알고리즘 번호 (4=A전용 / 5=B전용 / 6=A+B)',
 
@@ -186,6 +187,7 @@ CREATE TABLE IF NOT EXISTS realtime_daily_buy_list (
     score_d DECIMAL(6,2) DEFAULT 0,
     score_e DECIMAL(6,2) DEFAULT 0,
     score_f DECIMAL(6,2) DEFAULT 0,
+    score_g DECIMAL(6,2) DEFAULT 0,
     score_penalty DECIMAL(6,2) DEFAULT 0,
     simul_num INT DEFAULT 0,
     volume_ratio DECIMAL(10,2) DEFAULT 1.0,
@@ -240,3 +242,16 @@ COMMENT='보유종목 1분봉 추적 (5일 롤링 보존) — RSI/VWAP 기반 �
 -- ================================================
 SELECT 'jackbot4_imi1 schema created.' AS status;
 SHOW TABLES;
+
+-- ========================================================
+-- simulator7 / jackbot7_imi1 DB 생성 방법 (별도 실행):
+--
+-- CREATE DATABASE IF NOT EXISTS simulator7
+--   DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- CREATE DATABASE IF NOT EXISTS jackbot7_imi1
+--   DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+--
+-- 그 후 각 DB에 아래 DDL을 적용:
+--   mysql -u bot -p simulator7   < sql/jackbot7_schema.sql
+--   mysql -u bot -p jackbot7_imi1 < sql/jackbot7_schema.sql
+-- ========================================================

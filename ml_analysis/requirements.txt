@@ -1,0 +1,26 @@
+# ml_analysis 전용 의존성
+# 기존 프로젝트(sqlalchemy, pandas, pymysql, matplotlib)는 이미 설치되어 있음
+
+# ── ML 핵심 ──────────────────────────────────────────────────────────────────
+catboost>=1.2
+lightgbm>=4.0
+scikit-learn>=1.0
+
+# ── 해석 가능성 ────────────────────────────────────────────────────────────────
+# shap: CatBoost / LightGBM SHAP 분석 (없으면 shap 기능만 skip)
+shap>=0.44
+
+# ── 딥러닝 (TabNet) ────────────────────────────────────────────────────────────
+# pytorch-tabnet은 torch 가 먼저 설치되어 있어야 함
+# torch 설치: https://pytorch.org/get-started/locally/
+#   예) pip install torch --index-url https://download.pytorch.org/whl/cpu
+pytorch-tabnet>=4.0
+
+# ── 수치 연산 (기존 설치 확인용) ─────────────────────────────────────────────
+numpy>=1.21
+pandas>=1.3
+matplotlib>=3.4
+
+# ── 설치 순서 권장 ─────────────────────────────────────────────────────────────
+# 1. pip install torch --index-url https://download.pytorch.org/whl/cpu
+# 2. pip install catboost lightgbm scikit-learn shap pytorch-tabnet

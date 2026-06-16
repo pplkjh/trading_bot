@@ -185,8 +185,8 @@ class TradingDashboard:
 
             if has_highest_price:
                 # 고급 정보 포함 헤더
-                print(f"  {'종목코드':<8} {'종목명':<12} {'보유수량':>8} {'매입가':>10} {'현재가':>10} {'최고가':>10} {'스톱가':>10} {'수익률':>8} {'상태':>12}")
-                print("  " + "-" * 110)
+                print(f"  {'종목코드':<8} {'종목명':<12} {'전략':<4} {'보유수량':>8} {'매입가':>10} {'현재가':>10} {'최고가':>10} {'스톱가':>10} {'수익률':>8} {'상태':>12}")
+                print("  " + "-" * 116)
                 for pos in positions[:10]:  # 최대 10개만 표시
                     profit_rate = pos.get('profit_rate', 0)
                     profit_color = "[+]" if profit_rate > 0 else "[-]" if profit_rate < 0 else "[=]"
@@ -202,21 +202,23 @@ class TradingDashboard:
                     highest_price = pos.get('highest_price', pos.get('current_price', 0))
                     stop_price = pos.get('trailing_stop_price')
                     stop_str = f"{stop_price:>10,}원" if stop_price else f"{'---':>10}"
+                    st = pos.get('strategy_type', 'A')
 
-                    print(f"  {pos.get('code', ''):<8} {pos.get('name', ''):<12} "
+                    print(f"  {pos.get('code', ''):<8} {pos.get('name', ''):<12} [{st}] "
                           f"{pos.get('quantity', 0):>8} {pos.get('buy_price', 0):>10,}원 "
                           f"{pos.get('current_price', 0):>10,}원 {highest_price:>10,}원 "
                           f"{stop_str} "
                           f"{profit_color} {profit_rate:>6.2f}% {trailing_status:>12}")
             else:
                 # 기본 헤더
-                print(f"  {'종목코드':<10} {'종목명':<15} {'보유수량':>10} {'매입가':>12} {'현재가':>12} {'수익률':>10} {'평가손익':>12} {'상태':>12}")
-                print("  " + "-" * 100)
+                print(f"  {'종목코드':<10} {'종목명':<15} {'전략':<4} {'보유수량':>10} {'매입가':>12} {'현재가':>12} {'수익률':>10} {'평가손익':>12}")
+                print("  " + "-" * 106)
                 for pos in positions[:10]:  # 최대 10개만 표시
                     profit_rate = pos.get('profit_rate', 0)
                     profit_color = "[+]" if profit_rate > 0 else "[-]" if profit_rate < 0 else "[=]"
                     delay_mark = " ⏰" if pos.get('losscut_delay', False) else ""
-                    print(f"  {pos.get('code', ''):<10} {pos.get('name', ''):<15} "
+                    st = pos.get('strategy_type', 'A')
+                    print(f"  {pos.get('code', ''):<10} {pos.get('name', ''):<15} [{st}] "
                           f"{pos.get('quantity', 0):>10} {pos.get('buy_price', 0):>12,}원 "
                           f"{pos.get('current_price', 0):>12,}원 "
                           f"{profit_color} {profit_rate:>7.2f}% {pos.get('profit', 0):>12,}원{delay_mark}")
@@ -231,9 +233,10 @@ class TradingDashboard:
             total_pnl_r  = total_pnl / total_cost * 100 if total_cost > 0 else 0.0
             pnl_sign     = "+" if total_pnl >= 0 else ""
             pnl_color    = "[+]" if total_pnl > 0 else "[-]" if total_pnl < 0 else "[=]"
-            print("  " + "─" * 110)
+            print("  " + "─" * 116)
             print(f"  {'합계':<20}"
-                  f"  총 평가금액 {total_eval:>14,}원"
+                  f"  총 매수금액 {total_cost:>14,}원"
+                  f"   총 평가금액 {total_eval:>14,}원"
                   f"   총 평가손익 {pnl_color} {pnl_sign}{total_pnl:>12,}원"
                   f"  ({pnl_sign}{total_pnl_r:.2f}%)")
         else:

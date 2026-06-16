@@ -104,20 +104,27 @@ def get_latest_indicators(codes: list) -> dict:
 
 def parse_today_skips(log_path: str = 'log/jackbot.log') -> dict:
     """
-    오늘 날짜 jackbot.log에서 매수 스킵 로그를 파싱해 {code: reason_str} 반환
+    오늘 날짜 jackbot.log에서 매수 스킵/실패 로그를 파싱해 {code: reason_str} 반환
     """
     skips = {}
     today_prefix = datetime.today().strftime('%Y-%m-%d')
-    # 가격 범위 초과 패턴: 에스씨디(042110) 목표가=1430 현재가=1451 허용범위=[...]
+    # 가격 범위 초과: 에스씨디(042110)[A] 목표가=... 현재가=... 허용범위=[...]
+    # 종목명(코드)[전략] 형태 — [A/B] 옵셔널 처리
     pattern_price = re.compile(
-        r'매수 스킵 \(가격 범위 초과\): .+?\((\d+)\) 목표가=(\S+) 현재가=(\S+) 허용범위=(\S+)'
+        r'매수 스킵 \(가격 범위 초과\): .+?\((\d+)\)(?:\[.\])? 목표가=(\S+) 현재가=(\S+) 허용범위=(\S+)'
     )
-    # 이미 처리됨 패턴
+    # 이미 처리됨
     pattern_done = re.compile(r'매수 스킵 \(이미 처리됨\): .+?\((\d+)\)')
+    # 현재가 조회 실패: "⚠️ 현재가 조회 실패: 종목명(코드)"
+    pattern_price_fail = re.compile(r'현재가 조회 실패: .+?\((\d+)\)')
+    # 매수 불가 수량 0: "⚠️ 매수 불가 — 현재가(N)가 투자단위(M) 이상 (수량 0): 종목명(코드)"
+    pattern_qty0 = re.compile(r'매수 불가.+?\(수량 0\): .+?\((\d+)\)')
+    # send_order 실패: "⚠️ send_order 실패 (ret=N): 코드 qty=..."
+    pattern_order_fail = re.compile(r'send_order 실패.+?:\s+(\d{6})\s+qty')
     try:
         with open(log_path, 'r', encoding='utf-8') as f:
             for line in f:
-                if today_prefix not in line or '매수 스킵' not in line:
+                if today_prefix not in line:
                     continue
                 m = pattern_price.search(line)
                 if m:
@@ -127,9 +134,45 @@ def parse_today_skips(log_path: str = 'log/jackbot.log') -> dict:
                 m = pattern_done.search(line)
                 if m:
                     skips[m.group(1)] = "⛔ 이미 처리됨"
+                    continue
+                m = pattern_price_fail.search(line)
+                if m:
+                    skips[m.group(1)] = "⛔ 현재가 조회 실패"
+                    continue
+                m = pattern_qty0.search(line)
+                if m:
+                    skips[m.group(1)] = "⛔ 매수 불가 (현재가 > 투자단위, 수량=0)"
+                    continue
+                m = pattern_order_fail.search(line)
+                if m:
+                    skips[m.group(1)] = "⛔ 주문 실패 (send_order)"
     except Exception:
         pass
     return skips
+
+
+def get_buy_stop_reason(con, today_str: str) -> str:
+    """setting_data.today_buy_stop 기준 전역 매수 중단 사유. 없으면 None."""
+    try:
+        df_s = pd.read_sql("SELECT today_buy_stop, limit_money FROM setting_data LIMIT 1", con)
+        if df_s.empty:
+            return None
+        today_buy_stop = str(df_s['today_buy_stop'].iloc[0] or '').strip()
+        if not today_buy_stop.startswith(today_str):
+            return None
+        limit_money = int(df_s['limit_money'].iloc[0] or 0)
+        try:
+            df_j = pd.read_sql(
+                "SELECT d2_deposit FROM jango_data ORDER BY date DESC LIMIT 1", con
+            )
+            d2 = int(df_j['d2_deposit'].iloc[0] or 0) if not df_j.empty else 0
+        except Exception:
+            d2 = 0
+        if limit_money > 0 and d2 < limit_money:
+            return f"예수금 부족  잔고={d2:,}원  필요={limit_money:,}원"
+        return "당일 매수 목록 소진"
+    except Exception:
+        return None
 
 
 def get_portfolio_status(db_name: str):
@@ -399,6 +442,11 @@ def get_portfolio_status(db_name: str):
 
                 # 오늘 스킵된 종목 (로그 파싱)
                 skip_reasons = parse_today_skips()
+
+                # 전역 매수 중단 여부
+                buy_stop_reason = get_buy_stop_reason(con, today_str)
+                if buy_stop_reason:
+                    print(f"  ⚠️  당일 매수 중단: {buy_stop_reason}")
 
                 def _v(row, col, default=None):
                     return row[col] if col in cols and pd.notna(row.get(col)) else default

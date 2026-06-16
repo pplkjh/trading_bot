@@ -23,12 +23,9 @@ if %errorlevel% neq 0 (
     goto END
 )
 
-tasklist /FI "IMAGENAME eq python.exe" 2>NUL | find /I "python.exe" >NUL
-if "%ERRORLEVEL%"=="0" (
-    echo [INFO] Killing existing python process...
-    taskkill /F /IM python.exe >NUL 2>&1
-    timeout /t 3 /nobreak >NUL
-)
+REM trader_advanced.py / collector_v3.py 좀비 프로세스만 정리 (분석 스크립트는 보존)
+powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and ($_.CommandLine -like '*trader_advanced*' -or $_.CommandLine -like '*collector_v3*') } | ForEach-Object { Write-Host '[INFO] Killing stale process (PID:' $_.ProcessId ')'; Stop-Process -Id $_.ProcessId -Force }" 2>NUL
+timeout /t 3 /nobreak >NUL
 
 set TRADER_EXIT=0
 

@@ -426,6 +426,191 @@ git checkout HEAD -- library/cf.py
 
 ---
 
+### 12-5. Strategy A 스코어링 버전별 score_component_analysis 결과 비교
+
+> **비교 기준**: Pearson r (컴포넌트 × sell_rate). 백테스트 기간 동일 (2023-01~2026-06, 835일)
+> r > 0: 점수 높을수록 수익 증가 (정상). r < 0: 점수 높을수록 수익 감소 (설계 오류)
+
+| 컴포넌트 | v3.2 (70pt 돌파강도) | v3.3 (50pt 돌파강도) | **v3.4+inst_flow** (50pt 셋업품질) | 변화 |
+|----------|---------------------|---------------------|-----------------------------------|------|
+| score_a | **-0.2468** ★★★ 역상관 | **-0.2748** ★★★ 역상관 | **+0.0801** ★★ | 역전 ✅ |
+| score_b | +0.0664 | — | +0.0649 | 유지 |
+| score_c | +0.0194 | — | +0.0552 | 개선 |
+| score_d | +0.0538 | — | +0.0719 | 개선 |
+| score_e | -0.0015 | -0.0296 | +0.0124 | 미미 |
+| score_f | — (없음) | — | +0.0680 | 추가 |
+| score_g(inst_flow) | — | — | A: -0.0271 없음 / B: -0.0713→+0.0343 (역방향 재설계) | B역방향 ✅ |
+| 패널티 | -0.0422 | -0.3043 ★★★ | -0.3268 ★★★ | 강화 ✅ |
+| **composite** | **-0.0864** 역상관 | **-0.0513** 역상관 | **+0.0159** 양전환 | ✅ |
+
+**핵심 원인 분석:**
+- v3.3 → v3.4: `penalty -= breakout_score` 제거 (역U자 패널티 → 극단값 직접 패널티로 교체)
+  - score_a=70pt 고득점 종목(좋은 돌파)이 동시에 최대 패널티도 받던 역설 해소
+  - 결과: score_a r = -0.2748 → +0.0801 (완전 역전), composite도 음→양 전환
+- v3.2 → v3.3: score_a 50pt로 축소 + 역U자 패널티 추가 → 음의 상관 심화 (역효과)
+- A전략 score_g: r=-0.0271 (없음). B전략 score_g: r=-0.0713 → 역방향 재설계 후 r=+0.0343 (2026-06-13)
+
+---
+
+## 13. score_g 전파 완성 + B전략 최적화 (2026-06-10 ~ 2026-06-13)
+
+### 13-1. score_g 전파 체인 버그 수정
+
+**발견**: `_score_inst_flow()` 계산은 됐지만 DB에 저장이 전혀 안 되고 있었음.
+- `calculate_total_score()` base dict에 `'score_g'` 키 누락 → result dict에 미포함
+- simulator_func_mysql.py에서 참조 불가 → 백테스트 전체 기간 score_g=NULL
+
+**수정 위치 (7곳 동시):**
+
+| 파일 | 위치 | 변경 내용 |
+|------|------|---------|
+| `hybrid_strategy_v3.py` | calculate_total_score() base dict | `'score_g': 0.0` 초기값 추가 |
+| `hybrid_strategy_v3.py` | base.update() | `'score_g': round(sg, 2)` 반환값 추가 |
+| `simulator_func_mysql.py` | df_realtime_daily_buy_list 로드 | `'score_g'` 컬럼 목록 추가 |
+| `simulator_func_mysql.py` | row_dict 저장 — 단일전략 | `row_dict['score_g'] = result['score_g']` |
+| `simulator_func_mysql.py` | row_dict 저장 — sim=6 | `row_dict['score_g'] = best_result['score_g']` |
+| `simulator_func_mysql.py` | score_cols/df_all_item/for_col/레포트 SQL | `'score_g'` 전체 추가 |
+| `sql/jackbot4_schema.sql` + DB ALTER TABLE | all_item_db / realtime_daily_buy_list | score_g DECIMAL(6,2) 컬럼 8개 테이블 추가 |
+
+### 13-2. score_component_analysis.py 개선
+
+| 기능 | 내용 |
+|------|------|
+| score_g 감지 버그 수정 | `LIKE 'score_%'` → `LIKE 'score_%%'` (pymysql이 `%_`를 format char로 해석 → ValueError → fallback 반환 버그) |
+| `--from=YYYYMMDD` 옵션 추가 | buy_date 기준 필터링. inst_flow 데이터가 20240122부터만 존재 → 2023 데이터 오염 제거용 |
+
+**사용법:**
+```
+python score_component_analysis.py 6 --from=20240122
+```
+
+### 13-3. score_analyze.py `--resume` 옵션 추가
+
+중단된 백테스트를 이어서 실행하는 기능.
+- `python score_analyze.py 6 --resume` → `mode='continue'` (jango_data 마지막 날짜 이후부터)
+- 기본 실행은 `mode='reset'` (DB 드롭 후 처음부터)
+
+### 13-4. trading_dashboard.py 개선
+
+보유 종목 합계 행에 **총 매수금액** 추가:
+```
+합계  총 매수금액 xx,xxx,xxx원   총 평가금액 xx,xxx,xxx원   총 평가손익 [+] +xxx,xxx원 (+x.xx%)
+```
+
+### 13-5. B전략 score_g 역방향 재설계
+
+**분석 근거 (`python score_component_analysis.py 6 --from=20240122`):**
+
+| 전략 | score_g Pearson r | 판정 |
+|------|-----------------|------|
+| A전략 | -0.0326 | 없음 — 정방향 유지 |
+| B전략 | -0.0713 | 없음이지만 음의 방향 → 역방향 재설계 |
+
+**역방향 설계 근거 (B전략 = 과매도 반등 포착):**
+- 기관/외국인 관심 없는 종목 = 시장 소외 = 과매도 심화 = reversal premium 더 높음
+- avg 수익: 기관 비관심군 +6.89% vs 기관 관심군 +5.03% (2024+ 클린 데이터)
+
+**재설계 로직 (`_score_inst_flow`, ReversalStrategyV3):**
+```
+inst_net_buy ≤ 0  → 12pt 만점 (순매도/비활성 = 과매도 가능성)
+inst_net_buy > 0  → ratio 0→5% 구간에서 12→0pt 선형 감소
+foreign_net_buy ≤ 0 →  8pt 만점
+foreign_net_buy > 0 → ratio 0→3% 구간에서 8→0pt 선형 감소
+```
+
+**재설계 후 상관관계:**
+- B전략 score_g r: -0.0713 → **+0.0343** (방향 전환 확인)
+
+**재설계 후 B전략 composite 구간별 성과 (완벽한 단조증가):**
+
+| 구간 | WR | avg수익 | R |
+|------|-----|--------|---|
+| 0~59 | 53.9% | +1.90% | — |
+| 60~79 | 64.6% | +4.06% | — |
+| 80~99 | 71.7% | +6.46% | — |
+| 100~119 | 75.1% | +8.92% | — |
+| 120~139 | 80.4% | +11.16% | — |
+
+### 13-6. v4_min_score_b 업데이트 (cf.py)
+
+```python
+v4_min_score_b: 90 → 110
+```
+
+**근거:** 역방향 재설계 후 백테스트에서 >=110 구간 WR 77.8%, avg +10.32%, R=2.13, n=761.
+이전 >=110에서는 n=246으로 통계 불충분했으나 역방향 재설계 후 3배 증가.
+score_analyze.py 3개 지표(WR/avg/R) 모두 동일하게 110 권장.
+
+### 13-7. B전략 score_d BB사이클 재설계
+
+**문제 발견 (score_component_analysis 구간별 분석):**
+
+| score_d 구간 | n | WR | avg |
+|-------------|---|----|-----|
+| 0~2 (조건 미충족) | 3,649 | 65.6% | +5.64% |
+| 6~8 (터치O, pos 0.40~0.55) | 6,236 | **71.5%** | **+5.99%** ← best |
+| 8+ (터치O, pos 0.10~0.40) | 1,304 | **59.1%** | **+3.59%** ← worst |
+
+- 현재 설계는 pos 0.10~0.40(바닥 인근)에 4pt 만점 → 이 구간이 실제로 worst
+- pos 0.40~0.55(반등 초기, 부분 점수 구간)가 오히려 best
+
+**재설계:**
+```
+Before: pos 0.10~0.40 → 4pt 만점, pos 0.40~0.55 → 선형감소(4→0)
+After:  pos  <0.30    → 0pt (바닥 인근, 반등 미확인)
+        pos 0.30~0.55 → 4pt 만점 (반등 초기 확인 구간)
+        pos 0.55~0.65 → 선형감소(4→0)
+```
+
+### 13-8. B전략 펀더멘털 스코어링 실전 활성화 (score_b)
+
+**배경:**
+- `collect_stock_fundamental()` (collector_api.py) 는 매 거래일 OPT10001 데이터를 `daily_buy_list.sf_YYYYMMDD` 테이블에 저장 중
+- 저장 컬럼: roe, pbr, per, credit_rate (신용비율) 등
+- 그러나 `num=22` 브랜치 (simulator_func_mysql.py) 에서 이 데이터를 전혀 불러오지 않아 `score_b` 는 항상 0pt
+
+**백테스트 look-ahead bias 방지:**
+- 백테스트 날짜 기준 과거 `sf_YYYYMMDD` 테이블이 없음 → `fd=None` → `score_b=0` 자동 처리
+- 실전 당일 수집된 `sf_YYYYMMDD` 는 존재 → 실전에서만 활성화
+
+**`_score_fundamental()` 재설계 (ReversalStrategyV3, 40pt 만점):**
+
+| 항목 | 점수 | 기준 |
+|------|------|------|
+| ROE | 20pt | >15%→20 / >10%→15 / >5%→8 / >0%→3 / ≤0%→-15 |
+| PBR | 12pt | <0→-10 / <0.5→12 / <1.0→9 / <1.5→5 / <2.5→2 |
+| PER | 5pt | <0→-10 / 5~12→5 / ~20→2 |
+| 신용비율 | 3pt | <1%→3 / <3%→1 / ≥5%→-5 |
+
+- 패널티(-10, -15)로 재무 위험 종목 차단
+- fundamental_data=None → 0pt (백테스트/데이터 없음 경우 중립 처리)
+
+**num=22 브랜치 변경 (simulator_func_mysql.py):**
+```python
+# kospi_index 로딩 이후 sf_ 펀더멘털 로딩 추가
+fundamental_dict = {}
+sf_row = engine_daily_buy_list.execute(
+    "SELECT TABLE_NAME FROM information_schema.tables "
+    "WHERE table_schema='daily_buy_list' AND TABLE_NAME LIKE 'sf_2%%' "
+    f"AND TABLE_NAME <= 'sf_{date_rows_today}' "
+    "ORDER BY TABLE_NAME DESC LIMIT 1"
+).fetchone()
+if sf_row:
+    sf_table = sf_row[0]
+    fund_df = pd.read_sql(f"SELECT code, roe, pbr, per, credit_rate FROM `{sf_table}`", engine_daily_buy_list)
+    for _, fr in fund_df.iterrows():
+        fundamental_dict[str(fr['code']).zfill(6)] = {'roe': fr['roe'], 'pbr': fr['pbr'], 'per': fr['per'], 'credit_rate': fr['credit_rate']}
+# 스코어링 호출 시: fd = fundamental_dict.get(code) or None 전달
+```
+
+**BreakoutStrategyV3 시그니처 변경:**
+```python
+def calculate_total_score(self, row, df_120, market_data=None, fundamental_data=None):
+    # fundamental_data 무시 (A전략은 펀더멘털 미사용)
+```
+
+---
+
 ## 10. 작업 원칙 (이 프로젝트에서 반드시 지킬 것)
 
 1. simul_num=3 코드/DB 절대 수정 금지

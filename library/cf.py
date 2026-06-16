@@ -88,8 +88,15 @@ v2_dynamic_weights = True
 #   B: score_d 10pt(15→10), score_f 15pt(10→15) [r=+0.1316 최고 상관 상향]
 #
 # min_score 확정 (2026-06-02, 백테스트 score_analyze.py + 상관분석 기반):
-#   A=100: 구간별 분석에서 >=100이 avg수익 최고, composite 음의 상관 최소화
-#   B=90:  백테스트 단조성 확인 (높을수록 좋음), 실전에서 펀더멘털 +40pt 가점
-#          → 백테스트 90 ≈ 실전 90~130 (펀더멘털 가점 반영 시 진입 기준 실질 상향)
-v4_min_score_a = 100    # BreakoutStrategyV3 — 백테스트 composite 최적 구간
-v4_min_score_b = 90     # ReversalStrategyV3 — 펀더멘털 가점 감안한 보수적 기준
+#   A=110: 구간별 분석에서 >=110이 avg수익 최고, composite 음의 상관 최소화
+#   B=110: score_g 역방향 재설계 후 (2026-06-13) 구간별 단조성 완성
+#          >=110: WR 77.8%, avg +10.32%, R=2.13 (n=761, 이전 >=90: avg +8.09%)
+v4_min_score_a = 110    # BreakoutStrategyV3 — 백테스트 composite 최적 구간
+v4_min_score_b = 110    # ReversalStrategyV3 — score_g 역방향 재설계 후 최적 구간
+
+# ===== v5 Scoring (simul_num=7) =====
+# sim=7: BreakoutStrategyV4 + ReversalStrategyV4 + score_h (NASDAQ/SOX)
+# atr_rate 패널티 제거 (A) + NASDAQ 시장 환경 20pt 추가
+# min_score는 백테스트 결과 후 확정 예정 (우선 v4와 동일값 사용)
+v5_min_score_a = 110    # BreakoutStrategyV4 — 백테스트 후 재확인 필요
+v5_min_score_b = 110    # ReversalStrategyV4 — 백테스트 후 재확인 필요
