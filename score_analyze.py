@@ -45,15 +45,18 @@ from sqlalchemy import create_engine
 from library import cf
 
 # ── 설정 ─────────────────────────────────────────────────────────
-MIN_SCORE = {'A': 60, 'B': 50, '6': 50, '7': 50}   # 백테스트용 최저 임계값
+MIN_SCORE = {'A': 60, 'B': 50, '6': 50, '7': 50, '8': 0}   # sim=8: condition system, min=0
 
 BUCKETS = {
     'A': [60, 70, 80, 90, 100, 110, 120],
     'B': [50, 60, 70, 80, 90, 100, 110],
 }
+# sim=8: A=optional 조건 통과 수(0~5), B=V4 스코어링(7B 구간과 동일)
+BUCKETS_8_A  = [0, 1, 2, 3, 4, 5]
+BUCKETS_8_B  = [0, 70, 90, 110, 130, 155, 240]  # V4 scoring (ReversalStrategyV4)
 
-DB_NAME   = {'A': 'simulator4', 'B': 'simulator5', '6': 'simulator6', '7': 'simulator7'}
-SIMUL_NUM = {'A': '4',          'B': '5',          '6': '6',          '7': '7'}
+DB_NAME   = {'A': 'simulator4', 'B': 'simulator5', '6': 'simulator6', '7': 'simulator7', '8': 'simulator8'}
+SIMUL_NUM = {'A': '4',          'B': '5',          '6': '6',          '7': '7',          '8': '8'}
 INITIAL_CAPITAL = 10_000_000
 # ─────────────────────────────────────────────────────────────────
 
@@ -89,6 +92,13 @@ def run_backtest(strategy, resume=False):
         print(f"{'='*65}")
         cf.v5_min_score_a = min_a
         cf.v5_min_score_b = min_b
+    elif strategy == '8':
+        print(f"\n{'='*65}")
+        print(f"▶  Strategy 8 (Condition-Based V5)  백테스트 {'재개' if resume else '시작'}")
+        print(f"   scoring 없음 — required conditions + optional N/M")
+        print(f"   시작: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'='*65}")
+        # condition system: min_score=0 (auto_reject이 이미 필터링)
     else:
         min_score = MIN_SCORE[strategy]
         print(f"\n{'='*65}")
@@ -368,12 +378,108 @@ def analyze_7():
     print(f"\n{'='*80}\n")
 
 
+def analyze_8():
+    """simulator8 DB에서 A/B 분리 분석
+    A: BreakoutV5 condition-based — composite_score = optional 통과 수 (0~5)
+    B: ReversalV4 scoring-based  — composite_score = V4 점수 (구간별 분석)
+    """
+    engine = get_engine('simulator8')
+
+    print(f"\n{'='*80}")
+    print(f"  Strategy 8 (A:ConditionV5 / B:ScoringV4)  분석  (DB: simulator8)")
+    print(f"  A composite_score = optional 통과 조건 수 (0~5)")
+    print(f"  B composite_score = ReversalV4 점수 (0~240)")
+    print(f"{'='*80}")
+
+    try:
+        rows = engine.execute("""
+            SELECT composite_score, sell_rate, strategy_type FROM all_item_db
+            WHERE sell_date != '0' AND sell_date != ''
+              AND composite_score IS NOT NULL
+        """).fetchall()
+    except Exception as e:
+        print(f"  ❌ 데이터 읽기 실패: {e}")
+        return
+
+    if not rows:
+        print("  데이터 없음 (백테스트 실행 후 분석하세요)")
+        return
+
+    all_rates = [float(r) for _, r, _ in rows]
+    wins_all  = [r for r in all_rates if r >= 0]
+    rows_a = [(s, r) for s, r, st in rows if str(st) == 'A']
+    rows_b = [(s, r) for s, r, st in rows if str(st) == 'B']
+
+    try:
+        jango = engine.execute(
+            "SELECT d2_deposit, total_evaluation FROM jango_data ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+        final_cap = (float(jango[0] or 0) + float(jango[1] or 0)) if jango else INITIAL_CAPITAL
+        total_ret = (final_cap / INITIAL_CAPITAL - 1) * 100
+    except Exception:
+        total_ret = 0.0
+
+    print(f"\n  총 거래: {len(rows)}건  (A={len(rows_a)}건 / B={len(rows_b)}건)")
+    print(f"  전체 승률: {len(wins_all)/len(rows)*100:.1f}%  "
+          f"평균수익: {sum(all_rates)/len(rows):+.2f}%  "
+          f"총수익률: {total_ret:+.1f}%")
+
+    # --- Strategy A: condition count 분포 ---
+    if rows_a:
+        rates = [float(r) for _, r in rows_a]
+        wins  = [r for r in rates if r >= 0]
+        print(f"\n{'─'*80}")
+        print(f"  [Strategy A — BreakoutV5]  {len(rows_a)}건  "
+              f"승률 {len(wins)/len(rows_a)*100:.1f}%  "
+              f"평균수익 {sum(rates)/len(rows_a):+.2f}%")
+        print(f"  optional 조건 통과 수별 성과:")
+        print(f"  {'통과수':>6} | {'n':>5} | {'승률':>5} | {'평균익절':>6} | {'평균손절':>6} | {'avg수익':>7}")
+        print("  " + "-" * 50)
+        for cnt in BUCKETS_8_A:
+            sub = [r for s, r in rows_a if int(s or 0) == cnt]
+            if not sub:
+                continue
+            w = [r for r in sub if r >= 0]
+            l = [r for r in sub if r < 0]
+            print(f"  {cnt:>6}개   | {len(sub):>5} | {len(w)/len(sub)*100:>4.1f}% | "
+                  f"{sum(w)/len(w) if w else 0:>5.2f}% | "
+                  f"{sum(l)/len(l) if l else 0:>5.2f}% | "
+                  f"{sum(sub)/len(sub):>+6.2f}%")
+
+    # --- Strategy B: V4 scoring 구간별 분포 ---
+    if rows_b:
+        rates = [float(r) for _, r in rows_b]
+        wins  = [r for r in rates if r >= 0]
+        print(f"\n{'─'*80}")
+        print(f"  [Strategy B — ReversalV4 Scoring]  {len(rows_b)}건  "
+              f"승률 {len(wins)/len(rows_b)*100:.1f}%  "
+              f"평균수익 {sum(rates)/len(rows_b):+.2f}%")
+        print(f"  스코어 구간별 성과 (min_score={cf.v6_min_score_b}):")
+        print(f"  {'구간':>12} | {'n':>5} | {'승률':>5} | {'평균익절':>6} | {'평균손절':>6} | {'avg수익':>7}")
+        print("  " + "-" * 55)
+        edges = BUCKETS_8_B
+        for i in range(len(edges) - 1):
+            lo, hi = edges[i], edges[i + 1]
+            sub = [r for s, r in rows_b if lo <= int(s or 0) < hi]
+            if not sub:
+                continue
+            w = [r for r in sub if r >= 0]
+            l = [r for r in sub if r < 0]
+            label = f"{lo}~{hi}"
+            print(f"  {label:>12} | {len(sub):>5} | {len(w)/len(sub)*100:>4.1f}% | "
+                  f"{sum(w)/len(w) if w else 0:>5.2f}% | "
+                  f"{sum(l)/len(l) if l else 0:>5.2f}% | "
+                  f"{sum(sub)/len(sub):>+6.2f}%")
+
+    print(f"\n{'='*80}\n")
+
+
 def main():
     args  = [a for a in sys.argv[1:] if not a.startswith('--')]
     flags = [a for a in sys.argv[1:] if a.startswith('--')]
 
     target = args[0].upper() if args else 'AB'
-    if target not in ('A', 'B', 'AB', '6', '7'):
+    if target not in ('A', 'B', 'AB', '6', '7', '8'):
         print(__doc__)
         sys.exit(1)
 
@@ -401,6 +507,10 @@ def main():
         if not analyze_only:
             run_backtest('7', resume=resume)
         analyze_7()
+    elif target == '8':
+        if not analyze_only:
+            run_backtest('8', resume=resume)
+        analyze_8()
     else:
         strategies = ['A', 'B'] if target == 'AB' else [target]
         for s in strategies:

@@ -281,6 +281,27 @@ class simulator_func_mysql:
             self.invest_limit_rate = 1.02
             self.invest_min_limit_rate = 0.97
 
+        elif self.simul_num == 8:
+            # Condition-Based A+B — 백테스트: simulator8
+            # scoring 완전 제거, ML findings → binary condition 직접 반영
+            # 매도: sell_list_num=32 (A/B 차별화)
+            #   A: 6%TP / -5%SL / 20일 시간청산
+            #   B: close>MA20 반등완료 / -8%SL / 30일 시간청산
+            self.simul_start_date = "20230102"
+            self.use_min = False
+            self.only_nine_buy = False
+            self.db_to_realtime_daily_buy_list_num = 22
+            self.sell_list_num = 32
+            self.start_invest_price = 10000000
+            self.invest_unit = self._resolve_invest_unit(self.start_invest_price)
+            self.limit_money = 300000
+            self.sell_point = 6
+            self.losscut_point = -5
+            self.time_stop_days = 20
+            self.max_positions = 999
+            self.invest_limit_rate = 1.02
+            self.invest_min_limit_rate = 0.97
+
         # ==================== 기존 전략 (20번대로 이동) ====================
 
         elif self.simul_num == 21:
@@ -644,8 +665,11 @@ class simulator_func_mysql:
         if price < self.invest_unit:
             _df = self.df_realtime_daily_buy_list
             _score = int(_df.loc[j, 'composite_score']) if 'composite_score' in _df.columns else 0
-            _cols = ['score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_g']
-            _parts = [f"{c[-1]}:{int(_df.loc[j, c])}" for c in _cols if c in _df.columns]
+            _cols = ['score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_g', 'score_h']
+            _label = {'score_h': 'h', **{c: c[-1] for c in _cols if c != 'score_h'}}
+            _parts = [f"{_label[c]}:{int(_df.loc[j, c])}" for c in _cols if c in _df.columns]
+            if 'score_penalty' in _df.columns and _df.loc[j, 'score_penalty'] != 0:
+                _parts.append(f"p:{int(_df.loc[j, 'score_penalty'])}")
             _st = str(_df.loc[j, 'strategy_type']) if 'strategy_type' in _df.columns else ''
             _st_tag = f" [{_st}]" if _st else ''
             print(f"  ✅ 매수: {code_name} ({code}){_st_tag} | 총{_score}pt  {' '.join(_parts)}")
@@ -764,11 +788,11 @@ class simulator_func_mysql:
                 logger.debug("composite_score 없음, code 정렬로 폴백: %s", sql)
                 self.df_realtime_daily_buy_list = pd.read_sql(sql, self.engine_simulator)
             logger.debug("Query returned %d rows", len(self.df_realtime_daily_buy_list))
-        elif self.simul_num in (4, 5, 6):
-            # simul_num=4/5/6: strategy_type 컬럼 포함 — pd.read_sql로 전체 읽기
+        elif self.simul_num in (4, 5, 6, 7, 8):
+            # simul_num=4/5/6/7/8: strategy_type 컬럼 포함 — pd.read_sql로 전체 읽기
             import pandas as pd
             sql = "select * from realtime_daily_buy_list where check_item = '0' order by composite_score desc, code"
-            logger.debug("SQL query (sim=4/5/6): %s", sql)
+            logger.debug("SQL query (sim=4/5/6/7/8): %s", sql)
             logger.debug("Using database engine: %s", self.engine_simulator.url.database)
             self.df_realtime_daily_buy_list = pd.read_sql(sql, self.engine_simulator)
             logger.debug("Query returned %d rows", len(self.df_realtime_daily_buy_list))
@@ -1410,6 +1434,13 @@ class simulator_func_mysql:
                 strategies = [BreakoutStrategyV4(), ReversalStrategyV4()]
                 min_score = min(cf.v5_min_score_a, cf.v5_min_score_b)
                 logger.debug(f"[num=22] simul_num=7 A+B+NASDAQ 혼합 시작 - 기준날짜: {date_rows_today}")
+            elif self.simul_num == 8:
+                # A: BreakoutV5 (condition-based) / B: ReversalV4 (scoring)
+                from library.hybrid_strategy_v5 import BreakoutStrategyV5
+                from library.hybrid_strategy_v4 import ReversalStrategyV4
+                strategies = [BreakoutStrategyV5(), ReversalStrategyV4()]
+                min_score = 0  # per-stock: A=0(condition), B=v5_min_score_b(scoring)
+                logger.debug(f"[num=22] simul_num=8 Hybrid(A:ConditionV5/B:ScoringV4) 시작 - 기준날짜: {date_rows_today}")
             else:
                 from library.hybrid_strategy_v3 import BreakoutStrategyV3, ReversalStrategyV3
                 strategies = [BreakoutStrategyV3(), ReversalStrategyV3()]
@@ -1442,7 +1473,7 @@ class simulator_func_mysql:
                         ORDER BY a.rsi14 ASC
                         LIMIT 150
                     """
-                else:  # sim=6: A후보 + B후보 UNION
+                else:  # sim=6/7/8: A후보 + B후보 UNION
                     pre_filter_sql = f"""
                         (SELECT a.* FROM `{date_rows_today}` a
                          WHERE NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code=b.code)
@@ -1463,7 +1494,7 @@ class simulator_func_mysql:
                          LIMIT 150)
                     """
                 candidates = self.engine_daily_buy_list.execute(pre_filter_sql).fetchall()
-                if self.simul_num in (6, 7):
+                if self.simul_num in (6, 7, 8):
                     cnt_a = sum(1 for r in candidates
                                 if (r['d1_diff_rate'] or 0) >= 1.5
                                 and (r['vol5'] or 0) > (r['vol20'] or 1) * 1.2)
@@ -1577,7 +1608,10 @@ class simulator_func_mysql:
                             best_result = r
                     if best_result is not None:
                         st = best_result['strategy_type']
-                        if self.simul_num == 7:
+                        if self.simul_num == 8:
+                            # A: condition optional 통과 수 기준 / B: V4 scoring 기준
+                            min_sc = cf.v6_min_opt_a if st == 'A' else cf.v6_min_score_b
+                        elif self.simul_num == 7:
                             min_sc = cf.v5_min_score_a if st == 'A' else cf.v5_min_score_b
                         else:
                             min_sc = cf.v4_min_score_a if st == 'A' else cf.v4_min_score_b
@@ -1880,7 +1914,7 @@ class simulator_func_mysql:
                                               'composite_score',
                                               'score_a', 'score_b', 'score_c', 'score_d',
                                               'score_e', 'score_f', 'score_g',
-                                              *(['score_h'] if self.simul_num == 7 else []),
+                                              *(['score_h'] if self.simul_num in (7, 8) else []),
                                               'score_penalty',
                                               'simul_num',
                                               'max_high_pct', 'min_low_pct', 'rsi14', 'rsi_peak'])
@@ -1931,7 +1965,7 @@ class simulator_func_mysql:
         self.df_all_item.loc[0, 'valuation_profit'] = int(0)
         _score_cols_all_item = ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d',
                                 'score_e', 'score_f', 'score_g']
-        if self.simul_num == 7:
+        if self.simul_num in (7, 8):
             _score_cols_all_item.append('score_h')
         _score_cols_all_item.append('score_penalty')
         for _col in _score_cols_all_item:
@@ -1941,7 +1975,7 @@ class simulator_func_mysql:
         self.df_all_item.loc[0, 'min_low_pct'] = 0.0
         self.df_all_item.loc[0, 'rsi14'] = 0.0
         self.df_all_item.loc[0, 'rsi_peak'] = 0.0
-        if self.simul_num in (4, 5, 6, 7):
+        if self.simul_num in (4, 5, 6, 7, 8):
             if 'strategy_type' in df.columns:
                 self.df_all_item.loc[0, 'strategy_type'] = df.loc[index, 'strategy_type']
             elif self.simul_num == 4:
@@ -2330,6 +2364,41 @@ class simulator_func_mysql:
                 "  OR DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 45"
                 ") GROUP BY code"
             ).format(d=date_today_str)
+            sell_list = self.engine_simulator.execute(sql).fetchall()
+
+        # sim=8 전용: strategy_type별 차별화 매도 (일봉 종가 기반)
+        # A: 6%TP / -5%SL / time_stop_days일 시간청산
+        # B: close>MA20 반등완료 / -8%SL / 30일 시간청산 (trailing 없음 — 일봉 한계)
+        elif self.sell_list_num == 32:
+            date_today_str = self.date_rows[i][0]
+            sp   = self.sell_point
+            lc_a = self.losscut_point
+            td_a = getattr(self, 'time_stop_days', 20)
+            lc_b = -8.0
+            td_b = 30
+            sql = (
+                "SELECT code, code_name, rate, present_price, valuation_profit, "
+                "CASE "
+                "  WHEN strategy_type = 'A' AND rate >= {sp} THEN '익절(A+{sp:.0f}%%)' "
+                "  WHEN strategy_type = 'A' AND rate <= {lc_a} THEN '손절(A{lc_a:.0f}%%)' "
+                "  WHEN strategy_type = 'A' AND DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= {td_a} THEN '시간청산(A{td_a}일)' "
+                "  WHEN strategy_type = 'B' AND rate <= {lc_b} THEN '손절(B{lc_b:.0f}%%)' "
+                "  WHEN strategy_type = 'B' AND present_price > ma20 THEN '반등완료(B>MA20)' "
+                "  WHEN strategy_type = 'B' AND DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= {td_b} THEN '시간청산(B{td_b}일)' "
+                "  ELSE '기타' "
+                "END AS sell_reason "
+                "FROM all_item_db "
+                "WHERE sell_date = '0' "
+                "AND ( "
+                "  (strategy_type = 'A' AND rate >= {sp}) "
+                "  OR (strategy_type = 'A' AND rate <= {lc_a}) "
+                "  OR (strategy_type = 'A' AND DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= {td_a}) "
+                "  OR (strategy_type = 'B' AND rate <= {lc_b}) "
+                "  OR (strategy_type = 'B' AND present_price > ma20) "
+                "  OR (strategy_type = 'B' AND DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= {td_b}) "
+                ") "
+                "GROUP BY code"
+            ).format(sp=sp, lc_a=lc_a, td_a=td_a, lc_b=lc_b, td_b=td_b, d=date_today_str)
             sell_list = self.engine_simulator.execute(sql).fetchall()
 
         # 🚀 고급 통합 전략: exit_strategy.py 사용 (ATR 기반 동적 손절/익절)

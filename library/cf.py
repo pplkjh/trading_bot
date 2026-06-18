@@ -95,8 +95,17 @@ v4_min_score_a = 110    # BreakoutStrategyV3 — 백테스트 composite 최적 �
 v4_min_score_b = 110    # ReversalStrategyV3 — score_g 역방향 재설계 후 최적 구간
 
 # ===== v5 Scoring (simul_num=7) =====
-# sim=7: BreakoutStrategyV4 + ReversalStrategyV4 + score_h (NASDAQ/SOX)
-# atr_rate 패널티 제거 (A) + NASDAQ 시장 환경 20pt 추가
-# min_score는 백테스트 결과 후 확정 예정 (우선 v4와 동일값 사용)
-v5_min_score_a = 110    # BreakoutStrategyV4 — 백테스트 후 재확인 필요
-v5_min_score_b = 110    # ReversalStrategyV4 — 백테스트 후 재확인 필요
+# sim=7: BreakoutStrategyV4 + ReversalStrategyV4 + NASDAQ gate (Layer 1)
+# atr_rate 패널티 제거 (A) + NASDAQ hard gate (BEAR/OVERHEAT → skip)
+# min_score 확정 (2026-06-17, 백테스트 28,965회 기반):
+#   A=120: >=120 avg +5.56%, WR 68.2%, R=1.79 (단조 최고)
+#   B=110: >=110 avg +8.65%, WR 74.2%, R=1.99 (단조 최고, 강한 신호)
+v5_min_score_a = 120    # BreakoutStrategyV4 — 백테스트 확정
+v5_min_score_b = 110    # ReversalStrategyV4 — 백테스트 확정
+
+# ===== v6 Hybrid System (simul_num=8) =====
+# sim=8: BreakoutStrategyV5 (condition) + ReversalStrategyV4 (scoring)
+# A: binary condition 기반 — composite_score = optional 통과 수 (0~5)
+# B: V4 scoring 기반    — composite_score = 점수 (0~240)
+v6_min_opt_a  = 3    # A optional 최소 통과 수 (5개 중 3개 이상)
+v6_min_score_b = 100  # B V4 scoring 최소 점수 (110→100으로 완화, 거래량 확대)

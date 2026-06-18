@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Strategy A/B/6 스코어 컴포넌트별 수익 상관관계 분석
+Strategy A/B/6/7 스코어 컴포넌트별 수익 상관관계 분석
 
 Usage:
   python score_component_analysis.py A    # simulator4 (Strategy A)
   python score_component_analysis.py B    # simulator5 (Strategy B)
   python score_component_analysis.py AB   # 둘 다
   python score_component_analysis.py 6    # simulator6 (A+B 혼합, A/B 분리 분석)
+  python score_component_analysis.py 7    # simulator7 (A+B, NASDAQ gate, score_h 포함)
   python score_component_analysis.py 6 --from=20240122  # inst_flow 데이터 있는 구간만
 
 동작:
@@ -14,7 +15,7 @@ Usage:
   - DB에 존재하는 score_* 컬럼을 자동 감지 — 없는 컬럼은 조용히 스킵
   - 각 컴포넌트별 Pearson 상관계수 계산
   - 구간별 승률/평균수익 분포 출력
-  - [6] strategy_type='A'/'B'로 분리해서 각각 분석
+  - [6/7] strategy_type='A'/'B'로 분리해서 각각 분석
 """
 import sys
 import os
@@ -33,7 +34,7 @@ from sqlalchemy import create_engine
 from library import cf
 
 # ── 설정 ─────────────────────────────────────────────────────────
-DB_NAME = {'A': 'simulator4', 'B': 'simulator5', '6': 'simulator6'}
+DB_NAME = {'A': 'simulator4', 'B': 'simulator5', '6': 'simulator6', '7': 'simulator7'}
 
 # Strategy A 컴포넌트 — 추가/변경 시 여기만 수정하면 됨
 # DB에 컬럼이 없으면 자동 스킵됨 (score_g = inst_flow, 구버전 DB에 없어도 OK)
@@ -59,8 +60,33 @@ COMPONENTS_B = [
 ]
 
 COMPONENTS = {'A': COMPONENTS_A, 'B': COMPONENTS_B}
-CS_EDGES   = {'A': [0, 80, 100, 120, 140, 160, 220],
-              'B': [0, 60,  80, 100, 120, 140, 220]}
+CS_EDGES   = {'A':  [0,  80, 100, 120, 140, 160, 220],
+              'B':  [0,  60,  80, 100, 120, 140, 220],
+              '7A': [0,  90, 110, 130, 150, 175, 240],
+              '7B': [0,  70,  90, 110, 130, 155, 240]}
+
+# sim=7 (v4): score_h(NASDAQ환경 0~15pt) 추가
+COMPONENTS_A_V4 = [
+    ('score_a', '셋업품질',    50),
+    ('score_b', 'BB+단기MA',  60),
+    ('score_c', 'ADX방향성',  10),
+    ('score_d', 'MACD전환',   30),
+    ('score_e', 'RSI50돌파',  30),
+    ('score_f', 'BB활성도',   20),
+    ('score_g', '기관수급',   20),
+    ('score_h', 'NASDAQ환경', 15),
+]
+
+COMPONENTS_B_V4 = [
+    ('score_a', 'RSI신호',    65),
+    ('score_b', '펀더멘털',   40),
+    ('score_c', '장기추세',   55),
+    ('score_d', 'BB사이클',   10),
+    ('score_e', '거래량MACD', 15),
+    ('score_f', '회복모멘텀', 15),
+    ('score_g', '기관수급',   20),
+    ('score_h', 'NASDAQ환경', 15),
+]
 # ─────────────────────────────────────────────────────────────────
 
 
@@ -314,12 +340,57 @@ def analyze_6(from_date=None):
     print(f"\n{'='*80}\n")
 
 
+def analyze_7(from_date=None):
+    """simulator7 A+B 혼합 → strategy_type으로 분리해서 각각 분석 (NASDAQ gate, score_h 포함)"""
+    engine = get_engine('simulator7')
+
+    date_filter = f"AND buy_date >= '{from_date}'" if from_date else ''
+    date_label  = f"  buy_date >= {from_date}" if from_date else ''
+
+    print(f"\n{'='*80}")
+    print(f"  Strategy 7 (A+B, NASDAQ Gate)  컴포넌트 상관관계 분석  (DB: simulator7){date_label}")
+    print(f"{'='*80}")
+
+    try:
+        rows_a, score_cols = _fetch_rows(engine, f"AND strategy_type = 'A' {date_filter}")
+        rows_b, _          = _fetch_rows(engine, f"AND strategy_type = 'B' {date_filter}")
+        rows_all, _        = _fetch_rows(engine, date_filter)
+    except Exception as e:
+        print(f"  ❌ 데이터 읽기 실패: {e}")
+        return
+
+    if not rows_all:
+        print("  데이터 없음 — python score_analyze.py 7 으로 백테스트 먼저 실행하세요")
+        return
+
+    sell_all = [d['sell_rate'] for d in rows_all]
+    wins_all = [r for r in sell_all if r >= 0]
+    print(f"\n  전체: {len(rows_all)}건 (A={len(rows_a)} / B={len(rows_b)})")
+    print(f"  전체 승률: {len(wins_all)/len(rows_all)*100:.1f}%  "
+          f"평균수익: {sum(sell_all)/len(rows_all):+.2f}%")
+    print(f"  감지된 score 컬럼: {score_cols}")
+
+    # ── Strategy A ────────────────────────────────────────────────
+    print(f"\n{'─'*80}")
+    print(f"  [Strategy A v4]  {len(rows_a)}건  (min_score={cf.v5_min_score_a}, BEAR/OVERHEAT 제외)")
+    print(f"{'─'*80}")
+    _analyze_rows(rows_a, COMPONENTS_A_V4, '7A', score_cols)
+
+    # ── Strategy B ────────────────────────────────────────────────
+    print(f"\n{'─'*80}")
+    print(f"  [Strategy B v4]  {len(rows_b)}건  (min_score={cf.v5_min_score_b}, BEAR만 제외)")
+    print(f"{'─'*80}")
+    _analyze_rows(rows_b, COMPONENTS_B_V4, '7B', score_cols)
+
+    print(f"\n{'='*80}\n")
+
+
 def main():
     args  = [a for a in sys.argv[1:] if not a.startswith('--')]
     flags = [a for a in sys.argv[1:] if a.startswith('--')]
 
     target = args[0].upper() if args else 'AB'
-    if target not in ('A', 'B', 'AB', '6'):
+    if target not in ('A', 'B', 'AB', '6', '7'):
         print(__doc__)
         sys.exit(1)
 
@@ -327,6 +398,8 @@ def main():
 
     if target == '6':
         analyze_6(from_date=from_date)
+    elif target == '7':
+        analyze_7(from_date=from_date)
     else:
         strategies = ['A', 'B'] if target == 'AB' else [target]
         for s in strategies:

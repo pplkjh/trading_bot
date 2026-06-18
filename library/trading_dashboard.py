@@ -180,6 +180,14 @@ class TradingDashboard:
         print(f"[POSITION] 보유 종목 ({len(positions)}개)")
         print("-" * 100)
         if positions:
+            # 트레일링 활성 종목 우선 정렬
+            positions = sorted(
+                positions,
+                key=lambda p: (
+                    0 if p.get('trail_active', p.get('profit_rate', 0) >= 3.0) else 1,
+                    -p.get('profit_rate', 0)
+                )
+            )
             # highest_price 정보가 있는지 확인
             has_highest_price = any(pos.get('highest_price') for pos in positions)
 

@@ -113,7 +113,7 @@ class BreakoutStrategyV4(BreakoutStrategyV3):
     3. score_h: -15~+20pt → 0~15pt (패널티 제거, 게이트로 이관)
     """
 
-    def calculate_total_score(self, row: dict, df_120, market_data=None) -> dict:
+    def calculate_total_score(self, row: dict, df_120, market_data=None, fundamental_data=None) -> dict:
         base = {
             'total': 0.0, 'score_a': 0.0, 'score_b': 0.0, 'score_c': 0.0,
             'score_d': 0.0, 'score_e': 0.0, 'score_f': 0.0, 'score_g': 0.0,
