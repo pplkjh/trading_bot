@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS stock_item_all (
     check_item TINYINT DEFAULT 0 COMMENT '활성 종목 여부 (0:비활성, 1:활성)',
     check_daily_crawler TINYINT DEFAULT 0 COMMENT '일봉 수집 상태 (0:미수집, 1:완료, 3:과거완료, 4:업데이트필요)',
     check_min_crawler TINYINT DEFAULT 0 COMMENT '분봉 수집 상태 (0:미수집, 1:완료)',
+    last_crawled_at DATETIME DEFAULT NULL COMMENT '최근 일봉 수집 시각 (장후 이어받기용)',
 
     -- 종목 분류
     market VARCHAR(10) COMMENT '시장 구분 (KOSPI, KOSDAQ, KONEX, ETF)',

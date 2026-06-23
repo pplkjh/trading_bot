@@ -1567,14 +1567,14 @@ class open_api(QAxWidget):
                             pass
 
                 else:
-                    # ── Strategy A: 하드SL -5% / 트레일링스탑(3%활성화, 5%트레일) / 15일 시간청산
+                    # ── Strategy A: 하드SL -5% / 트레일링스탑(3%활성화, 3%트레일) / 15일 시간청산
                     if losscut_active and profit_pct <= -5.0:
                         should_sell = True
                         sell_reason = f'A하드SL(-5%): {profit_pct:.2f}%'
 
                     elif purchase_price > 0 and highest_price / purchase_price >= 1.03:
                         # 플로어: 트레일링 활성화 이후 최소 +1% 보장 (손실 청산 방지)
-                        trail_stop_price = max(highest_price * 0.95, purchase_price * 1.01)
+                        trail_stop_price = max(highest_price * 0.97, purchase_price * 1.01)
                         if present_price <= trail_stop_price:
                             should_sell = True
                             peak_pct = (highest_price / purchase_price - 1) * 100
@@ -1618,7 +1618,9 @@ class open_api(QAxWidget):
         # logger.debug(self.rq_count)
         if self.rq_count == cf.max_api_call:
             if self.py_gubun not in ("trader", "trader_advanced"):
-                sys.exit(1)
+                logger.warning(f"[exit_check] API 호출 {cf.max_api_call}회 도달 — 종료 (py_gubun={self.py_gubun})")
+                import os as _os
+                _os._exit(1)  # sys.exit(1)은 PyQt5 슬롯 안에서 Qt에 의해 무시됨 → os._exit으로 강제 종료
             else:
                 logger.warning(f"[exit_check] API 호출 {cf.max_api_call}회 도달 — {self.py_gubun}은 계속 실행")
 

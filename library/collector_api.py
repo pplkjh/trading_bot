@@ -360,14 +360,6 @@ class collector_api():
             current_task += 1
             if rows[0][7] and len(rows[0][7]) >= 8 and rows[0][7][:8] == self.open_api.today:
                 print(f"\n[{current_task}/{total_tasks}] 📈 일봉 데이터 재수집 중 (종가 업데이트)...")
-                # 오늘 이미 수집했지만 재수집이 필요한 경우(장후 종가 반영 등) check_daily_crawler 리셋
-                try:
-                    self.open_api.engine_daily_buy_list.execute(
-                        "UPDATE stock_item_all SET check_daily_crawler='0' WHERE check_daily_crawler='1'"
-                    )
-                    logger.debug("check_daily_crawler 리셋 완료 (1→0) for 종가 재수집")
-                except Exception as e:
-                    logger.warning(f"check_daily_crawler 리셋 실패: {e}")
             else:
                 print(f"\n[{current_task}/{total_tasks}] 📈 일봉 데이터 수집 중...")
             task_start = time.time()
@@ -1398,7 +1390,7 @@ class collector_api():
 
         print(f"    총 {num}개 종목 중 {targets_to_collect}개 종목 수집 예정")
 
-        sql = "UPDATE stock_item_all SET check_daily_crawler='%s' WHERE code='%s'"
+        sql = "UPDATE stock_item_all SET check_daily_crawler='%s', last_crawled_at=NOW() WHERE code='%s'"
 
         collected = 0
         start_time = time.time()
@@ -1431,17 +1423,44 @@ class collector_api():
         self.engine_JB.execute(sql % (self.open_api.today))
 
     def daily_crawler_check(self):
-        # 종가 업데이트를 위해 check_daily_crawler를 0으로 리셋
-        # 장후(16시 이후): '3'(과거 완료) 포함 리셋 — 장전 수집 시 '3'으로 저장된 종목도 오늘 종가 없으므로 재수집 필요
-        # 장전/장중: '1'(오늘 완료)만 리셋
+        # last_crawled_at 컬럼 자동 추가 (기존 DB 마이그레이션)
+        try:
+            self.open_api.engine_daily_buy_list.execute(
+                "ALTER TABLE stock_item_all ADD COLUMN last_crawled_at DATETIME DEFAULT NULL "
+                "COMMENT '최근 일봉 수집 시각 (장후 이어받기용)'"
+            )
+            logger.info("stock_item_all.last_crawled_at 컬럼 추가 완료")
+        except Exception:
+            pass  # 이미 존재
+
         import datetime as _dt
         _is_post_market = _dt.datetime.now().hour >= 16
         if _is_post_market:
-            sql_reset = "UPDATE stock_item_all SET check_daily_crawler = '0' WHERE check_daily_crawler IN ('1','3')"
-            logger.debug("daily_crawler_check 시작 - check_daily_crawler 리셋 (1,3→0) [장후 종가 재수집]")
+            # 장후: 1시간 이내 수집된 종목은 그대로 유지(이어받기), 그 외만 리셋
+            skip_count = self.open_api.engine_daily_buy_list.execute(
+                "SELECT COUNT(*) FROM stock_item_all "
+                "WHERE check_daily_crawler IN ('1','3') "
+                "AND last_crawled_at >= NOW() - INTERVAL 1 HOUR"
+            ).fetchone()[0]
+            sql_reset = (
+                "UPDATE stock_item_all SET check_daily_crawler = '0' "
+                "WHERE check_daily_crawler IN ('1','3') "
+                "AND (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL 1 HOUR)"
+            )
+            logger.debug(f"daily_crawler_check 시작 - 장후 종가 재수집 (최근 1시간 내 수집 {skip_count}개 스킵)")
         else:
-            sql_reset = "UPDATE stock_item_all SET check_daily_crawler = '0' WHERE check_daily_crawler = '1'"
-            logger.debug("daily_crawler_check 시작 - check_daily_crawler 리셋 (1→0)")
+            # 장전/장중: '1' 중 1시간 이내 수집 종목은 유지 (API 한도 재시작 이어받기)
+            skip_count = self.open_api.engine_daily_buy_list.execute(
+                "SELECT COUNT(*) FROM stock_item_all "
+                "WHERE check_daily_crawler = '1' "
+                "AND last_crawled_at >= NOW() - INTERVAL 1 HOUR"
+            ).fetchone()[0]
+            sql_reset = (
+                "UPDATE stock_item_all SET check_daily_crawler = '0' "
+                "WHERE check_daily_crawler = '1' "
+                "AND (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL 1 HOUR)"
+            )
+            logger.debug(f"daily_crawler_check 시작 - 장전/장중 재수집 (최근 1시간 내 수집 {skip_count}개 스킵)")
         self.open_api.engine_daily_buy_list.execute(sql_reset)
 
         self.db_to_daily_craw()

@@ -1,0 +1,7 @@
+[DEBUG|logging_pack.py:87] 2026-06-16 12:57:32,586 > debug 모드!
+[DEBUG|simulator_func_mysql.py:3717] 2026-06-16 12:57:33,674 > **************************   date: 20230103
+[DEBUG|simulator_func_mysql.py:2016] 2026-06-16 12:57:33,674 > is_date_exist 함수에 들어왔습니다! 20230103
+[DEBUG|simulator_func_mysql.py:2016] 2026-06-16 12:57:33,675 > is_date_exist 함수에 들어왔습니다! 20230102
+[DEBUG|simulator_func_mysql.py:1412] 2026-06-16 12:57:33,684 > [num=22] simul_num=7 A+B+NASDAQ 혼합 시작 - 기준날짜: 20230103
+[DEBUG|simulator_func_mysql.py:1473] 2026-06-16 12:57:33,741 > [num=22] SQL 사전필터 완료 - 후보: 286개 (A:151 / B:203)
+[DEBUG|simulator_func_mysql.py:1520] 2026-06-16 12:57:33,822 > [num=22] sf 테이블 없음 (20230103 이전) — 펀더멘털 미사용
