@@ -69,24 +69,24 @@ if phase == 1:
         con.close()
 
         if 8 <= hour < 16:
-            # 장전/장중: 날짜 테이블 이름은 전 영업일(예: 20260430)이라 ref_date(오늘)와 다름
-            # UPDATE_TIME 체크 대신 setting_data.daily_buy_list 타임스탬프로 판단
-            # → 컬렉터가 Phase 1 완료 시 이 값을 오늘 날짜(YYYYMMDDHHMM)로 업데이트
+            # 장전/장중: setting_data.daily_crawler 타임스탬프로 OHLCV 수집 완료 여부 판단
+            # daily_buy_list_check()가 완료되면 daily_crawler가 오늘 날짜로 업데이트됨
+            # (daily_buy_list는 Phase 3 스코어링 완료 시 업데이트 — Phase 1 체크에 부적합)
             try:
                 con_jb = pymysql.connect(
                     user=db_id, passwd=db_passwd, host=db_ip,
                     port=int(db_port), db=imi1_db_name, charset='utf8'
                 )
                 cursor_jb = con_jb.cursor()
-                cursor_jb.execute("SELECT daily_buy_list FROM setting_data LIMIT 1")
+                cursor_jb.execute("SELECT daily_crawler FROM setting_data LIMIT 1")
                 row_jb = cursor_jb.fetchone()
                 con_jb.close()
                 val = str(row_jb[0]) if (row_jb and row_jb[0]) else ''
                 if val[:8] == today:
-                    print(f"[OK] Phase 1: 오늘 수집 완료 (daily_buy_list={val})")
+                    print(f"[OK] Phase 1: 오늘 OHLCV 수집 완료 (daily_crawler={val})")
                     sys.exit(0)
                 else:
-                    print(f"[FAIL] Phase 1: 오늘 수집 필요 (daily_buy_list={val or 'None'}, today={today})")
+                    print(f"[FAIL] Phase 1: 오늘 OHLCV 수집 필요 (daily_crawler={val or 'None'}, today={today})")
                     sys.exit(1)
             except Exception as e:
                 print(f"[ERROR] Phase 1 check failed: {e}")
