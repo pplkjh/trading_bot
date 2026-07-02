@@ -72,11 +72,21 @@ if __name__ == "__main__":
         print("Collector finished. Starting Trader...")
         print("="*100 + "\n")
 
+        # Kiwoom COM 해제 (다음 phase에서 파일 충돌 방지)
+        # QAxWidget.clear()가 ActiveX COM 레퍼런스를 해제해 Kiwoom이 파일락을 정리함
+        try:
+            c.collector_api.open_api.clear()
+            import gc; gc.collect()
+            import time as _t; _t.sleep(3)
+        except Exception:
+            pass
+
         # 정상 완료 - 바로 종료 (PyQt5 crash 방지)
         os._exit(0)
 
     except Exception as e:
         import traceback
+        import logging
         tb_str = traceback.format_exc()
 
         print("\n" + "="*100)
@@ -87,6 +97,26 @@ if __name__ == "__main__":
 
         logger.error(f"❌ collector 오류 발생: {e}")
         logger.error(tb_str)
+
+        # 에러를 직접 파일에 기록 (os._exit가 버퍼를 flush하지 않으므로)
+        try:
+            with open('log/collector_error.log', 'a', encoding='utf-8') as f:
+                f.write(f"\n[{datetime.now()}] ❌ collector 오류 (phase={phase})\n")
+                f.write(f"오류: {e}\n")
+                f.write(tb_str)
+                f.write("="*80 + "\n")
+        except Exception:
+            pass
+
+        logging.shutdown()  # 로그 버퍼 강제 flush
+
+        # Kiwoom COM 해제
+        try:
+            c.collector_api.open_api.clear()
+            import gc; gc.collect()
+            import time as _t; _t.sleep(3)
+        except Exception:
+            pass
 
         # 에러 발생 - exit code 1로 종료 (batch에서 재시작)
         print("\n" + "="*100)

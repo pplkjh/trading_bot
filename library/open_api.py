@@ -1229,6 +1229,10 @@ class open_api(QAxWidget):
 
         logger.info(f"[get_advanced_buy_list] 기준 날짜: {target_date}")
 
+        if target_date != today:
+            logger.warning(f"⚠️ 매수 리스트가 오늘({today}) 것이 아닙니다 (최신: {target_date}) → 매수 스킵")
+            return
+
         # collector 오늘 실행 확인됨 → realtime_daily_buy_list 로드
         if self.sf.is_simul_table_exist(self.db_name, "realtime_daily_buy_list"):
             candidate_count = self.engine_JB.execute(

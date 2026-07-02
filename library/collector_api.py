@@ -417,7 +417,7 @@ class collector_api():
 
         # 내일 매수 종목 업데이트 (realtime_daily_buy_list) — phase=1이면 스킵 (phase 3에서 처리)
         if phase == 1:
-            logger.debug("[Phase 1] 스코어링 스킵 → Phase 3에서 처리")
+            pass
         elif rows[0][6] != self.open_api.today or need_daily_buy_list:
             current_task += 1
             print(f"\n[{current_task}/{total_tasks}] 🚀 실시간 매수 리스트 생성 중...")
@@ -447,8 +447,36 @@ class collector_api():
         print(f"\n[{current_task}/{total_tasks}] 🌐 KIND 데이터 크롤링 중...")
         task_start = time.time()
         try:
-            self.kind.craw()
-            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
+            # kind_crawler 컬럼 없으면 추가 (최초 1회)
+            try:
+                self.engine_JB.execute(
+                    "ALTER TABLE setting_data ADD COLUMN kind_crawler VARCHAR(20) DEFAULT '0'"
+                )
+            except Exception:
+                pass  # 이미 있으면 무시
+
+            # 오늘 이미 완료했으면 스킵
+            _kind_done = False
+            try:
+                row = self.engine_JB.execute(
+                    "SELECT kind_crawler FROM setting_data LIMIT 1"
+                ).fetchone()
+                if row and str(row[0])[:8] == self.open_api.today:
+                    _kind_done = True
+            except Exception:
+                pass
+
+            if _kind_done:
+                print(f"✅ KIND 크롤링 스킵 (오늘 이미 완료)")
+            else:
+                self.kind.craw()
+                try:
+                    self.engine_JB.execute(
+                        "UPDATE setting_data SET kind_crawler='%s' LIMIT 1" % self.open_api.today
+                    )
+                except Exception:
+                    pass
+                print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
         except Exception as e:
             print(f"⚠️  KIND 크롤링 실패 (무시하고 계속 진행)")
             print(f"    사유: {str(e)[:100]}")
@@ -519,6 +547,16 @@ class collector_api():
             if len(df) == 0:
                 continue
 
+            # 이미 존재하는 날짜 제외 후 신규 데이터만 INSERT (UNIQUE 제약 대비)
+            try:
+                existing = pd.read_sql(
+                    f"SELECT date FROM `{table_name}`", engine_craw)['date'].tolist()
+                df = df[~df['date'].isin(existing)]
+            except Exception:
+                pass
+            if len(df) == 0:
+                logger.debug(f"{table_name} 신규 데이터 없음, 스킵")
+                continue
             df.to_sql(table_name, engine_craw, if_exists='append', index=False)
             logger.debug(f"{table_name} {len(df)}행 저장 완료")
 

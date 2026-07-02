@@ -54,6 +54,7 @@ test_logs/
 Thumbs.db
 
 # Trading Bot specific
+*.parquet
 *.csv
 buy_list_*.csv
 buy_list_log/
