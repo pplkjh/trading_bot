@@ -525,6 +525,18 @@ class open_api(QAxWidget):
             self.sf.df_all_item.loc[0, 'strategy_type'] = 'A'
         self.sf.df_all_item.loc[0, 'simul_num'] = self.sf.simul_num
 
+        # code_name이 비어있으면 stock_item_all에서 fallback
+        cur_name = self.sf.df_all_item.loc[0, 'code_name']
+        if not cur_name or str(cur_name) in ('', 'nan'):
+            try:
+                row = self.engine_JB.execute(
+                    "SELECT code_name FROM stock_item_all WHERE code='%s' LIMIT 1" % code
+                ).fetchone()
+                if row and row[0]:
+                    self.sf.df_all_item.loc[0, 'code_name'] = row[0]
+            except Exception:
+                pass
+
         # 컬럼 중에 nan 값이 있는 경우 0으로 변경 -> 이렇게 안하면 아래 데이터베이스에 넣을 때
         # AttributeError: 'numpy.int64' object has no attribute 'translate' 에러 발생
         self.sf.df_all_item = self.sf.df_all_item.fillna(0)
