@@ -502,10 +502,10 @@ class open_api(QAxWidget):
                     self.sf.df_all_item.loc[0, 'ma60'] = df.loc[0, 'clo60'] if 'clo60' in df.columns else 0
                     self.sf.df_all_item.loc[0, 'ma120'] = df.loc[0, 'clo120'] if 'clo120' in df.columns else 0
 
-        # 스코어 + strategy_type: realtime_daily_buy_list에서 읽어서 저장
+        # 스코어 + strategy_type + code_name: realtime_daily_buy_list에서 읽어서 저장
         try:
             score_row = self.engine_JB.execute(
-                "SELECT composite_score, score_a, score_b, score_c, score_d, score_e, score_f, score_penalty, strategy_type "
+                "SELECT composite_score, score_a, score_b, score_c, score_d, score_e, score_f, score_penalty, strategy_type, code_name "
                 "FROM realtime_daily_buy_list WHERE code = '%s' LIMIT 1" % str(code)
             ).fetchone()
             if score_row:
@@ -515,6 +515,10 @@ class open_api(QAxWidget):
                 ):
                     self.sf.df_all_item.loc[0, _col] = float(_val) if _val else 0
                 self.sf.df_all_item.loc[0, 'strategy_type'] = str(score_row[8] or 'A')
+                # code_name이 아직 없으면 realtime_daily_buy_list에서 보완
+                cur_name = self.sf.df_all_item.loc[0, 'code_name']
+                if (not cur_name or str(cur_name) in ('', 'nan')) and score_row[9]:
+                    self.sf.df_all_item.loc[0, 'code_name'] = score_row[9]
             else:
                 for _col in ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']:
                     self.sf.df_all_item.loc[0, _col] = 0
@@ -524,18 +528,6 @@ class open_api(QAxWidget):
                 self.sf.df_all_item.loc[0, _col] = 0
             self.sf.df_all_item.loc[0, 'strategy_type'] = 'A'
         self.sf.df_all_item.loc[0, 'simul_num'] = self.sf.simul_num
-
-        # code_name이 비어있으면 stock_item_all에서 fallback
-        cur_name = self.sf.df_all_item.loc[0, 'code_name']
-        if not cur_name or str(cur_name) in ('', 'nan'):
-            try:
-                row = self.engine_JB.execute(
-                    "SELECT code_name FROM stock_item_all WHERE code='%s' LIMIT 1" % code
-                ).fetchone()
-                if row and row[0]:
-                    self.sf.df_all_item.loc[0, 'code_name'] = row[0]
-            except Exception:
-                pass
 
         # 컬럼 중에 nan 값이 있는 경우 0으로 변경 -> 이렇게 안하면 아래 데이터베이스에 넣을 때
         # AttributeError: 'numpy.int64' object has no attribute 'translate' 에러 발생
