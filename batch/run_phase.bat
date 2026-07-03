@@ -1,72 +1,36 @@
 @echo off
 setlocal enabledelayedexpansion
-
-set PHASE=!NEXT_PHASE!
-if "!PHASE!"=="" set PHASE=1
-
 set SCRIPT_DIR=%~dp0
 cd /d "%SCRIPT_DIR%.."
-set ALOG=automation_log.txt
 set LOG=log\collector_stdout.log
+set PYTHONIOENCODING=utf-8
 
-title [Phase !PHASE!]
+title [Phase %COLLECTOR_PHASE%]
+
 echo.
-echo ==========================================
-echo  Phase !PHASE! started  [%date% %time%]
-echo ==========================================
-echo [%date% %time%] [BAT] Phase!PHASE! CMD started >> !ALOG!
+echo ----------------------------------------
+echo  Phase %COLLECTOR_PHASE%  [%time%]
+echo ----------------------------------------
 
-set /a COUNT=0
-:retry
-set /a COUNT+=1
+echo [run_phase] COLLECTOR_PHASE=%COLLECTOR_PHASE% >> %LOG%
+python collector_v3.py --phase %COLLECTOR_PHASE% >> %LOG% 2>&1
+set PYEXIT=%ERRORLEVEL%
+echo [run_phase] python exit=%PYEXIT% >> %LOG%
+
+echo  Python done. Clearing Kiwoom helpers...
+powershell -NoProfile -Command "Get-Process | Where-Object { try { $_.Path -like 'C:\OpenAPI\*' } catch { $false } } | ForEach-Object { try { Stop-Process -Id $_.Id -Force } catch {} }" >> %LOG% 2>&1
+
+set /a POLL=0
+:poll_kiwoom
+set /a POLL+=1
+if !POLL! GTR 24 goto kiwoom_done
+powershell -NoProfile -Command "exit (Get-Process | Where-Object { try { $_.Path -like 'C:\OpenAPI\*' } catch { $false } }).Count" >NUL 2>&1
+if !ERRORLEVEL! EQU 0 goto kiwoom_done
+echo  Waiting Kiwoom helpers... !POLL!/24
+timeout /t 5 /nobreak >NUL
+goto poll_kiwoom
+:kiwoom_done
+echo [run_phase] Kiwoom cleared >> %LOG%
+echo  Kiwoom cleared. Phase %COLLECTOR_PHASE% done.
 echo.
-echo   [%time%] Phase !PHASE! attempt !COUNT!/5
-echo [%date% %time%] [BAT] Phase!PHASE! attempt !COUNT! >> !ALOG!
-
-set COLLECTOR_PHASE=!PHASE!
-cmd /c "batch\run_collector.bat"
-echo [%date% %time%] [BAT] Phase!PHASE! python done attempt !COUNT! >> !ALOG!
-
-python batch\check_collector_done.py --phase !PHASE!
-set CHK=!ERRORLEVEL!
-echo [%date% %time%] [BAT] Phase!PHASE! check=!CHK! >> !ALOG!
-
-if "!CHK!"=="0" goto phase_done
-if !COUNT! GEQ 5 (
-    echo   [WARN] Phase !PHASE! max retries - proceeding anyway
-    echo [%date% %time%] [BAT] Phase!PHASE! max retries >> !ALOG!
-    goto phase_done
-)
-echo   [FAIL] Phase !PHASE! incomplete - retry in 10s...
-timeout /t 10 /nobreak >NUL
-goto retry
-
-:phase_done
-echo.
-echo   Phase !PHASE! done [%time%]
-echo   Waiting 30s before next phase...
-echo [%date% %time%] [BAT] Phase!PHASE! done, waiting 30s >> !ALOG!
-timeout /t 30 /nobreak >NUL
-
-REM Chain to next step
-if "!PHASE!"=="1" (
-    echo [%date% %time%] [BAT] launching Phase2 CMD >> !ALOG!
-    set NEXT_PHASE=2
-    start "" cmd /c "batch\run_phase.bat"
-    goto end
-)
-if "!PHASE!"=="2" (
-    echo [%date% %time%] [BAT] launching Phase3 CMD >> !ALOG!
-    set NEXT_PHASE=3
-    start "" cmd /c "batch\run_phase.bat"
-    goto end
-)
-if "!PHASE!"=="3" (
-    echo [%date% %time%] [BAT] launching Trader CMD >> !ALOG!
-    start "" cmd /c "batch\start_trader.bat"
-    goto end
-)
-
-:end
-echo [%date% %time%] [BAT] Phase!PHASE! CMD exit >> !ALOG!
-exit
+exit /b %PYEXIT%
