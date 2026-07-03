@@ -27,7 +27,14 @@ if !P1! GEQ 5 (
     echo [%date% %time%] [BAT] Phase1 max retries >> automation_log.txt
     goto P1_DONE
 )
-timeout /t 5 /nobreak >NUL
+if !P1! EQU 1 (
+    echo [%date% %time%] Phase 1 failed. Short wait 30s then retry...
+    timeout /t 30 /nobreak >NUL
+) else (
+    echo [%date% %time%] Phase 1 failed again. Waiting until next full hour for rate limit reset...
+    python -c "import time; m=time.localtime().tm_min; s=time.localtime().tm_sec; w=(60-m)*60-s+120; print(f'Wait {w}s (~{w//60}min) until rate limit resets'); time.sleep(w)"
+    echo [%date% %time%] Rate limit wait done. Retrying...
+)
 goto P1_LOOP
 :P1_DONE
 echo [%date% %time%] Phase 1 done. Waiting 30s...
@@ -49,7 +56,14 @@ if !P2! GEQ 5 (
     echo [%date% %time%] [BAT] Phase2 max retries >> automation_log.txt
     goto P2_DONE
 )
-timeout /t 30 /nobreak >NUL
+if !P2! EQU 1 (
+    echo [%date% %time%] Phase 2 failed. Short wait 30s then retry...
+    timeout /t 30 /nobreak >NUL
+) else (
+    echo [%date% %time%] Phase 2 failed again. Waiting until next full hour for rate limit reset...
+    python -c "import time; m=time.localtime().tm_min; s=time.localtime().tm_sec; w=(60-m)*60-s+120; print(f'Wait {w}s (~{w//60}min) until rate limit resets'); time.sleep(w)"
+    echo [%date% %time%] Rate limit wait done. Retrying...
+)
 goto P2_LOOP
 :P2_DONE
 echo [%date% %time%] Phase 2 done. Waiting 30s...
@@ -71,7 +85,14 @@ if !P3! GEQ 5 (
     echo [%date% %time%] [BAT] Phase3 max retries >> automation_log.txt
     goto P3_DONE
 )
-timeout /t 30 /nobreak >NUL
+if !P3! EQU 1 (
+    echo [%date% %time%] Phase 3 failed. Short wait 30s then retry...
+    timeout /t 30 /nobreak >NUL
+) else (
+    echo [%date% %time%] Phase 3 failed again. Waiting until next full hour for rate limit reset...
+    python -c "import time; m=time.localtime().tm_min; s=time.localtime().tm_sec; w=(60-m)*60-s+120; print(f'Wait {w}s (~{w//60}min) until rate limit resets'); time.sleep(w)"
+    echo [%date% %time%] Rate limit wait done. Retrying...
+)
 goto P3_LOOP
 :P3_DONE
 echo [%date% %time%] Collector done. Waiting 30s before trader...
