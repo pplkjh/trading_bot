@@ -20,17 +20,15 @@ echo [run_phase] python exit=%PYEXIT% >> %LOG%
 echo  Python done. Clearing Kiwoom helpers...
 powershell -NoProfile -Command "Get-Process | Where-Object { try { $_.Path -like 'C:\OpenAPI\*' } catch { $false } } | ForEach-Object { try { Stop-Process -Id $_.Id -Force } catch {} }" >> %LOG% 2>&1
 
-set /a POLL=0
-:poll_kiwoom
-set /a POLL+=1
-if !POLL! GTR 24 goto kiwoom_done
+timeout /t 10 /nobreak >NUL
+
 powershell -NoProfile -Command "exit (Get-Process | Where-Object { try { $_.Path -like 'C:\OpenAPI\*' } catch { $false } }).Count" >NUL 2>&1
-if !ERRORLEVEL! EQU 0 goto kiwoom_done
-echo  Waiting Kiwoom helpers... !POLL!/24
-timeout /t 5 /nobreak >NUL
-goto poll_kiwoom
-:kiwoom_done
-echo [run_phase] Kiwoom cleared >> %LOG%
-echo  Kiwoom cleared. Phase %COLLECTOR_PHASE% done.
+if !ERRORLEVEL! EQU 0 (
+    echo [run_phase] Kiwoom cleared >> %LOG%
+    echo  Kiwoom cleared. Phase %COLLECTOR_PHASE% done.
+) else (
+    echo [run_phase] WARNING: Kiwoom helpers still running after 10s >> %LOG%
+    echo  WARNING: Kiwoom helpers still running.
+)
 echo.
 exit /b %PYEXIT%
