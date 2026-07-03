@@ -27,14 +27,7 @@ if !P1! GEQ 5 (
     echo [%date% %time%] [BAT] Phase1 max retries >> automation_log.txt
     goto P1_DONE
 )
-if !P1! EQU 1 (
-    echo [%date% %time%] Phase 1 failed. Retry in 10s...
-    timeout /t 10 /nobreak >NUL
-) else (
-    echo [%date% %time%] Phase 1 failed again. Waiting until next full hour for rate limit reset...
-    python -c "import time; m=time.localtime().tm_min; s=time.localtime().tm_sec; w=(60-m)*60-s+120; print(f'Wait {w}s (~{w//60}min) until rate limit resets'); time.sleep(w)"
-    echo [%date% %time%] Rate limit wait done. Retrying...
-)
+timeout /t 10 /nobreak >NUL
 goto P1_LOOP
 :P1_DONE
 echo [%date% %time%] Phase 1 done. Waiting 10s...
@@ -56,14 +49,7 @@ if !P2! GEQ 5 (
     echo [%date% %time%] [BAT] Phase2 max retries >> automation_log.txt
     goto P2_DONE
 )
-if !P2! EQU 1 (
-    echo [%date% %time%] Phase 2 failed. Retry in 10s...
-    timeout /t 10 /nobreak >NUL
-) else (
-    echo [%date% %time%] Phase 2 failed again. Waiting until next full hour for rate limit reset...
-    python -c "import time; m=time.localtime().tm_min; s=time.localtime().tm_sec; w=(60-m)*60-s+120; print(f'Wait {w}s (~{w//60}min) until rate limit resets'); time.sleep(w)"
-    echo [%date% %time%] Rate limit wait done. Retrying...
-)
+timeout /t 10 /nobreak >NUL
 goto P2_LOOP
 :P2_DONE
 echo [%date% %time%] Phase 2 done. Waiting 10s...
@@ -85,14 +71,7 @@ if !P3! GEQ 5 (
     echo [%date% %time%] [BAT] Phase3 max retries >> automation_log.txt
     goto P3_DONE
 )
-if !P3! EQU 1 (
-    echo [%date% %time%] Phase 3 failed. Retry in 10s...
-    timeout /t 10 /nobreak >NUL
-) else (
-    echo [%date% %time%] Phase 3 failed again. Waiting until next full hour for rate limit reset...
-    python -c "import time; m=time.localtime().tm_min; s=time.localtime().tm_sec; w=(60-m)*60-s+120; print(f'Wait {w}s (~{w//60}min) until rate limit resets'); time.sleep(w)"
-    echo [%date% %time%] Rate limit wait done. Retrying...
-)
+timeout /t 10 /nobreak >NUL
 goto P3_LOOP
 :P3_DONE
 echo [%date% %time%] Collector done. Waiting 10s before trader...
