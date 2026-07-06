@@ -72,8 +72,10 @@ if __name__ == "__main__":
         print("Collector finished. Starting Trader...")
         print("="*100 + "\n")
 
-        # Kiwoom COM 해제 (다음 phase에서 파일 충돌 방지)
-        # QAxWidget.clear()가 ActiveX COM 레퍼런스를 해제해 Kiwoom이 파일락을 정리함
+        # Kiwoom COM 해제: Python GC가 QAxWidget 소멸자를 호출해 COM Release()가 실행됨.
+        # os._exit(0)은 GC를 건너뛰어 COM 공유 상태(레지스트리/공유 메모리)가 "살아있는" 채로
+        # 남아 다음 phase Python이 Kiwoom DLL 로드 시 ACCESS VIOLATION(0xC0000005) 유발.
+        # sys.exit(0)은 SystemExit를 발생시켜 Python GC가 COM 객체를 정상 소멸시킴.
         try:
             c.collector_api.open_api.clear()
             import gc; gc.collect()
@@ -81,8 +83,8 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-        # 정상 완료 - 바로 종료 (PyQt5 crash 방지)
-        os._exit(0)
+        # sys.exit(0): Python GC → QAxWidget 소멸 → COM Release() → Kiwoom 공유 상태 정리
+        sys.exit(0)
 
     except Exception as e:
         import traceback
@@ -122,4 +124,4 @@ if __name__ == "__main__":
         print("\n" + "="*100)
         print("Error occurred. Collector will restart...")
         print("="*100 + "\n")
-        os._exit(1)
+        sys.exit(1)

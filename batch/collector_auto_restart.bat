@@ -12,6 +12,12 @@ echo  Phase1: OHLCV  /  Phase2: Fundamental  /  Phase3: Scoring
 echo ===================================================
 echo.
 
+REM ===== Pre-cleanup: 이전 세션 잔류 Kiwoom 프로세스 제거 =====
+echo [%date% %time%] Pre-cleanup: killing leftover Kiwoom processes...
+echo [%date% %time%] [BAT] Pre-cleanup >> automation_log.txt
+powershell -NoProfile -Command "Get-Process | Where-Object { try { $_.Path -like 'C:\OpenAPI\*' } catch { $false } } | ForEach-Object { try { Stop-Process -Id $_.Id -Force } catch {} }; Get-WmiObject Win32_Process | Where-Object { $_.ExecutablePath -like 'C:\OpenAPI\*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >> automation_log.txt 2>&1
+timeout /t 5 /nobreak >NUL
+
 REM ===== Phase 1 =====
 set P1=0
 :P1_LOOP
