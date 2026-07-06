@@ -77,13 +77,16 @@ if __name__ == "__main__":
         # 남아 다음 phase Python이 Kiwoom DLL 로드 시 ACCESS VIOLATION(0xC0000005) 유발.
         # sys.exit(0)은 SystemExit를 발생시켜 Python GC가 COM 객체를 정상 소멸시킴.
         try:
+            print(f"[collector] phase={phase} COM clear() start", flush=True)
             c.collector_api.open_api.clear()
+            print(f"[collector] phase={phase} COM clear() done", flush=True)
             import gc; gc.collect()
+            print(f"[collector] phase={phase} GC done", flush=True)
             import time as _t; _t.sleep(3)
-        except Exception:
-            pass
+        except Exception as _ce:
+            print(f"[collector] phase={phase} COM clear error: {_ce}", flush=True)
 
-        # sys.exit(0): Python GC → QAxWidget 소멸 → COM Release() → Kiwoom 공유 상태 정리
+        print(f"[collector] phase={phase} sys.exit(0)", flush=True)
         sys.exit(0)
 
     except Exception as e:
@@ -114,14 +117,17 @@ if __name__ == "__main__":
 
         # Kiwoom COM 해제
         try:
+            print(f"[collector] phase={phase} error-path COM clear() start", flush=True)
             c.collector_api.open_api.clear()
             import gc; gc.collect()
             import time as _t; _t.sleep(3)
-        except Exception:
-            pass
+            print(f"[collector] phase={phase} error-path COM clear() done", flush=True)
+        except Exception as _ce2:
+            print(f"[collector] phase={phase} error-path COM clear error: {_ce2}", flush=True)
 
         # 에러 발생 - exit code 1로 종료 (batch에서 재시작)
         print("\n" + "="*100)
         print("Error occurred. Collector will restart...")
         print("="*100 + "\n")
+        print(f"[collector] phase={phase} sys.exit(1)", flush=True)
         sys.exit(1)

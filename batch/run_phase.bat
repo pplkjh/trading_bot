@@ -18,10 +18,17 @@ python -u collector_v3.py --phase %COLLECTOR_PHASE% >> %LOG% 2>&1
 set PYEXIT=%ERRORLEVEL%
 echo [run_phase] python exit=%PYEXIT% >> %LOG%
 
-echo  Python done. Clearing Kiwoom helpers...
+echo  Python done. Listing Kiwoom helpers before kill...
+echo [run_phase] Kiwoom helpers (WMI) before kill: >> %LOG%
+powershell -NoProfile -Command "Get-WmiObject Win32_Process | Where-Object { $_.ExecutablePath -like 'C:\OpenAPI\*' } | ForEach-Object { '  PID=' + $_.ProcessId + ' ' + $_.Name }" >> %LOG% 2>&1
+
+echo  Clearing Kiwoom helpers...
 powershell -NoProfile -Command "Get-Process | Where-Object { try { $_.Path -like 'C:\OpenAPI\*' } catch { $false } } | ForEach-Object { try { Stop-Process -Id $_.Id -Force } catch {} }; Get-WmiObject Win32_Process | Where-Object { $_.ExecutablePath -like 'C:\OpenAPI\*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >> %LOG% 2>&1
 
 timeout /t 10 /nobreak >NUL
+
+echo [run_phase] Kiwoom helpers (WMI) after kill: >> %LOG%
+powershell -NoProfile -Command "Get-WmiObject Win32_Process | Where-Object { $_.ExecutablePath -like 'C:\OpenAPI\*' } | ForEach-Object { '  PID=' + $_.ProcessId + ' ' + $_.Name }" >> %LOG% 2>&1
 
 powershell -NoProfile -Command "exit (Get-WmiObject Win32_Process | Where-Object { $_.ExecutablePath -like 'C:\OpenAPI\*' }).Count" >NUL 2>&1
 if !ERRORLEVEL! EQU 0 (
