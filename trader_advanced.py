@@ -781,23 +781,23 @@ class TraderAdvanced(QMainWindow):
                             adx  = ind.get('adx', 0)
                             atr14 = ind.get('atr14', 0)
                             st   = _strategy_map.get(code, 'A')
+                            buy_price_disp = position_data.get('buy_price', 0)
+                            pct_stop = int(highest_price * 0.95)
                             if atr14 > 0:
                                 # exit_strategy.py와 동일 배율 사용
                                 if st == 'B':
                                     trail_mult = 1.0   # B(반전): 고정 1.0x
                                 else:
                                     trail_mult = 2.5 if adx >= 25 else (2.0 if adx >= 20 else 1.5)  # A(돌파): ADX 기반
-                                buy_price_disp = position_data.get('buy_price', 0)
-                                # exit_strategy._live_check_trailing과 동일 로직:
-                                # ATR이 클 때 5% 고정 추적으로 전환하여 최고가 추적 보장
-                                pct_stop  = int(highest_price * 0.95)
-                                atr_stop  = int(highest_price - atr14 * trail_mult)
-                                raw_stop  = max(atr_stop, pct_stop)
-                                floor_price = int(buy_price_disp * 1.01) if buy_price_disp > 0 else 0
-                                position_data['trailing_stop_price'] = max(floor_price, raw_stop) if floor_price > 0 else raw_stop
-                                # 트레일 활성 여부: highest_gain 기준으로 판단 (exit_strategy.py와 동일)
-                                highest_gain_pct = (highest_price / buy_price_disp - 1) * 100 if buy_price_disp > 0 else 0
-                                position_data['trail_active'] = highest_gain_pct >= 3.0  # exit_strategy.py 기준 고정
+                                atr_stop = int(highest_price - atr14 * trail_mult)
+                                raw_stop = max(atr_stop, pct_stop)
+                            else:
+                                raw_stop = pct_stop  # ATR 없으면 5% 고정 fallback
+                            floor_price = int(buy_price_disp * 1.01) if buy_price_disp > 0 else 0
+                            position_data['trailing_stop_price'] = max(floor_price, raw_stop) if floor_price > 0 else raw_stop
+                            # 트레일 활성 여부: highest_gain 기준으로 판단 (exit_strategy.py와 동일)
+                            highest_gain_pct = (highest_price / buy_price_disp - 1) * 100 if buy_price_disp > 0 else 0
+                            position_data['trail_active'] = highest_gain_pct >= 3.0  # exit_strategy.py 기준 고정
 
                         positions.append(position_data)
 
