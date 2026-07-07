@@ -1501,9 +1501,18 @@ class collector_api():
             )
             logger.debug(f"daily_crawler_check 시작 - 장중 재수집 (최근 1시간 내 수집 {skip_count}개 스킵)")
         else:
-            # 장전(~9시): 스킵 없이 전체 재수집 — 오늘 최신 데이터로 매수 판단
-            sql_reset = "UPDATE stock_item_all SET check_daily_crawler = '0' WHERE check_daily_crawler = '1'"
-            logger.debug("daily_crawler_check 시작 - 장전 전체 재수집 (스킵 없음)")
+            # 장전(~9시): 1시간 이내 수집 종목 스킵 — API 한도 재시작 시 이어받기
+            skip_count = self.open_api.engine_daily_buy_list.execute(
+                "SELECT COUNT(*) FROM stock_item_all "
+                "WHERE check_daily_crawler IN ('1','3') "
+                "AND last_crawled_at >= NOW() - INTERVAL 1 HOUR"
+            ).fetchone()[0]
+            sql_reset = (
+                "UPDATE stock_item_all SET check_daily_crawler = '0' "
+                "WHERE check_daily_crawler IN ('1','3') "
+                "AND (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL 1 HOUR)"
+            )
+            logger.debug(f"daily_crawler_check 시작 - 장전 수집 (최근 1시간 내 수집 {skip_count}개 스킵)")
         self.open_api.engine_daily_buy_list.execute(sql_reset)
 
         self.db_to_daily_craw()
