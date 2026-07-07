@@ -13,6 +13,9 @@ echo ----------------------------------------
 echo  Phase %COLLECTOR_PHASE%  [%time%]
 echo ----------------------------------------
 
+REM ===== Pre-kill: stale collector_v3 python (trader 방식 동일) =====
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -like '*collector_v3*' } | ForEach-Object { Write-Host '[pre-kill] Killing stale collector PID' $_.ProcessId; Stop-Process -Id $_.ProcessId -Force }" >> %LOG% 2>&1
+
 echo [run_phase] COLLECTOR_PHASE=%COLLECTOR_PHASE% >> %LOG%
 python -u collector_v3.py --phase %COLLECTOR_PHASE% >> %LOG% 2>&1
 set PYEXIT=%ERRORLEVEL%
