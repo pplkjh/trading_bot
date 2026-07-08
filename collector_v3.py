@@ -6,6 +6,13 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
+# conda py37_32 환경에서 conda activate 없이 실행될 때 Library\bin이 PATH에 없으면
+# _ssl.pyd가 libssl-1_1.dll 을 못 찾아 ssl import 실패 → HTTPS 연결 불가.
+# 첫 import 전에 PATH 보정.
+_lib_bin = os.path.join(os.path.dirname(sys.executable), 'Library', 'bin')
+if os.path.isdir(_lib_bin) and _lib_bin not in os.environ.get('PATH', ''):
+    os.environ['PATH'] = _lib_bin + os.pathsep + os.environ.get('PATH', '')
 from PyQt5.QtWidgets import QApplication
 from library.collector_api import *
 from library.report_generator import generate_collector_report
