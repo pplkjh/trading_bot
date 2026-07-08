@@ -814,7 +814,7 @@ import datetime as _dt
 _HARD_SL_PCT        = -0.05   # 하드 손절 -5%
 _TRAILING_ACT_PCT   =  0.03   # 트레일링 발동: 고점 +3%
 _TRAILING_FLOOR_PCT =  0.01   # 트레일링 플로어: 매입가 +1%
-_TRAILING_PCT_CAP   =  0.05   # 최고가 대비 최대 후퇴 허용폭 5% (ATR이 너무 클 때 추적 보장)
+_TRAILING_PCT_CAP   =  0.03   # 최고가 대비 최대 후퇴 허용폭 3%
 _LOSSCUT_DELAY_MIN  =  30     # 손절 유예: 매수 후 30분
 
 # ── 전략별 트레일링 배율 ────────────────────────────────────────────────────────
