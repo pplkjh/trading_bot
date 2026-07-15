@@ -5,11 +5,6 @@ JackBot 실전 대시보드 (sim=6)
 import sys, os, time
 from datetime import datetime, timedelta
 
-import warnings
-import logging
-warnings.filterwarnings('ignore', message='.*use_container_width.*')
-logging.getLogger('streamlit').setLevel(logging.ERROR)
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -162,10 +157,12 @@ def compute_metrics(trades_raw, open_pos, jango):
             else INITIAL_CAPITAL + m['realized'])
     open_val = int((open_pos['present_price'].astype(int) *
                     open_pos['holding_amount'].astype(int)).sum()) if len(open_pos) else 0
-    m['cash']             = cash
-    m['open_val']         = open_val
-    m['total_asset']      = cash + open_val
-    m['total_return_pct'] = (m['total_asset'] - INITIAL_CAPITAL) / INITIAL_CAPITAL * 100
+    m['cash']    = cash
+    m['open_val'] = open_val
+    # d2_deposit(T+2 결제 전) + open_val 합산은 매수 금액을 이중계산.
+    # 초기자금 + 실현손익 + 미실현손익으로 계산.
+    m['total_asset']      = INITIAL_CAPITAL + m['realized'] + m['unrealized']
+    m['total_return_pct'] = (m['realized'] + m['unrealized']) / INITIAL_CAPITAL * 100
 
     # 오늘 손익: 거래내역 탭과 동일하게 trades에서 직접 계산 (jango today_profit은 0으로 초기화돼있을 수 있음)
     today_sells = trades[trades['sell_date_8'] == TODAY]
@@ -322,24 +319,24 @@ def tab_overview(m, open_pos):
     with col_r:
         sec("자산 구성")
         tbl({
-            "초기 자금":   f"{INITIAL_CAPITAL:,}원",
-            "현재 예수금": f"{m['cash']:,}원",
-            "보유 평가금": f"{m['open_val']:,}원  ({len(open_pos)}건)",
-            "추정 총자산": f"{m['total_asset']:,}원",
-            "총 수익률":   f"{m['total_return_pct']:+.2f}%",
-            "실현 손익":   f"{m['realized']:+,}원",
-            "미실현 손익": f"{m['unrealized']:+,}원",
-            "운영 기간":   f"{m['days']}일  ({m['start'][:4]}.{m['start'][4:6]}.{m['start'][6:]} ~)",
+            "초기 자금":        f"{INITIAL_CAPITAL:,}원",
+            "예수금 (D+2 참고)": f"{m['cash']:,}원",
+            "보유 평가금 (참고)": f"{m['open_val']:,}원  ({len(open_pos)}건)",
+            "실현 손익":        f"{m['realized']:+,}원",
+            "미실현 손익":      f"{m['unrealized']:+,}원",
+            "추정 총자산":      f"{m['total_asset']:,}원",
+            "총 수익률":        f"{m['total_return_pct']:+.2f}%",
+            "운영 기간":        f"{m['days']}일  ({m['start'][:4]}.{m['start'][4:6]}.{m['start'][6:]} ~)",
         })
 
     # 디버그용 원시 데이터
     with st.expander("🔍 원시 데이터 확인 (데이터 이상할 때 클릭)"):
         st.write(f"**오늘: {TODAY}  |  jango 최근 5행:**")
-        st.dataframe(m.get('_jango_tail', pd.DataFrame()), use_container_width=True)
+        st.dataframe(m.get('_jango_tail', pd.DataFrame()), width='stretch')
         st.write(f"**전체 거래 sell_rate 분포:**")
         st.write(m.get('_sell_rate_desc', '데이터 없음'))
         st.write(f"**거래 최근 5건:**")
-        st.dataframe(m.get('_trades_tail', pd.DataFrame()), use_container_width=True)
+        st.dataframe(m.get('_trades_tail', pd.DataFrame()), width='stretch')
 
 
 # ──────────────────────────────────────────────────────
@@ -377,7 +374,7 @@ def tab_positions(open_pos):
                         subset=['수익률%', '미실현손익'])
               .format({'매수가': '{:,}', '현재가': '{:,}',
                        '수익률%': '{:+.2f}%', '미실현손익': '{:+,}원'}))
-    st.dataframe(styled, use_container_width=True, hide_index=True, height=420)
+    st.dataframe(styled, width='stretch', hide_index=True, height=420)
 
 
 # ──────────────────────────────────────────────────────
@@ -431,7 +428,7 @@ def tab_trades(trades):
                         subset=['수익률%', '실현손익'])
               .format({'매수가': '{:,}', '매도가': '{:,}',
                        '수익률%': '{:+.2f}%', '실현손익': '{:+,}원'}))
-    st.dataframe(styled, use_container_width=True, hide_index=True, height=500)
+    st.dataframe(styled, width='stretch', hide_index=True, height=500)
 
 
 # ──────────────────────────────────────────────────────
@@ -558,15 +555,15 @@ def tab_charts(m):
     fig.update_xaxes(showticklabels=False, row=1, col=1)
     fig.update_xaxes(tickformat='%m/%d', dtick=7*24*3600000, row=2, col=1)
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # 디버그 (데이터 확인용)
     with st.expander("🔍 원시 데이터 확인"):
         st.write("**equity (날짜/손익/자산):**")
-        st.dataframe(eq[['date','pnl','cum']].tail(10), use_container_width=True)
+        st.dataframe(eq[['date','pnl','cum']].tail(10), width='stretch')
         if has_kospi:
             st.write("**kospi_df 샘플:**")
-            st.dataframe(kospi_df.head(5), use_container_width=True)
+            st.dataframe(kospi_df.head(5), width='stretch')
 
 
 # ──────────────────────────────────────────────────────
@@ -594,7 +591,7 @@ def tab_analysis(m):
                   .format({'승률%': '{:.1f}%', '평균익절%': '{:+.2f}%',
                            '평균손절%': '{:+.2f}%', '손익비': '{:.2f}',
                            '실현손익': '{:+,}원'}),
-                use_container_width=True, hide_index=True)
+                width='stretch', hide_index=True)
 
     with col_r:
         sec("매도 이유별 분류")
@@ -610,7 +607,7 @@ def tab_analysis(m):
                              subset=['실현손익', '평균%'])
                   .format({'승률%': '{:.1f}%', '평균%': '{:+.2f}%',
                            '실현손익': '{:+,}원'}),
-                use_container_width=True, hide_index=True)
+                width='stretch', hide_index=True)
 
     st.divider()
     col_l2, col_r2 = st.columns(2)
@@ -631,7 +628,7 @@ def tab_analysis(m):
                           margin=dict(l=10, r=10, t=10, b=10),
                           font=dict(size=13),
                           legend=dict(font=dict(size=12)))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
     with col_r2:
         sec("매도 이유별 누적 손익")
@@ -651,7 +648,7 @@ def tab_analysis(m):
                           font=dict(size=13))
         fig.update_yaxes(ticksuffix='만', gridcolor='#e8e8e8')
         fig.update_xaxes(tickfont=dict(size=13))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
 
 # ──────────────────────────────────────────────────────
@@ -685,7 +682,7 @@ def tab_history(trades):
                         subset=['수익률%', '실현손익'])
               .format({'매수가': '{:,}', '매도가': '{:,}',
                        '수익률%': '{:+.2f}%', '실현손익': '{:+,}원'}))
-    st.dataframe(styled, use_container_width=True, hide_index=True, height=580)
+    st.dataframe(styled, width='stretch', hide_index=True, height=580)
 
 
 # ──────────────────────────────────────────────────────
