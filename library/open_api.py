@@ -1233,8 +1233,21 @@ class open_api(QAxWidget):
 
         logger.info(f"[get_advanced_buy_list] 기준 날짜: {target_date}")
 
-        if target_date != today:
-            logger.warning(f"⚠️ 매수 리스트가 오늘({today}) 것이 아닙니다 (최신: {target_date}) → 매수 스킵")
+        # collector 오늘 실행 여부: daily_crawler 타임스탬프로 확인
+        # (target_date는 장전 수집 시 전일 종가 기준이므로 today와 다를 수 있음)
+        try:
+            row_dc = self.engine_JB.execute(
+                "SELECT daily_crawler FROM setting_data LIMIT 1"
+            ).fetchone()
+            collection_today = str(row_dc[0])[:8] if (row_dc and row_dc[0]) else None
+        except Exception:
+            collection_today = None
+
+        if collection_today != today:
+            logger.warning(
+                f"⚠️ 오늘({today}) collector 미실행 "
+                f"(daily_crawler={collection_today}, buy_list={target_date}) → 매수 스킵"
+            )
             return
 
         # collector 오늘 실행 확인됨 → realtime_daily_buy_list 로드

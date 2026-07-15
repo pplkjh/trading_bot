@@ -1988,19 +1988,19 @@ class collector_api():
             last_date = self.open_api.get_daily_craw_db_last_date(code_name)
 
             # 시간대별 재수집 여부 판단:
-            #   08:00~09:00 (장전): ref_date(전 영업일) 데이터가 있어도 오늘 첫 수집이므로 강제 재수집
+            #   07:00~09:00 (장전): ref_date(전 영업일) 데이터가 있어도 오늘 첫 수집이므로 강제 재수집
             #   09:00~16:00 (장중): ref_date = 전 영업일 → 이미 확정된 과거 데이터, 재수집 불필요
             #   16:00~24:00 (장후): ref_date = 오늘 → 오늘 장중 stale row 삭제 후 종가로 재수집
-            #   00:00~08:00 (야간): 재수집 불필요
+            #   00:00~07:00 (야간): 재수집 불필요
             import datetime as _dt
             _now = _dt.datetime.now()
             _h = _now.hour
             _should_recollect = (
-                (8 <= _h < 9) or                                          # 장전: 무조건
+                (7 <= _h < 9) or                                          # 장전: 무조건
                 (_h >= 16 and last_date == ref_date and ref_date == self.open_api.today)  # 장후: 오늘 데이터만
             )
             if last_date == ref_date and _should_recollect:
-                _reason = "장전 첫 수집" if 8 <= _h < 9 else "장후 종가 업데이트"
+                _reason = "장전 첫 수집" if 7 <= _h < 9 else "장후 종가 업데이트"
                 logger.debug(f"{code_name}: {_reason} → {ref_date} 데이터 삭제 후 재수집.")
                 try:
                     self.open_api.engine_daily_craw.execute(f"""

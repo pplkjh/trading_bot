@@ -1,30 +1,58 @@
-# Kill all processes attached to the current console (Phase cleanup)
-# GetConsoleProcessList() returns every PID attached to THIS console window —
-# no path/name guessing needed; catches any process that would keep the window open.
+﻿# Kill Kiwoom and all child + orphaned CEF/Chrome processes
+# Kiwoom spawns chromedriver.exe which inherits the LOG file handle.
+# chromedriver.exe is never used by regular Chrome browser -- safe to kill unconditionally.
 $ErrorActionPreference = 'SilentlyContinue'
 
-try {
-    Add-Type -Name ConsoleHelper -Namespace Win32 -MemberDefinition '
-[DllImport("kernel32.dll")]
-public static extern uint GetConsoleProcessList(uint[] lpdwProcessList, uint dwProcessCount);
-'
-} catch {}
-
-$list = New-Object uint[] 128
-$cnt = [Win32.ConsoleHelper]::GetConsoleProcessList($list, 128)
-
-$myPid    = $PID
-$parentPid = [int](Get-WmiObject Win32_Process -Filter "ProcessId=$PID").ParentProcessId
-
-$killed = 0
-for ($i = 0; $i -lt $cnt; $i++) {
-    $p = [int]$list[$i]
-    if ($p -ne 0 -and $p -ne $myPid -and $p -ne $parentPid) {
-        $name = try { (Get-Process -Id $p).ProcessName } catch { "?" }
-        Write-Output "  [kill_kiwoom] PID=$p Name=$name"
-        Stop-Process -Id $p -Force -ErrorAction SilentlyContinue
-        $killed++
+function Kill-ProcessTree {
+    param([int]$Pid)
+    Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $Pid } | ForEach-Object {
+        Kill-ProcessTree ([int]$_.ProcessId)
     }
+    $name = try { (Get-Process -Id $Pid -ErrorAction SilentlyContinue).ProcessName } catch { '?' }
+    Write-Output "  [kill_kiwoom] TREE  PID=$Pid Name=$name"
+    Stop-Process -Id $Pid -Force -ErrorAction SilentlyContinue
 }
 
-Write-Output "[kill_kiwoom] $killed process(es) killed from console group"
+# Step 1: Kill C:\OpenAPI\* process trees
+$killed_tree = 0
+$roots = @(Get-Process | Where-Object { try { $_.Path -like 'C:\OpenAPI\*' } catch { $false } })
+foreach ($proc in $roots) {
+    Kill-ProcessTree $proc.Id
+    $killed_tree++
+}
+
+# Step 2: Kill Kiwoom CEF processes
+# - chromedriver.exe: Kiwoom internal driver (never spawned by regular Chrome)
+# - chrome/chromium with --remote-debugging-port: Kiwoom CEF browser instance
+$killed_cef = 0
+Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    ($_.Name -like 'chromedriver*') -or
+    (($_.Name -like 'chrome*' -or $_.Name -like 'chromium*') -and ($_.CommandLine -like '*--remote-debugging-port*'))
+} | ForEach-Object {
+    Write-Output "  [kill_kiwoom] CEF   PID=$($_.ProcessId) Name=$($_.Name)"
+    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    $killed_cef++
+}
+
+# Step 3: Poll until all Kiwoom + CEF processes are gone (max 60s)
+$poll = 0
+do {
+    Start-Sleep -Seconds 3
+    $poll++
+    $remaining_api = @(Get-Process | Where-Object { try { $_.Path -like 'C:\OpenAPI\*' } catch { $false } })
+    $remaining_cef = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        ($_.Name -like 'chromedriver*') -or
+        (($_.Name -like 'chrome*' -or $_.Name -like 'chromium*') -and ($_.CommandLine -like '*--remote-debugging-port*'))
+    })
+    if ($remaining_api.Count -eq 0 -and $remaining_cef.Count -eq 0) { break }
+    if ($remaining_api.Count -gt 0) {
+        Write-Output "  [kill_kiwoom] waiting... $($remaining_api.Count) OpenAPI proc(s) (poll $poll/20)"
+        $remaining_api | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    }
+    if ($remaining_cef.Count -gt 0) {
+        Write-Output "  [kill_kiwoom] waiting... $($remaining_cef.Count) CEF proc(s) (poll $poll/20)"
+        $remaining_cef | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    }
+} while ($poll -lt 20)
+
+Write-Output "[kill_kiwoom] done  tree_roots=$killed_tree  cef=$killed_cef"

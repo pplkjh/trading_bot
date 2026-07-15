@@ -12,7 +12,7 @@ echo  Phase1: OHLCV  /  Phase2: Fundamental  /  Phase3: Scoring
 echo ===================================================
 echo.
 
-REM ===== Pre-cleanup: 이전 세션 잔류 Kiwoom 프로세스 제거 =====
+REM ===== Pre-cleanup: ?�전 ?�션 ?�류 Kiwoom ?�로?�스 ?�거 =====
 echo [%date% %time%] Pre-cleanup: killing leftover Kiwoom processes...
 echo [%date% %time%] [BAT] Pre-cleanup >> automation_log.txt
 powershell -NoProfile -Command "Get-Process | Where-Object { try { $_.Path -like 'C:\OpenAPI\*' } catch { $false } } | ForEach-Object { try { Stop-Process -Id $_.Id -Force } catch {} }; Get-WmiObject Win32_Process | Where-Object { $_.ExecutablePath -like 'C:\OpenAPI\*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >> automation_log.txt 2>&1
@@ -39,6 +39,8 @@ goto P1_LOOP
 echo [%date% %time%] Phase 1 done. Waiting 10s...
 echo [%date% %time%] [BAT] Phase1 done >> automation_log.txt
 timeout /t 10 /nobreak >NUL
+REM Phase 1 -> Phase 3 rescore: reset today_buy_list so Phase 3 reruns with fresh OHLCV
+python batch\reset_scoring_flag.py >> automation_log.txt 2>&1
 
 REM ===== Phase 2 =====
 set P2=0
