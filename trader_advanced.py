@@ -869,6 +869,48 @@ class TraderAdvanced(QMainWindow):
         except Exception as e:
             logger.error(f"대시보드 업데이트 오류: {e}", exc_info=True)
 
+    def process_manual_orders(self):
+        """Control Panel(control_panel/)에서 수동 접수한 주문을 처리한다."""
+        try:
+            rows = self.open_api.engine_JB.execute(
+                "SELECT id, order_type, code, code_name, quantity "
+                "FROM manual_orders WHERE status='PENDING' ORDER BY id ASC"
+            ).fetchall()
+        except Exception:
+            return  # 테이블 미생성 시 무시
+
+        for row in rows:
+            oid   = row[0]
+            otype = row[1]
+            code  = row[2]
+            name  = row[3]
+            qty   = int(row[4] or 0)
+            try:
+                if otype in ('SELL', 'PART_SELL'):
+                    if qty <= 0:
+                        qty = self.open_api.get_holding_amount(code)
+                    if qty > 0:
+                        self.open_api.send_order(
+                            "cp_sell", "9999", self.open_api.account,
+                            2, code, qty, 0, "03", "")
+                        logger.info(f"[CP] 수동 매도 실행: {name}({code}) {qty}주")
+                elif otype == 'BUY':
+                    if qty > 0:
+                        self.open_api.send_order(
+                            "cp_buy", "9999", self.open_api.account,
+                            1, code, qty, 0, "03", "")
+                        logger.info(f"[CP] 수동 매수 실행: {name}({code}) {qty}주")
+                self.open_api.engine_JB.execute(
+                    f"UPDATE manual_orders SET status='EXECUTED', executed_at=NOW() WHERE id={oid}")
+            except Exception as e:
+                logger.warning(f"[CP] 수동 주문 실패 id={oid}: {e}")
+                msg = str(e)[:200].replace("'", "''")
+                try:
+                    self.open_api.engine_JB.execute(
+                        f"UPDATE manual_orders SET status='FAILED', result_msg='{msg}' WHERE id={oid}")
+                except Exception:
+                    pass
+
     def run(self):
         """
         메인 루프
@@ -942,6 +984,9 @@ class TraderAdvanced(QMainWindow):
                     # 1. 매도 실행 (보유 종목 있을 때만)
                     if has_positions:
                         self.auto_trade_sell_stock()
+
+                    # 1-1. Control Panel 수동 주문 처리
+                    self.process_manual_orders()
 
                     # 2. 매수 조건 확인
                     should_try_buy = (
