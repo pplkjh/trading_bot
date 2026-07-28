@@ -302,6 +302,26 @@ class simulator_func_mysql:
             self.invest_limit_rate = 1.02
             self.invest_min_limit_rate = 0.97
 
+        elif self.simul_num == 9:
+            # All-Required A+B — 백테스트: simulator9
+            # A: BreakoutStrategyV6 (V5 optional 5개 전부 Required)
+            # B: ReversalStrategyV4 (sim=8과 동일)
+            # 매도: sell_list_num=32 (sim=8과 동일 — A/B 차별화)
+            self.simul_start_date = "20230102"
+            self.use_min = False
+            self.only_nine_buy = False
+            self.db_to_realtime_daily_buy_list_num = 22
+            self.sell_list_num = 32
+            self.start_invest_price = 10000000
+            self.invest_unit = self._resolve_invest_unit(self.start_invest_price)
+            self.limit_money = 300000
+            self.sell_point = 6
+            self.losscut_point = -5
+            self.time_stop_days = 20
+            self.max_positions = 999
+            self.invest_limit_rate = 1.02
+            self.invest_min_limit_rate = 0.97
+
         # ==================== 기존 전략 (20번대로 이동) ====================
 
         elif self.simul_num == 21:
@@ -788,7 +808,7 @@ class simulator_func_mysql:
                 logger.debug("composite_score 없음, code 정렬로 폴백: %s", sql)
                 self.df_realtime_daily_buy_list = pd.read_sql(sql, self.engine_simulator)
             logger.debug("Query returned %d rows", len(self.df_realtime_daily_buy_list))
-        elif self.simul_num in (4, 5, 6, 7, 8):
+        elif self.simul_num in (4, 5, 6, 7, 8, 9):
             # simul_num=4/5/6/7/8: strategy_type 컬럼 포함 — pd.read_sql로 전체 읽기
             import pandas as pd
             sql = "select * from realtime_daily_buy_list where check_item = '0' order by composite_score desc, code"
@@ -1441,6 +1461,13 @@ class simulator_func_mysql:
                 strategies = [BreakoutStrategyV5(), ReversalStrategyV4()]
                 min_score = 0  # per-stock: A=0(condition), B=v5_min_score_b(scoring)
                 logger.debug(f"[num=22] simul_num=8 Hybrid(A:ConditionV5/B:ScoringV4) 시작 - 기준날짜: {date_rows_today}")
+            elif self.simul_num == 9:
+                # A: BreakoutV6 (all-required) / B: ReversalV4 (scoring, sim=8과 동일)
+                from library.hybrid_strategy_v5 import BreakoutStrategyV6
+                from library.hybrid_strategy_v4 import ReversalStrategyV4
+                strategies = [BreakoutStrategyV6(), ReversalStrategyV4()]
+                min_score = 0
+                logger.debug(f"[num=22] simul_num=9 Hybrid(A:ConditionV6/B:ScoringV4) 시작 - 기준날짜: {date_rows_today}")
             else:
                 from library.hybrid_strategy_v3 import BreakoutStrategyV3, ReversalStrategyV3
                 strategies = [BreakoutStrategyV3(), ReversalStrategyV3()]
@@ -1494,7 +1521,7 @@ class simulator_func_mysql:
                          LIMIT 150)
                     """
                 candidates = self.engine_daily_buy_list.execute(pre_filter_sql).fetchall()
-                if self.simul_num in (6, 7, 8):
+                if self.simul_num in (6, 7, 8, 9):
                     cnt_a = sum(1 for r in candidates
                                 if (r['d1_diff_rate'] or 0) >= 1.5
                                 and (r['vol5'] or 0) > (r['vol20'] or 1) * 1.2)
@@ -1554,6 +1581,7 @@ class simulator_func_mysql:
 
             # 종목별 스코어링
             scored_list = []
+            all_scored_list = []  # 컨트롤패널용: 임계점 미달 포함 전체 결과
             total_cands = len(candidates)
             if total_cands > 0:
                 print(f"  [스코어링] {date_rows_today} 후보 {total_cands}개 처리 중...", flush=True)
@@ -1581,24 +1609,40 @@ class simulator_func_mysql:
 
                 if len(strategies) == 1:
                     result = strategies[0].calculate_total_score(row_dict, df_120, market_data, fd)
-                    if not result['auto_reject'] and result['total'] >= min_score:
-                        row_dict['composite_score'] = int(result['total'])
-                        row_dict['score_a']       = result['score_a']
-                        row_dict['score_b']       = result['score_b']
-                        row_dict['score_c']       = result['score_c']
-                        row_dict['score_d']       = result['score_d']
-                        row_dict['score_e']       = result['score_e']
-                        row_dict['score_f']       = result['score_f']
-                        row_dict['score_g']       = result['score_g']
-                        row_dict['score_h']       = result.get('score_h', 0)
-                        row_dict['score_penalty'] = result['score_penalty']
-                        row_dict['strategy_type'] = result['strategy_type']
-                        scored_list.append((row_dict, result['total']))
-                        logger.debug(f"[num=22] {idx+1}/{total_cands}: {code_name}({code}) → {result['strategy_type']} {result['total']:.0f}pt ✅")
-                    elif not result['auto_reject']:
-                        logger.debug(f"[num=22] {idx+1}/{total_cands}: {code_name}({code}) → {result['strategy_type']} {result['total']:.0f}pt")
+                    if not result['auto_reject']:
+                        _as_entry = {
+                            'code': code, 'code_name': code_name,
+                            'composite_score': int(result['total']),
+                            'score_a': result['score_a'], 'score_b': result['score_b'],
+                            'score_c': result['score_c'], 'score_d': result['score_d'],
+                            'score_e': result['score_e'], 'score_f': result['score_f'],
+                            'score_g': result['score_g'], 'score_h': result.get('score_h', 0),
+                            'score_penalty': result['score_penalty'],
+                            'strategy_type': result['strategy_type'],
+                            'close': row_dict.get('close', 0), 'rsi14': row_dict.get('rsi14', 0),
+                            'vol5': row_dict.get('vol5', 0), 'vol20': row_dict.get('vol20', 0),
+                        }
+                        if result['total'] >= min_score:
+                            row_dict['composite_score'] = int(result['total'])
+                            row_dict['score_a']       = result['score_a']
+                            row_dict['score_b']       = result['score_b']
+                            row_dict['score_c']       = result['score_c']
+                            row_dict['score_d']       = result['score_d']
+                            row_dict['score_e']       = result['score_e']
+                            row_dict['score_f']       = result['score_f']
+                            row_dict['score_g']       = result['score_g']
+                            row_dict['score_h']       = result.get('score_h', 0)
+                            row_dict['score_penalty'] = result['score_penalty']
+                            row_dict['strategy_type'] = result['strategy_type']
+                            scored_list.append((row_dict, result['total']))
+                            _as_entry['passed'] = 1
+                            logger.debug(f"[num=22] {idx+1}/{total_cands}: {code_name}({code}) → {result['strategy_type']} {result['total']:.0f}pt ✅")
+                        else:
+                            _as_entry['passed'] = 0
+                            logger.debug(f"[num=22] {idx+1}/{total_cands}: {code_name}({code}) → {result['strategy_type']} {result['total']:.0f}pt")
+                        all_scored_list.append(_as_entry)
                 else:
-                    # sim=6: 두 전략 모두 계산, 높은 점수 선택
+                    # sim=6+: 두 전략 모두 계산, 높은 점수 선택
                     best_result = None
                     best_score = -9999
                     for strategy in strategies:
@@ -1606,15 +1650,47 @@ class simulator_func_mysql:
                         if not r['auto_reject'] and r['total'] > best_score:
                             best_score = r['total']
                             best_result = r
+                    if best_result is None:
+                        # 모든 전략이 auto_reject → 기록은 남기되 passed=0
+                        all_scored_list.append({
+                            'code': code, 'code_name': code_name,
+                            'composite_score': 0,
+                            'score_a': 0, 'score_b': 0, 'score_c': 0, 'score_d': 0,
+                            'score_e': 0, 'score_f': 0, 'score_g': 0, 'score_h': 0,
+                            'score_penalty': 0, 'strategy_type': 'A',
+                            'close': row_dict.get('close', 0), 'rsi14': row_dict.get('rsi14', 0),
+                            'vol5': row_dict.get('vol5', 0), 'vol20': row_dict.get('vol20', 0),
+                            'passed': 0,
+                        })
                     if best_result is not None:
                         st = best_result['strategy_type']
-                        if self.simul_num == 8:
+                        if self.simul_num == 9:
+                            min_sc = cf.v7_min_opt_a if st == 'A' else cf.v7_min_score_b
+                        elif self.simul_num == 8:
                             # A: condition optional 통과 수 기준 / B: V4 scoring 기준
                             min_sc = cf.v6_min_opt_a if st == 'A' else cf.v6_min_score_b
                         elif self.simul_num == 7:
                             min_sc = cf.v5_min_score_a if st == 'A' else cf.v5_min_score_b
                         else:
                             min_sc = cf.v4_min_score_a if st == 'A' else cf.v4_min_score_b
+                        _as_entry = {
+                            'code': code, 'code_name': code_name,
+                            'composite_score': int(best_score),
+                            'score_a': best_result['score_a'],
+                            'score_b': best_result['score_b'],
+                            'score_c': best_result['score_c'],
+                            'score_d': best_result['score_d'],
+                            'score_e': best_result['score_e'],
+                            'score_f': best_result['score_f'],
+                            'score_g': best_result['score_g'],
+                            'score_h': best_result.get('score_h', 0),
+                            'score_penalty': best_result['score_penalty'],
+                            'strategy_type': best_result['strategy_type'],
+                            'close': row_dict.get('close', 0),
+                            'rsi14': row_dict.get('rsi14', 0),
+                            'vol5':  row_dict.get('vol5', 0),
+                            'vol20': row_dict.get('vol20', 0),
+                        }
                         if best_score >= min_sc:
                             best_score = best_result['total']
                             row_dict['composite_score'] = int(best_score)
@@ -1629,15 +1705,65 @@ class simulator_func_mysql:
                             row_dict['score_penalty'] = best_result['score_penalty']
                             row_dict['strategy_type'] = best_result['strategy_type']
                             scored_list.append((row_dict, best_score))
+                            _as_entry['passed'] = 1
                             logger.debug(f"[num=22] {idx+1}/{total_cands}: {code_name}({code}) → {st} {best_score:.0f}pt ✅")
                         else:
+                            _as_entry['passed'] = 0
                             logger.debug(f"[num=22] {idx+1}/{total_cands}: {code_name}({code}) → {st} {best_score:.0f}pt")
+                        all_scored_list.append(_as_entry)
 
             count_a = sum(1 for item in scored_list if item[0].get('strategy_type') == 'A')
             count_b = sum(1 for item in scored_list if item[0].get('strategy_type') == 'B')
             logger.debug(f"[num=22] 스코어링 완료 - 합격: {len(scored_list)}개 (A:{count_a} / B:{count_b}) / 후보: {len(candidates)}개")
             scored_list.sort(key=lambda x: x[1], reverse=True)
             realtime_daily_buy_list = [item[0] for item in scored_list]
+
+            # 컨트롤패널용: 전체 스코어 결과 저장 (임계점 미달 포함)
+            # 후보가 없는 날에도 테이블은 반드시 생성 (UI가 폴백 없이 테이블 인식 가능)
+            try:
+                self.engine_simulator.execute("""
+                    CREATE TABLE IF NOT EXISTS realtime_all_scored (
+                        code          VARCHAR(10),
+                        code_name     VARCHAR(100),
+                        composite_score INT DEFAULT 0,
+                        score_a       FLOAT DEFAULT 0,
+                        score_b       FLOAT DEFAULT 0,
+                        score_c       FLOAT DEFAULT 0,
+                        score_d       FLOAT DEFAULT 0,
+                        score_e       FLOAT DEFAULT 0,
+                        score_f       FLOAT DEFAULT 0,
+                        score_g       FLOAT DEFAULT 0,
+                        score_h       FLOAT DEFAULT 0,
+                        score_penalty FLOAT DEFAULT 0,
+                        strategy_type VARCHAR(2),
+                        close         INT DEFAULT 0,
+                        rsi14         FLOAT DEFAULT 0,
+                        vol5          BIGINT DEFAULT 0,
+                        vol20         BIGINT DEFAULT 0,
+                        passed        TINYINT DEFAULT 0,
+                        scored_at     DATETIME DEFAULT NOW(),
+                        PRIMARY KEY (code)
+                    ) CHARACTER SET utf8
+                """)
+                self.engine_simulator.execute("DELETE FROM realtime_all_scored")
+                for entry in all_scored_list:
+                    self.engine_simulator.execute("""
+                        INSERT INTO realtime_all_scored
+                          (code, code_name, composite_score,
+                           score_a, score_b, score_c, score_d, score_e, score_f, score_g, score_h,
+                           score_penalty, strategy_type, close, rsi14, vol5, vol20, passed)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """, (
+                        entry['code'], entry['code_name'], entry['composite_score'],
+                        entry['score_a'], entry['score_b'], entry['score_c'],
+                        entry['score_d'], entry['score_e'], entry['score_f'],
+                        entry['score_g'], entry['score_h'], entry['score_penalty'],
+                        entry['strategy_type'], entry['close'], entry['rsi14'],
+                        entry['vol5'], entry['vol20'], entry['passed'],
+                    ))
+                logger.debug(f"[num=22] realtime_all_scored 저장 완료 - {len(all_scored_list)}개 (합격 {len(scored_list)}개 포함)")
+            except Exception as e:
+                logger.warning(f"[num=22] realtime_all_scored 저장 실패: {e}")
 
         # 🔧 전략 100: 심플 프로토타입 전략 (이동평균 기반)
         # 기본 이동평균 + 거래량 조합
@@ -1914,7 +2040,7 @@ class simulator_func_mysql:
                                               'composite_score',
                                               'score_a', 'score_b', 'score_c', 'score_d',
                                               'score_e', 'score_f', 'score_g',
-                                              *(['score_h'] if self.simul_num in (7, 8) else []),
+                                              *(['score_h'] if self.simul_num in (7, 8, 9) else []),
                                               'score_penalty',
                                               'simul_num',
                                               'max_high_pct', 'min_low_pct', 'rsi14', 'rsi_peak'])
@@ -1965,7 +2091,7 @@ class simulator_func_mysql:
         self.df_all_item.loc[0, 'valuation_profit'] = int(0)
         _score_cols_all_item = ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d',
                                 'score_e', 'score_f', 'score_g']
-        if self.simul_num in (7, 8):
+        if self.simul_num in (7, 8, 9):
             _score_cols_all_item.append('score_h')
         _score_cols_all_item.append('score_penalty')
         for _col in _score_cols_all_item:
@@ -1975,7 +2101,7 @@ class simulator_func_mysql:
         self.df_all_item.loc[0, 'min_low_pct'] = 0.0
         self.df_all_item.loc[0, 'rsi14'] = 0.0
         self.df_all_item.loc[0, 'rsi_peak'] = 0.0
-        if self.simul_num in (4, 5, 6, 7, 8):
+        if self.simul_num in (4, 5, 6, 7, 8, 9):
             if 'strategy_type' in df.columns:
                 self.df_all_item.loc[0, 'strategy_type'] = df.loc[index, 'strategy_type']
             elif self.simul_num == 4:

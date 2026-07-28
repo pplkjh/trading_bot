@@ -14,7 +14,8 @@ from library.cf import (
     imi1_db_name, initial_capital
 )
 
-TODAY = datetime.now().strftime('%Y%m%d')
+def _today():
+    return datetime.now().strftime('%Y%m%d')
 
 # ── 커넥션 팩토리 ──────────────────────────────────────────────────
 def _conn(db=None):
@@ -84,7 +85,7 @@ def get_kpis():
         SELECT COALESCE(SUM(realized_profit),0) AS today_pnl
         FROM all_item_db
         WHERE sell_date LIKE %s
-    """, (TODAY + '%',))
+    """, (_today() + '%',))
     today_pnl = int(today_rows[0]['today_pnl']) if today_rows else 0
 
     realized   = int(r.get('realized') or 0)
@@ -106,7 +107,7 @@ def get_kpis():
     # 트레이더 상태
     sd = _fetch("SELECT today_buy_stop FROM setting_data LIMIT 1")
     buy_stop = (sd[0]['today_buy_stop'] if sd else '0') or '0'
-    trader_status = '매수 중지' if buy_stop == TODAY else '정상 운영'
+    trader_status = '매수 중지' if buy_stop == _today() else '정상 운영'
 
     # 투자금
     invest_rows = _fetch("SELECT invest_unit FROM setting_data LIMIT 1")
@@ -150,7 +151,16 @@ def get_positions():
 
 # ── 매수 후보 ─────────────────────────────────────────────────────
 def get_candidates(min_score=0, strategy='전체'):
-    where = ["check_item='0'"]
+    """
+    realtime_all_scored (전체 스코어 결과) 우선, 없으면 realtime_daily_buy_list fallback.
+    """
+    # 테이블 존재 여부 확인
+    chk = _fetch("SELECT COUNT(*) AS cnt FROM information_schema.tables "
+                 "WHERE table_schema=%s AND table_name='realtime_all_scored'",
+                 (imi1_db_name,))
+    use_all = (chk[0]['cnt'] if chk else 0) > 0
+
+    where = []
     args  = []
     if min_score > 0:
         where.append("composite_score >= %s")
@@ -158,15 +168,42 @@ def get_candidates(min_score=0, strategy='전체'):
     if strategy in ('A', 'B'):
         where.append("strategy_type = %s")
         args.append(strategy)
-    sql = f"""
-        SELECT code, code_name, strategy_type,
-               composite_score,
-               score_a, score_b, score_c, score_d, score_e, score_f, score_g,
-               score_penalty, volume_ratio, rsi14, close
-        FROM realtime_daily_buy_list
-        WHERE {' AND '.join(where)}
-        ORDER BY composite_score DESC
-    """
+    where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
+
+    if use_all:
+        # "오늘 매수한 종목" 기준: buy_date=오늘 (보유중+당일매도 모두 포함)
+        sql = f"""
+            SELECT a.code, a.code_name, a.strategy_type,
+                   a.composite_score,
+                   a.score_a, a.score_b, a.score_c, a.score_d,
+                   a.score_e, a.score_f, a.score_g, a.score_h,
+                   a.score_penalty, a.vol5, a.vol20, a.rsi14, a.close,
+                   a.passed,
+                   CASE WHEN bought.code IS NOT NULL THEN '1' ELSE '0' END AS check_item
+            FROM realtime_all_scored a
+            LEFT JOIN (SELECT DISTINCT code FROM all_item_db
+                       WHERE buy_date LIKE '{_today()}%%') bought
+                   ON a.code = bought.code
+            {where_clause}
+            ORDER BY a.composite_score DESC
+            LIMIT 50
+        """
+    else:
+        sql = f"""
+            SELECT r.code, r.code_name, r.strategy_type,
+                   r.composite_score,
+                   r.score_a, r.score_b, r.score_c, r.score_d, r.score_e, r.score_f, r.score_g,
+                   0 AS score_h, r.score_penalty, r.vol5, r.vol20, r.rsi14, r.close,
+                   1 AS passed,
+                   CASE WHEN bought.code IS NOT NULL THEN '1' ELSE '0' END AS check_item
+            FROM realtime_daily_buy_list r
+            LEFT JOIN (SELECT DISTINCT code FROM all_item_db
+                       WHERE buy_date LIKE '{_today()}%%') bought
+                   ON r.code = bought.code
+            {where_clause}
+            ORDER BY r.composite_score DESC
+            LIMIT 50
+        """
     return _fetch(sql, args)
 
 
@@ -228,7 +265,7 @@ def get_setting():
 
 
 def set_buy_stop(stop: bool):
-    val = TODAY if stop else '0'
+    val = _today() if stop else '0'
     _exec("UPDATE setting_data SET today_buy_stop=%s", (val,))
 
 
@@ -250,3 +287,66 @@ def lookup_code_name(code: str) -> str:
         return rows[0]['code_name'] if rows else ''
     except Exception:
         return ''
+
+
+# ── 누적 P&L 이력 (대시보드 차트용) ─────────────────────────────
+def get_pnl_history():
+    """매도일별 일간 실현손익 집계 → [(date8, daily_pnl), ...] 오래된 순."""
+    rows = _fetch("""
+        SELECT SUBSTRING(sell_date, 1, 8) AS d,
+               SUM(realized_profit)       AS pnl
+        FROM all_item_db
+        WHERE sell_date != '0' AND sell_date IS NOT NULL AND sell_date != ''
+          AND SUBSTRING(sell_date, 1, 8) REGEXP '^[0-9]{8}$'
+        GROUP BY d
+        ORDER BY d ASC
+    """)
+    return [(r['d'], int(r['pnl'] or 0)) for r in rows]
+
+
+# ── 일별 거래 내역 ────────────────────────────────────────────────
+def get_daily_trades(date8: str):
+    """특정 날짜에 매수 또는 매도된 모든 거래."""
+    return _fetch(f"""
+        SELECT code, code_name, strategy_type,
+               buy_date, sell_date, purchase_price, sell_price,
+               present_price, sell_rate, realized_profit, valuation_profit,
+               holding_amount, composite_score, exit_reason,
+               CASE
+                 WHEN sell_date LIKE '{date8}%%' THEN '매도'
+                 ELSE '매수'
+               END AS action_type
+        FROM all_item_db
+        WHERE sell_date LIKE '{date8}%%'
+           OR (buy_date  LIKE '{date8}%%' AND sell_date = '0')
+        ORDER BY sell_date DESC, buy_date DESC
+    """)
+
+
+def get_trading_dates(limit=120):
+    """거래가 있었던 날짜 목록 (최근 limit일 기준, 내림차순)."""
+    rows = _fetch(f"""
+        SELECT DISTINCT SUBSTRING(sell_date, 1, 8) AS d
+        FROM all_item_db
+        WHERE sell_date != '0' AND sell_date IS NOT NULL AND sell_date != ''
+          AND SUBSTRING(sell_date, 1, 8) REGEXP '^[0-9]{{8}}$'
+        ORDER BY d DESC
+        LIMIT {int(limit)}
+    """)
+    return [r['d'] for r in rows]
+
+
+# ── 주가 이력 (daily_craw DB) ────────────────────────────────────
+def get_price_history(code_name: str, days: int = 90) -> list:
+    """
+    daily_craw DB에서 종목 가격 이력 조회.
+    테이블명 = 한글 종목명 (e.g. `삼성전자`).
+    """
+    if not code_name:
+        return []
+    try:
+        sql = f"SELECT date, `open`, high, low, close, volume FROM `{code_name}` ORDER BY date DESC LIMIT %s"
+        rows = _fetch(sql, (days,), db='daily_craw')
+        return list(reversed(rows))   # 오래된 날짜 순으로 정렬
+    except Exception:
+        return []

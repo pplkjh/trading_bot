@@ -45,7 +45,7 @@ from sqlalchemy import create_engine
 from library import cf
 
 # ── 설정 ─────────────────────────────────────────────────────────
-MIN_SCORE = {'A': 60, 'B': 50, '6': 50, '7': 50, '8': 0}   # sim=8: condition system, min=0
+MIN_SCORE = {'A': 60, 'B': 50, '6': 50, '7': 50, '8': 0, '9': 0}   # sim=8/9: condition system, min=0
 
 BUCKETS = {
     'A': [60, 70, 80, 90, 100, 110, 120],
@@ -55,8 +55,8 @@ BUCKETS = {
 BUCKETS_8_A  = [0, 1, 2, 3, 4, 5]
 BUCKETS_8_B  = [0, 70, 90, 110, 130, 155, 240]  # V4 scoring (ReversalStrategyV4)
 
-DB_NAME   = {'A': 'simulator4', 'B': 'simulator5', '6': 'simulator6', '7': 'simulator7', '8': 'simulator8'}
-SIMUL_NUM = {'A': '4',          'B': '5',          '6': '6',          '7': '7',          '8': '8'}
+DB_NAME   = {'A': 'simulator4', 'B': 'simulator5', '6': 'simulator6', '7': 'simulator7', '8': 'simulator8', '9': 'simulator9'}
+SIMUL_NUM = {'A': '4',          'B': '5',          '6': '6',          '7': '7',          '8': '8',          '9': '9'}
 INITIAL_CAPITAL = 10_000_000
 # ─────────────────────────────────────────────────────────────────
 
@@ -474,12 +474,99 @@ def analyze_8():
     print(f"\n{'='*80}\n")
 
 
+def analyze_9():
+    """simulator9 DB에서 A/B 분리 분석
+    A: BreakoutV6 all-required — 통과/탈락만 있음 (total 항상 5.0)
+    B: ReversalV4 scoring-based — sim=8과 동일
+    """
+    engine = get_engine('simulator9')
+
+    print(f"\n{'='*80}")
+    print(f"  Strategy 9 (A:ConditionV6 All-Required / B:ScoringV4)  분석  (DB: simulator9)")
+    print(f"  A: V5 optional 5개 전부 Required — auto_reject로 필터")
+    print(f"  B: ReversalV4 scoring (sim=8과 동일)")
+    print(f"{'='*80}")
+
+    try:
+        rows = engine.execute("""
+            SELECT composite_score, sell_rate, strategy_type FROM all_item_db
+            WHERE sell_date != '0' AND sell_date != ''
+              AND composite_score IS NOT NULL
+        """).fetchall()
+    except Exception as e:
+        print(f"  ❌ 데이터 읽기 실패: {e}")
+        return
+
+    if not rows:
+        print("  데이터 없음 (백테스트 실행 후 분석하세요)")
+        return
+
+    all_rates = [float(r) for _, r, _ in rows]
+    wins_all  = [r for r in all_rates if r >= 0]
+    rows_a = [(s, r) for s, r, st in rows if str(st) == 'A']
+    rows_b = [(s, r) for s, r, st in rows if str(st) == 'B']
+
+    try:
+        jango = engine.execute(
+            "SELECT d2_deposit, total_evaluation FROM jango_data ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+        final_cap = (float(jango[0] or 0) + float(jango[1] or 0)) if jango else INITIAL_CAPITAL
+        total_ret = (final_cap / INITIAL_CAPITAL - 1) * 100
+    except Exception:
+        total_ret = 0.0
+
+    print(f"\n  총 거래: {len(rows)}건  (A={len(rows_a)}건 / B={len(rows_b)}건)")
+    print(f"  전체 승률: {len(wins_all)/len(rows)*100:.1f}%  "
+          f"평균수익: {sum(all_rates)/len(rows):+.2f}%  "
+          f"총수익률: {total_ret:+.1f}%")
+
+    # --- Strategy A: 전 조건 통과 종목 성과 ---
+    if rows_a:
+        rates = [float(r) for _, r in rows_a]
+        wins  = [r for r in rates if r >= 0]
+        loss  = [r for r in rates if r < 0]
+        print(f"\n{'─'*80}")
+        print(f"  [Strategy A — BreakoutV6 All-Required]  {len(rows_a)}건")
+        print(f"  승률: {len(wins)/len(rows_a)*100:.1f}%  "
+              f"평균익절: {sum(wins)/len(wins):+.2f}% ({len(wins)}건)  "
+              f"평균손절: {sum(loss)/len(loss):+.2f}% ({len(loss)}건)  "
+              f"평균수익: {sum(rates)/len(rows_a):+.2f}%")
+        print(f"  (A는 all-required: 조건 통과 시 composite_score=5 고정)")
+
+    # --- Strategy B: V4 scoring 구간별 분포 (sim=8과 동일) ---
+    if rows_b:
+        rates = [float(r) for _, r in rows_b]
+        wins  = [r for r in rates if r >= 0]
+        print(f"\n{'─'*80}")
+        print(f"  [Strategy B — ReversalV4 Scoring]  {len(rows_b)}건  "
+              f"승률 {len(wins)/len(rows_b)*100:.1f}%  "
+              f"평균수익 {sum(rates)/len(rows_b):+.2f}%")
+        print(f"  스코어 구간별 성과 (min_score={cf.v7_min_score_b}):")
+        print(f"  {'구간':>12} | {'n':>5} | {'승률':>5} | {'평균익절':>6} | {'평균손절':>6} | {'avg수익':>7}")
+        print("  " + "-" * 55)
+        edges = BUCKETS_8_B
+        for i in range(len(edges) - 1):
+            lo, hi = edges[i], edges[i + 1]
+            sub = [r for s, r in rows_b if lo <= int(s or 0) < hi]
+            if not sub:
+                continue
+            w = [r for r in sub if r >= 0]
+            l = [r for r in sub if r < 0]
+            label = f"{lo}~{hi}"
+            print(f"  {label:>12} | {len(sub):>5} | {len(w)/len(sub)*100:>4.1f}% | "
+                  f"{sum(w)/len(w) if w else 0:>5.2f}% | "
+                  f"{sum(l)/len(l) if l else 0:>5.2f}% | "
+                  f"{sum(sub)/len(sub):>+6.2f}%")
+
+    print(f"\n{'='*80}\n")
+
+
 def main():
     args  = [a for a in sys.argv[1:] if not a.startswith('--')]
     flags = [a for a in sys.argv[1:] if a.startswith('--')]
 
     target = args[0].upper() if args else 'AB'
-    if target not in ('A', 'B', 'AB', '6', '7', '8'):
+    if target not in ('A', 'B', 'AB', '6', '7', '8', '9'):
         print(__doc__)
         sys.exit(1)
 
@@ -511,6 +598,10 @@ def main():
         if not analyze_only:
             run_backtest('8', resume=resume)
         analyze_8()
+    elif target == '9':
+        if not analyze_only:
+            run_backtest('9', resume=resume)
+        analyze_9()
     else:
         strategies = ['A', 'B'] if target == 'AB' else [target]
         for s in strategies:

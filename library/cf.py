@@ -109,3 +109,9 @@ v5_min_score_b = 110    # ReversalStrategyV4 — 백테스트 확정
 # B: V4 scoring 기반    — composite_score = 점수 (0~240)
 v6_min_opt_a  = 3    # A optional 최소 통과 수 (5개 중 3개 이상)
 v6_min_score_b = 100  # B V4 scoring 최소 점수 (110→100으로 완화, 거래량 확대)
+
+# ===== v7 Hybrid System (simul_num=9) =====
+# A: BreakoutStrategyV6 (5개 조건 전부 필수) — total 항상 5.0, auto_reject로 필터
+# B: ReversalStrategyV4 (scoring, sim=8과 동일)
+v7_min_opt_a   = 5    # A: 5/5 전부 통과 (사실상 auto_reject가 처리)
+v7_min_score_b = 100  # B: sim=8과 동일

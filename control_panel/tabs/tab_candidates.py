@@ -9,13 +9,14 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 
 from control_panel.widgets.colored_table import ColoredTable, RED, BLUE, GRAY
+from PyQt5.QtGui import QColor
 from control_panel import db
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from library.cf import v4_min_score_a, invest_unit as cf_invest_unit
 
-HEADERS = ['종목명', '전략', '복합점수', 'A모멘텀', 'B평균회귀', 'C추세강도',
+HEADERS = ['상태', '종목명', '종목코드', '전략', '복합점수', 'A모멘텀', 'B평균회귀', 'C추세강도',
            'D수급', 'E시장RS', 'F다중TF', 'G패널티', '현재가', '거래량비율', 'RSI']
 
 
@@ -44,7 +45,7 @@ class CandidatesTab(QWidget):
         filter_lay.addWidget(QLabel('최소 점수:'))
         self._min_score = QSpinBox()
         self._min_score.setRange(0, 300)
-        self._min_score.setValue(v4_min_score_a)
+        self._min_score.setValue(0)           # 기본값 0 → 탈락 종목 포함 전체 표시
         self._min_score.setFixedWidth(70)
         self._min_score.valueChanged.connect(self._apply_filter)
         filter_lay.addWidget(self._min_score)
@@ -69,7 +70,7 @@ class CandidatesTab(QWidget):
 
     def refresh(self, candidates: list):
         self._rows_cache = candidates
-        self._render(candidates)
+        self._apply_filter()   # 현재 UI 필터/정렬 상태 유지하며 재렌더
 
     def _apply_filter(self):
         strat = self._strat_combo.currentText()
@@ -88,25 +89,50 @@ class CandidatesTab(QWidget):
     def _render(self, data: list):
         rows = []
         for c in data:
-            score = int(c.get('composite_score') or 0)
-            sc = RED if score >= 120 else (GRAY if score >= 90 else BLUE)
+            passed  = int(c.get('passed', 1))  # 0=임계점미달, 1=합격
+            bought  = str(c.get('check_item', '0')) not in ('0', '', 'False', 'None')
+            score   = int(c.get('composite_score') or 0)
+
+            if bought:
+                status = ('매수완료', GRAY)
+            elif passed:
+                status = ('합격', RED)
+            else:
+                status = ('미달', GRAY)
+
+            dim = GRAY  # 매수완료·미달 종목 회색
+            fade = (not passed) or bought
+
+            def cell(val):
+                return (val, GRAY) if fade else (val, None)
+
+            sc = GRAY if fade else (RED if score >= 120 else (
+                QColor('#e07b00') if score >= 90 else BLUE))
+
             rows.append([
-                str(c.get('code_name', '')),
-                str(c.get('strategy_type', '')),
+                status,
+                cell(str(c.get('code_name', ''))),
+                cell(str(c.get('code', ''))),
+                cell(str(c.get('strategy_type', ''))),
                 (str(score), sc),
-                (f"{float(c.get('score_a') or 0):.1f}", None),
-                (f"{float(c.get('score_b') or 0):.1f}", None),
-                (f"{float(c.get('score_c') or 0):.1f}", None),
-                (f"{float(c.get('score_d') or 0):.1f}", None),
-                (f"{float(c.get('score_e') or 0):.1f}", None),
-                (f"{float(c.get('score_f') or 0):.1f}", None),
-                (f"{float(c.get('score_g') or 0):.1f}", None),
-                (f"{int(c.get('close') or 0):,}", None),
-                (f"{float(c.get('volume_ratio') or 0):.2f}", None),
-                (f"{float(c.get('rsi14') or 0):.1f}", None),
+                cell(f"{float(c.get('score_a') or 0):.1f}"),
+                cell(f"{float(c.get('score_b') or 0):.1f}"),
+                cell(f"{float(c.get('score_c') or 0):.1f}"),
+                cell(f"{float(c.get('score_d') or 0):.1f}"),
+                cell(f"{float(c.get('score_e') or 0):.1f}"),
+                cell(f"{float(c.get('score_f') or 0):.1f}"),
+                cell(f"{float(c.get('score_g') or 0):.1f}"),
+                cell(f"{int(c.get('close') or 0):,}"),
+                cell(f"{float(c.get('vol5') or 0) / max(float(c.get('vol20') or 1), 1):.2f}"),
+                cell(f"{float(c.get('rsi14') or 0):.1f}"),
             ])
         self._table.set_rows(rows)
-        self._count_lbl.setText(f'{len(data)}건')
+        passed_n = sum(1 for c in data if int(c.get('passed', 1)) == 1)
+        bought_n = sum(1 for c in data if str(c.get('check_item', '0')) not in ('0', '', 'False', 'None'))
+        fail_n   = len(data) - passed_n
+        self._count_lbl.setText(
+            f'전체 {len(data)}건  |  합격 {passed_n}건  |  매수완료 {bought_n}건  |  미달 {fail_n}건'
+        )
 
     def _show_context_menu(self, pos):
         row = self._table.rowAt(pos.y())

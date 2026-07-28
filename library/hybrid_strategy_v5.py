@@ -187,6 +187,133 @@ class BreakoutStrategyV5:
 
 
 # ============================================================
+# Strategy A v6: Breakout — All Conditions Required (sim=9)
+# ============================================================
+
+class BreakoutStrategyV6:
+    """
+    sim=9 Strategy A: V5 optional 5개를 모두 Required로 격상.
+    "N개 이상" 카운팅 없음 — 전부 통과해야 매수.
+
+    Required (전부 통과 필수):
+      ① vol_ratio   > 1.5   (V5 Required 유지)
+      ② atr_rate    > 0.02  (V5 Required 유지)
+      ③ bb_bandwidth > 0.05 (V5 Required 유지)
+      ④ NASDAQ gate: not BEAR/OVERHEAT
+      ⑤ bb_position < 0.65  (V5 Optional → Required)
+      ⑥ rsi14       < 55    (V5 Optional → Required)
+      ⑦ mfi14       > 30    (V5 Optional → Required)
+      ⑧ close > ichimoku_kijun  (V5 Optional → Required)
+      ⑨ +DI > -DI            (V5 Optional → Required)
+    """
+
+    def calculate_total_score(self, row: dict, df_120, market_data=None, fundamental_data=None) -> dict:
+        base = {
+            'total': 0.0,
+            'score_a': 0.0, 'score_b': 0.0, 'score_c': 0.0,
+            'score_d': 0.0, 'score_e': 0.0, 'score_f': 0.0,
+            'score_g': 0.0, 'score_h': 0.0,
+            'score_penalty': 0.0,
+            'auto_reject': False, 'reject_reason': '',
+            'strategy_type': 'A',
+        }
+
+        # Layer 1: NASDAQ Gate
+        regime = _classify_nasdaq_regime(row.get('nasdaq_5d_ret'), row.get('nasdaq_1d_ret'))
+        if regime in ('BEAR', 'OVERHEAT'):
+            base['auto_reject'] = True
+            base['reject_reason'] = f'NASDAQ_{regime}'
+            base['total'] = -999.0
+            return base
+
+        # Layer 2: Required (V5와 동일)
+        vol_r = _vol_ratio(row)
+        if vol_r is None or vol_r < 1.5:
+            base['auto_reject'] = True
+            base['reject_reason'] = f'vol_ratio {vol_r:.2f}<1.5' if vol_r is not None else 'vol_ratio=None'
+            base['total'] = -999.0
+            return base
+
+        atr_r = _atr_rate(row)
+        if atr_r is None or atr_r < 0.02:
+            base['auto_reject'] = True
+            base['reject_reason'] = f'atr_rate {atr_r:.3f}<0.02' if atr_r is not None else 'atr_rate=None'
+            base['total'] = -999.0
+            return base
+
+        try:
+            bw = float(row.get('bb_bandwidth') or 0)
+        except (TypeError, ValueError):
+            bw = 0.0
+        if bw < 0.05:
+            base['auto_reject'] = True
+            base['reject_reason'] = f'bb_bandwidth {bw:.3f}<0.05'
+            base['total'] = -999.0
+            return base
+
+        # Layer 3: V5 Optional → 전부 Required
+        bbpos = _bb_position(row)
+        if bbpos is None or bbpos >= 0.65:
+            base['auto_reject'] = True
+            base['reject_reason'] = f'bb_pos {bbpos:.2f}>=0.65' if bbpos is not None else 'bb_pos=None'
+            base['total'] = -999.0
+            return base
+
+        try:
+            rsi = float(row.get('rsi14') or 55)
+        except (TypeError, ValueError):
+            rsi = 55.0
+        if rsi >= 55:
+            base['auto_reject'] = True
+            base['reject_reason'] = f'rsi14 {rsi:.1f}>=55'
+            base['total'] = -999.0
+            return base
+
+        try:
+            mfi = float(row.get('mfi14') or 0)
+        except (TypeError, ValueError):
+            mfi = 0.0
+        if mfi <= 30:
+            base['auto_reject'] = True
+            base['reject_reason'] = f'mfi14 {mfi:.1f}<=30'
+            base['total'] = -999.0
+            return base
+
+        try:
+            close = float(row.get('close') or 0)
+            kijun = float(row.get('ichimoku_kijun') or 0)
+        except (TypeError, ValueError):
+            close, kijun = 0.0, 0.0
+        if close <= 0 or kijun <= 0 or close <= kijun:
+            base['auto_reject'] = True
+            base['reject_reason'] = f'close {close:.0f}<=kijun {kijun:.0f}'
+            base['total'] = -999.0
+            return base
+
+        try:
+            pdi = float(row.get('plus_di') or 0)
+            mdi = float(row.get('minus_di') or 0)
+        except (TypeError, ValueError):
+            pdi, mdi = 0.0, 0.0
+        if pdi <= mdi:
+            base['auto_reject'] = True
+            base['reject_reason'] = f'+DI {pdi:.1f}<=-DI {mdi:.1f}'
+            base['total'] = -999.0
+            return base
+
+        # 전 조건 통과
+        base.update({
+            'total':   5.0,
+            'score_a': 1.0,  # bb_pos
+            'score_b': 1.0,  # rsi
+            'score_c': 1.0,  # mfi
+            'score_d': 1.0,  # kijun
+            'score_e': 1.0,  # +DI>-DI
+        })
+        return base
+
+
+# ============================================================
 # Strategy B v5: Mean Reversion — Condition-Based
 # ============================================================
 

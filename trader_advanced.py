@@ -891,13 +891,13 @@ class TraderAdvanced(QMainWindow):
                         qty = self.open_api.get_holding_amount(code)
                     if qty > 0:
                         self.open_api.send_order(
-                            "cp_sell", "9999", self.open_api.account,
+                            "cp_sell", "9999", self.open_api.account_number,
                             2, code, qty, 0, "03", "")
                         logger.info(f"[CP] 수동 매도 실행: {name}({code}) {qty}주")
                 elif otype == 'BUY':
                     if qty > 0:
                         self.open_api.send_order(
-                            "cp_buy", "9999", self.open_api.account,
+                            "cp_buy", "9999", self.open_api.account_number,
                             1, code, qty, 0, "03", "")
                         logger.info(f"[CP] 수동 매수 실행: {name}({code}) {qty}주")
                 self.open_api.engine_JB.execute(
