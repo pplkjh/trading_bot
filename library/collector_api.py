@@ -750,11 +750,13 @@ class collector_api():
             self.engine_JB.execute(sql % (self.open_api.today))
             return
 
-        # simul_num=4/5/6: BreakoutStrategyV3 / ReversalStrategyV3 (num=22)
-        # simulator_func_mysql.db_to_realtime_daily_buy_list_num=22 분기에서 처리
-        if self.open_api.simul_num in (4, 5, 6):
+        # simul_num=4/5/6: BreakoutStrategyV3/ReversalStrategyV3 (buy_list_num=22)
+        # simul_num=10:    Strategy E / ValueStrategyE       (buy_list_num=23)
+        # → simulator_func_mysql.db_to_realtime_daily_buy_list() 내부 num 분기에서 처리
+        if self.open_api.simul_num in (4, 5, 6, 10):
             from library.utils import get_latest_complete_date
-            label = {4: 'Strategy A (Breakout)', 5: 'Strategy B (Reversal)', 6: 'Strategy A+B (sim=6)'}
+            label = {4: 'Strategy A (Breakout)', 5: 'Strategy B (Reversal)',
+                     6: 'Strategy A+B (sim=6)', 10: 'Strategy E (ValueE)'}
             print(f"\n🚀 [{label.get(self.open_api.simul_num, str(self.open_api.simul_num))}] 스코어링 시작")
             self.open_api.sf.get_date_for_simul()
             target_date = get_latest_complete_date(self.open_api.sf.date_rows)
@@ -2248,6 +2250,30 @@ class collector_api():
             jango.to_sql('jango_data', self.engine_JB, if_exists='append', index=False)
         except Exception as e:
             logger.debug(f"jango_data 삽입 중 오류 (중복 키일 가능성): {e}")
+
+        # ── opw00018 실제값으로 total_evaluation / total_asset 업데이트 ──────
+        # to_sql 컬럼 목록에 없어서 INSERT 시 NULL로 들어간 두 컬럼을 여기서 채움
+        try:
+            total_eval   = int(self.open_api.change_total_eval_price) \
+                           if hasattr(self.open_api, 'change_total_eval_price') else 0
+            dep_raw      = int(self.open_api.d2_deposit_before_format) \
+                           if hasattr(self.open_api, 'd2_deposit_before_format') else 0
+            actual_total = dep_raw + total_eval
+            # total_evaluation 컬럼이 없으면 먼저 추가 (기존 테이블 호환)
+            try:
+                self.engine_JB.execute(
+                    "ALTER TABLE jango_data ADD COLUMN total_evaluation BIGINT DEFAULT 0"
+                )
+            except Exception:
+                pass  # 이미 존재하면 무시
+            self.engine_JB.execute(
+                "UPDATE jango_data SET total_evaluation=%s, total_asset=%s WHERE date=%s",
+                (total_eval, actual_total, self.open_api.today)
+            )
+            logger.debug(f"jango_data total_asset 업데이트: {actual_total:,}원 "
+                         f"(예수금 {dep_raw:,} + 주식평가 {total_eval:,})")
+        except Exception as _e:
+            logger.debug(f"jango_data total_asset 업데이트 오류: {_e}")
 
         sql = "select date from jango_data"
         rows = self.engine_JB.execute(sql).fetchall()

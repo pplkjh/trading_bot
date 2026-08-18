@@ -16,7 +16,9 @@ imi1_accout = "8127145311" # [모의투자 계좌번호를 넣어주세요. 주�
 # imi1_simul_num은 알고리즘의 번호이다. 새로운 알고리즘으로 새롭게 database를 구축해서 운영하고 싶을 경우 번호를 2, 3, 4 ... 순차적으로 올려 주면 된다.
 # simul_num=4/5/6은 모두 jackbot4_imi1 DB를 공유한다.
 imi1_simul_num=6
-imi1_db_name = "jackbot4_imi1" if imi1_simul_num in (4, 5, 6) else "jackbot"+str(imi1_simul_num)+"_imi1"
+imi1_db_name = ("jackbot4_imi1" if imi1_simul_num in (4, 5, 6)
+                else "jackbot5_imi1" if imi1_simul_num == 10
+                else "jackbot"+str(imi1_simul_num)+"_imi1")
 
 
 # 아래는 실전 투자 계좌번호를 넣는다.
@@ -115,3 +117,38 @@ v6_min_score_b = 100  # B V4 scoring 최소 점수 (110→100으로 완화, 거�
 # B: ReversalStrategyV4 (scoring, sim=8과 동일)
 v7_min_opt_a   = 5    # A: 5/5 전부 통과 (사실상 auto_reject가 처리)
 v7_min_score_b = 100  # B: sim=8과 동일
+
+# ===== Strategy E (simul_num=10) — 가치투자/장기투자 =====
+# DART 재무 데이터 기반 우량기업 선별 (ROE≥15%, 영업이익률≥10%, 부채비율≤150%)
+# buy_list_num=23 / sell_list_num=50
+e_invest_unit   = 2_000_000  # 종목당 투자 금액 (원) — 일반 전략의 2배
+e_max_positions = 5          # 최대 동시 보유 종목 수
+
+# ── 백테스트 구간 ─────────────────────────────────────────────────────────
+# 헤드라인 기준: 벤치마크와 정합된 구간 (추가 작업 A 결과 — kospi_index 시작일)
+# 전체 구간 참고용 재실행 시에는 "20230102"로 변경
+e_simul_start_date = "20230905"   # baseline_v1 헤드라인 구간 (벤치마크 정합)
+e_simul_end_date   = "20260810"   # baseline_v1 헤드라인 종료 (벤치마크 정합)
+
+# ── 레짐 게이트 (sell_list_num=50 / db_to_realtime_buy_list_num=23) ─────────
+# baseline_v1에서 OFF — ablation 3-1 항목으로 보류 (판단 2, 2026-08-11)
+e_regime_gate_on        = True   # 레짐 게이트 — baseline_v2 확정 (2026-08-18)
+e_regime_gate_ma_period = 120    # MA 기간     — baseline_v2 확정 (Gate MA120)
+
+# ── 매도 규칙 (sell_list_num=50) 플래그 ─────────────────────────────────────
+# baseline_v1 기본값: SL_HARD, MA60이탈, RSI과매수만 ON.
+# 나머지는 애블레이션 후보 — 변경 시 dump 자동 기록됨.
+#
+# [ON — baseline_v1]
+e_sell_sl_pct         = -15.0   # ① SL 기준선 (활성화 시 이 값 사용)
+e_sell_sl_hard_on     = True    # ① SL_HARD      : rate <= e_sell_sl_pct
+e_sell_ma60_on        = True    # ② TREND_BREAK  : present_price < ma60
+e_sell_rsi80_on       = False   # v2 RSI-OFF 확정
+#
+# [OFF — 애블레이션 후보. 순서는 CASE 우선순위 순]
+e_sell_sl12_on        = False   # A1 | SL -12% (타이트 손절)          — sell_list_num=50 구버전
+e_sell_ma120_on       = False   # A2 | MA120 이탈 (장기 추세 종료)     — sell_list_num=50 구버전
+e_sell_ma60_double_on = False   # A3 | MA60+MA20 이중확인              — sell_list_num=50 구버전
+e_sell_rsi78_rate_on  = False   # A4 | rsi14>=78 AND rate>=20%       — sell_list_num=50 구버전
+e_sell_tp35_on        = False   # A5 | rate>=35% 목표TP               — sell_list_num=50 구버전
+e_sell_time110_on     = False   # A6 | 110일 AND rate<5% 시간청산     — sell_list_num=50 구버전
