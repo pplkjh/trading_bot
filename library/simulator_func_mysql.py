@@ -359,14 +359,15 @@ class simulator_func_mysql:
             self.db_to_realtime_daily_buy_list_num = 24
             self.sell_list_num = 51
             self.start_invest_price = 10_000_000
-            self.invest_unit = cf.e_invest_unit         # 200만원/슬롯
+            self.invest_unit = self._resolve_invest_unit(self.start_invest_price)  # 100만원/슬롯
             self.limit_money = 300_000
             self.sell_point = 6                          # A전략 익절 기준
             self.losscut_point = -5                      # A/B전략 SL (-5%)
             self.time_stop_days = 20                     # A전략 시간청산 (B=45d, E=MA60 이탈)
             self.max_positions    = 999                  # 하드캡 제거 — 자본 기반 분배
             # A/B : E = 4 : 1 비율, invest_unit 기준 슬롯 수 동적 계산
-            _slots_total = max(1, self.start_invest_price // cf.e_invest_unit)
+            # 예) 10M / 100만원 = 10슬롯 → AB=8, E=2
+            _slots_total = max(1, self.start_invest_price // self.invest_unit)
             self.max_positions_ab = max(1, _slots_total * 4 // 5)  # A/B: 4/5
             self.max_positions_e  = max(1, _slots_total     // 5)  # E:   1/5
             self.invest_limit_rate = 1.02
