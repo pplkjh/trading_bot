@@ -79,9 +79,22 @@ stream_handler.setFormatter(formatter)
 file_handler.setFormatter(formatter)
 file_handler.suffix = "%Y%m%d"
 
-# logger instance에 handler 설정
-logger.addHandler(stream_handler)
-logger.addHandler(file_handler)
+# root logger에 핸들러 설정
+# — library.logging_pack 이 아닌 root에 붙여야
+#   library.simulator_func_mysql 등 다른 모듈의 logger.info/debug가
+#   propagation을 통해 파일 핸들러에 도달한다.
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+# 중복 핸들러 방지 (모듈이 재import 되는 경우)
+if not any(isinstance(h, logging.StreamHandler) and not isinstance(h, TimedRotatingFileHandler)
+           for h in root_logger.handlers):
+    root_logger.addHandler(stream_handler)
+if not any(isinstance(h, TimedRotatingFileHandler) for h in root_logger.handlers):
+    root_logger.addHandler(file_handler)
+
+# 하위 호환: logging_pack.logger 직접 참조하는 곳은 root로 포워딩
+logger.addHandler(logging.NullHandler())
+logger.propagate = True
 
 
 logger.debug('debug 모드!')
