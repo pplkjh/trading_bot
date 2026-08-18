@@ -351,8 +351,7 @@ class simulator_func_mysql:
             #   A: +6%TP / -5%SL / 20d 시간청산
             #   B: 하드SL -5% / 트레일링(+3%활성, -5%트레일) / 45d 시간청산
             #   E: MA60 이탈 / -15%SL
-            self.simul_start_date = cf.e_simul_start_date
-            self.simul_end_date   = cf.e_simul_end_date
+            self.simul_start_date = "20230103"   # A/B와 동일 시작점 (sim=6/7/8/9 기준)
             self.use_min = False
             self.only_nine_buy = False
             self.db_to_realtime_daily_buy_list_num = 24
