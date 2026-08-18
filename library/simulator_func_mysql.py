@@ -345,8 +345,10 @@ class simulator_func_mysql:
 
         elif self.simul_num == 11:
             # Strategy A+B+E 혼합 — 백테스트: simulator11 / 실전: jackbot6_imi1
-            # 슬롯 구성: A/B 4슬롯 + E 1슬롯 = 5슬롯 × 200만원 = 10M
-            # 레짐 게이트: E 전략에만 적용 (A/B는 무게이트)
+            # A/B: sim=9 알고리즘 (BreakoutV6 전조건필수 + ReversalV4 ≥100pt)
+            # E  : sim=10 알고리즘 (ValueStrategyE baseline_v2)
+            # 자본 배분: A/B=4/5, E=1/5 — invest_unit 기준 슬롯 수 동적 계산
+            # 레짐 게이트: E 전략에만 KOSPI MA120 적용 (A/B는 무게이트)
             # 매도: strategy_type별 차별
             #   A: +6%TP / -5%SL / 20d 시간청산
             #   B: 하드SL -5% / 트레일링(+3%활성, -5%트레일) / 45d 시간청산
@@ -362,9 +364,11 @@ class simulator_func_mysql:
             self.sell_point = 6                          # A전략 익절 기준
             self.losscut_point = -5                      # A/B전략 SL (-5%)
             self.time_stop_days = 20                     # A전략 시간청산 (B=45d, E=MA60 이탈)
-            self.max_positions    = 5                    # 전체 상한
-            self.max_positions_ab = 4                    # A/B 슬롯
-            self.max_positions_e  = 1                    # E 슬롯
+            self.max_positions    = 999                  # 하드캡 제거 — 자본 기반 분배
+            # A/B : E = 4 : 1 비율, invest_unit 기준 슬롯 수 동적 계산
+            _slots_total = max(1, self.start_invest_price // cf.e_invest_unit)
+            self.max_positions_ab = max(1, _slots_total * 4 // 5)  # A/B: 4/5
+            self.max_positions_e  = max(1, _slots_total     // 5)  # E:   1/5
             self.invest_limit_rate = 1.02
             self.invest_min_limit_rate = 0.97
 
@@ -1919,11 +1923,12 @@ class simulator_func_mysql:
                 realtime_daily_buy_list = []
 
         # 🤝 전략 24: A+B+E 혼합 매수 (simul_num=11)
-        # A/B: BreakoutV3+ReversalV3 스코어링 (num=22·sim=6 로직 준용)
-        # E  : ValueStrategyE 스크리닝 + Gate MA120
+        # A/B: sim=9 알고리즘 (BreakoutV6 전조건필수 + ReversalV4 ≥100pt)
+        # E  : sim=10 알고리즘 (ValueStrategyE baseline_v2) + Gate MA120
         elif self.db_to_realtime_daily_buy_list_num == 24:
             import pandas as pd
-            from library.hybrid_strategy_v3 import BreakoutStrategyV3, ReversalStrategyV3
+            from library.hybrid_strategy_v5 import BreakoutStrategyV6
+            from library.hybrid_strategy_v4 import ReversalStrategyV4
 
             _ab_max = getattr(self, 'max_positions_ab', 4)
             _e_max  = getattr(self, 'max_positions_e',  1)
@@ -1952,7 +1957,7 @@ class simulator_func_mysql:
 
             # ── A/B 스코어링 (sim=6 로직 준용) ─────────────────────────────
             if _ab_avail > 0:
-                _strat_ab = [BreakoutStrategyV3(), ReversalStrategyV3()]
+                _strat_ab = [BreakoutStrategyV6(), ReversalStrategyV4()]
                 _candidates_ab = []
                 try:
                     _pre_sql_ab = f"""
@@ -2044,7 +2049,9 @@ class simulator_func_mysql:
                     if _best_result_ab is None:
                         continue
                     _st_ab = _best_result_ab['strategy_type']
-                    _min_sc_ab = cf.v4_min_score_a if _st_ab == 'A' else cf.v4_min_score_b
+                    # A: BreakoutV6 전조건필수 (auto_reject가 처리, v7_min_opt_a=5)
+                    # B: ReversalV4 스코어링 ≥100pt (v7_min_score_b=100)
+                    _min_sc_ab = cf.v7_min_opt_a if _st_ab == 'A' else cf.v7_min_score_b
                     if _best_score_ab >= _min_sc_ab:
                         _rdict_ab['composite_score'] = int(_best_score_ab)
                         _rdict_ab['score_a']       = _best_result_ab['score_a']
