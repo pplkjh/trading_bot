@@ -752,11 +752,13 @@ class collector_api():
 
         # simul_num=4/5/6: BreakoutStrategyV3/ReversalStrategyV3 (buy_list_num=22)
         # simul_num=10:    Strategy E / ValueStrategyE       (buy_list_num=23)
+        # simul_num=11:    A+B+E 혼합                        (buy_list_num=24)
         # → simulator_func_mysql.db_to_realtime_daily_buy_list() 내부 num 분기에서 처리
-        if self.open_api.simul_num in (4, 5, 6, 10):
+        if self.open_api.simul_num in (4, 5, 6, 10, 11):
             from library.utils import get_latest_complete_date
             label = {4: 'Strategy A (Breakout)', 5: 'Strategy B (Reversal)',
-                     6: 'Strategy A+B (sim=6)', 10: 'Strategy E (ValueE)'}
+                     6: 'Strategy A+B (sim=6)', 10: 'Strategy E (ValueE)',
+                     11: 'Strategy A+B+E (sim=11)'}
             print(f"\n🚀 [{label.get(self.open_api.simul_num, str(self.open_api.simul_num))}] 스코어링 시작")
             self.open_api.sf.get_date_for_simul()
             target_date = get_latest_complete_date(self.open_api.sf.date_rows)

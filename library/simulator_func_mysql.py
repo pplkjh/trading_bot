@@ -322,6 +322,53 @@ class simulator_func_mysql:
             self.invest_limit_rate = 1.02
             self.invest_min_limit_rate = 0.97
 
+        elif self.simul_num == 10:
+            # Strategy E: 가치투자/장기투자
+            # DART 재무 데이터 기반 우량기업 선별 — jackbot5_imi1 실전 / simulator10 백테스트
+            # 헤드라인 구간: cf.e_simul_start_date~cf.e_simul_end_date (벤치마크 정합)
+            # 전체 구간 참고 실행 시: cf.py에서 e_simul_start_date="20230102"로 변경 후 재실행
+            self.simul_start_date = cf.e_simul_start_date
+            self.simul_end_date   = cf.e_simul_end_date   # 기본값 self.today 덮어쓰기
+            self.use_min = False
+            self.only_nine_buy = False
+            self.db_to_realtime_daily_buy_list_num = 23
+            self.sell_list_num = 50
+            self.start_invest_price = 10_000_000
+            self.invest_unit = cf.e_invest_unit
+            self.limit_money = 300_000
+            self.sell_point = 30      # 미사용 (sell_list_num=50은 MA20이탈/SL/시간청산)
+            self.losscut_point = -10
+            self.time_stop_days = 365
+            self.max_positions = 999  # 포지션 상한 제거 테스트 (원래 cf.e_max_positions=5)
+            self.invest_limit_rate = 1.02
+            self.invest_min_limit_rate = 0.97
+
+        elif self.simul_num == 11:
+            # Strategy A+B+E 혼합 — 백테스트: simulator11 / 실전: jackbot6_imi1
+            # 슬롯 구성: A/B 4슬롯 + E 1슬롯 = 5슬롯 × 200만원 = 10M
+            # 레짐 게이트: E 전략에만 적용 (A/B는 무게이트)
+            # 매도: strategy_type별 차별
+            #   A: +6%TP / -5%SL / 20d 시간청산
+            #   B: 하드SL -5% / 트레일링(+3%활성, -5%트레일) / 45d 시간청산
+            #   E: MA60 이탈 / -15%SL
+            self.simul_start_date = cf.e_simul_start_date
+            self.simul_end_date   = cf.e_simul_end_date
+            self.use_min = False
+            self.only_nine_buy = False
+            self.db_to_realtime_daily_buy_list_num = 24
+            self.sell_list_num = 51
+            self.start_invest_price = 10_000_000
+            self.invest_unit = cf.e_invest_unit         # 200만원/슬롯
+            self.limit_money = 300_000
+            self.sell_point = 6                          # A전략 익절 기준
+            self.losscut_point = -5                      # A/B전략 SL (-5%)
+            self.time_stop_days = 20                     # A전략 시간청산 (B=45d, E=MA60 이탈)
+            self.max_positions    = 5                    # 전체 상한
+            self.max_positions_ab = 4                    # A/B 슬롯
+            self.max_positions_e  = 1                    # E 슬롯
+            self.invest_limit_rate = 1.02
+            self.invest_min_limit_rate = 0.97
+
         # ==================== 기존 전략 (20번대로 이동) ====================
 
         elif self.simul_num == 21:
@@ -549,6 +596,18 @@ class simulator_func_mysql:
 
         #########################################################################################################################
         self.db_name_setting()
+
+        # ─ 스키마 마이그레이션: 실전 DB 누락 컬럼 자동 추가 ──────────────────────
+        # 코드에 컬럼이 추가됐으나 기존 테이블에 ALTER TABLE 이 안 된 경우를 방지
+        if self.op == 'real' and self.is_simul_table_exist(self.db_name, 'all_item_db'):
+            for _migration_sql in [
+                "ALTER TABLE all_item_db ADD COLUMN sell_reason VARCHAR(500) DEFAULT ''",
+            ]:
+                try:
+                    self.engine_simulator.execute(_migration_sql)
+                    print(f"[schema_migration] 컬럼 추가 완료: {_migration_sql[:60]}")
+                except Exception:
+                    pass  # 이미 존재하면 무시
 
         if self.op != 'real':
             # database, table 초기화 함수
@@ -808,11 +867,11 @@ class simulator_func_mysql:
                 logger.debug("composite_score 없음, code 정렬로 폴백: %s", sql)
                 self.df_realtime_daily_buy_list = pd.read_sql(sql, self.engine_simulator)
             logger.debug("Query returned %d rows", len(self.df_realtime_daily_buy_list))
-        elif self.simul_num in (4, 5, 6, 7, 8, 9):
-            # simul_num=4/5/6/7/8: strategy_type 컬럼 포함 — pd.read_sql로 전체 읽기
+        elif self.simul_num in (4, 5, 6, 7, 8, 9, 10, 11):
+            # simul_num=4~11: strategy_type 컬럼 포함 — pd.read_sql로 전체 읽기
             import pandas as pd
             sql = "select * from realtime_daily_buy_list where check_item = '0' order by composite_score desc, code"
-            logger.debug("SQL query (sim=4/5/6/7/8): %s", sql)
+            logger.debug("SQL query (sim=4~10): %s", sql)
             logger.debug("Using database engine: %s", self.engine_simulator.url.database)
             self.df_realtime_daily_buy_list = pd.read_sql(sql, self.engine_simulator)
             logger.debug("Query returned %d rows", len(self.df_realtime_daily_buy_list))
@@ -1829,13 +1888,228 @@ class simulator_func_mysql:
             '''
             realtime_daily_buy_list = self.engine_daily_buy_list.execute(sql).fetchall()
 
+        # 🌱 전략 23: Strategy E — 지속 성장주 추세추종
+        elif self.db_to_realtime_daily_buy_list_num == 23:
+            from library.value_strategy_e import ValueStrategyE
+
+            # ── 시장 레짐 게이트: KOSPI < MA_N 이면 신규 매수 금지 ─────────────
+            # cf.e_regime_gate_on        = True/False
+            # cf.e_regime_gate_ma_period = 60 (MA60) or 120 (MA120)
+            _regime_ok = True
+            if cf.e_regime_gate_on:
+                try:
+                    _ma_period = int(getattr(cf, 'e_regime_gate_ma_period', 60))
+                    _kospi_rows = self.engine_daily_craw.execute(
+                        "SELECT close FROM kospi_index "
+                        "WHERE date <= '%s' ORDER BY date DESC LIMIT %d" % (date_rows_today, _ma_period)
+                    ).fetchall()
+                    if len(_kospi_rows) >= _ma_period:
+                        _k_close = float(_kospi_rows[0][0])
+                        _k_ma    = sum(float(r[0]) for r in _kospi_rows) / float(_ma_period)
+                        if _k_close < _k_ma:
+                            _regime_ok = False
+                except Exception:
+                    pass  # 데이터 없으면 허용
+
+            if _regime_ok:
+                realtime_daily_buy_list = ValueStrategyE().screen(
+                    date_str=date_rows_today,
+                    engine_dbl=self.engine_daily_buy_list,
+                )
+            else:
+                realtime_daily_buy_list = []
+
+        # 🤝 전략 24: A+B+E 혼합 매수 (simul_num=11)
+        # A/B: BreakoutV3+ReversalV3 스코어링 (num=22·sim=6 로직 준용)
+        # E  : ValueStrategyE 스크리닝 + Gate MA120
+        elif self.db_to_realtime_daily_buy_list_num == 24:
+            import pandas as pd
+            from library.hybrid_strategy_v3 import BreakoutStrategyV3, ReversalStrategyV3
+
+            _ab_max = getattr(self, 'max_positions_ab', 4)
+            _e_max  = getattr(self, 'max_positions_e',  1)
+
+            # ── strategy_type별 현재 보유 수 조회 ──────────────────────────
+            _ab_hold = _e_hold = 0
+            if self.is_simul_table_exist(self.db_name, "all_item_db"):
+                try:
+                    _cnt_row = self.engine_simulator.execute(
+                        "SELECT "
+                        "SUM(CASE WHEN strategy_type IN ('A','B') THEN 1 ELSE 0 END) AS ab, "
+                        "SUM(CASE WHEN strategy_type = 'E' THEN 1 ELSE 0 END) AS e "
+                        "FROM all_item_db WHERE sell_date = '0'"
+                    ).fetchone()
+                    if _cnt_row:
+                        _ab_hold = int(_cnt_row[0] or 0)
+                        _e_hold  = int(_cnt_row[1] or 0)
+                except Exception:
+                    pass
+
+            _ab_avail = max(0, _ab_max - _ab_hold)
+            _e_avail  = max(0, _e_max  - _e_hold)
+            logger.debug(f"[num=24] 슬롯 — A/B: 보유{_ab_hold}/가용{_ab_avail} / E: 보유{_e_hold}/가용{_e_avail}")
+
+            combined = []
+
+            # ── A/B 스코어링 (sim=6 로직 준용) ─────────────────────────────
+            if _ab_avail > 0:
+                _strat_ab = [BreakoutStrategyV3(), ReversalStrategyV3()]
+                _candidates_ab = []
+                try:
+                    _pre_sql_ab = f"""
+                        (SELECT a.* FROM `{date_rows_today}` a
+                         WHERE NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code=b.code)
+                         AND a.close > 0 AND a.close < {self.invest_unit}
+                         AND a.volume > 0 AND a.vol20 > 0
+                         AND a.d1_diff_rate >= 1.5
+                         AND a.vol5 > a.vol20 * 1.2
+                         ORDER BY a.d1_diff_rate DESC LIMIT 150)
+                        UNION
+                        (SELECT a.* FROM `{date_rows_today}` a
+                         WHERE NOT EXISTS (SELECT null FROM stock_konex b WHERE a.code=b.code)
+                         AND a.close > 0 AND a.close < {self.invest_unit}
+                         AND a.volume > 0 AND a.vol20 > 0
+                         AND a.rsi14 <= 54 AND a.rsi14 >= 25
+                         ORDER BY a.rsi14 ASC LIMIT 150)
+                    """
+                    _candidates_ab = self.engine_daily_buy_list.execute(_pre_sql_ab).fetchall()
+                    logger.debug(f"[num=24/AB] 사전필터 후보 {len(_candidates_ab)}개")
+                except Exception as e:
+                    logger.debug(f"[num=24/AB] 사전필터 실패: {e}")
+
+                # KOSPI 최근 20일 (market_data)
+                _market_data_ab = None
+                try:
+                    _ki_df_ab = pd.read_sql(
+                        "SELECT close FROM kospi_index ORDER BY date DESC LIMIT 20",
+                        self.engine_daily_craw
+                    )
+                    if len(_ki_df_ab) >= 20:
+                        _market_data_ab = _ki_df_ab['close'].iloc[::-1].reset_index(drop=True)
+                except Exception:
+                    pass
+
+                # 펀더멘털 사전 로드
+                _fund_dict_ab = {}
+                try:
+                    _sf_row_ab = self.engine_daily_buy_list.execute(
+                        "SELECT TABLE_NAME FROM information_schema.tables "
+                        "WHERE table_schema = 'daily_buy_list' AND TABLE_NAME LIKE 'sf_2%%' "
+                        f"AND TABLE_NAME <= 'sf_{date_rows_today}' "
+                        "ORDER BY TABLE_NAME DESC LIMIT 1"
+                    ).fetchone()
+                    if _sf_row_ab:
+                        _sf_table_ab = _sf_row_ab[0]
+                        _fund_df_ab = pd.read_sql(
+                            f"SELECT code, roe, pbr, per, credit_rate FROM `{_sf_table_ab}`",
+                            self.engine_daily_buy_list
+                        )
+                        for _, _fr_ab in _fund_df_ab.iterrows():
+                            _fund_dict_ab[str(_fr_ab['code']).zfill(6)] = {
+                                'roe': _fr_ab['roe'], 'pbr': _fr_ab['pbr'],
+                                'per': _fr_ab['per'], 'credit_rate': _fr_ab['credit_rate'],
+                            }
+                except Exception:
+                    pass
+
+                # 종목별 스코어링
+                _scored_ab = []
+                _total_ab = len(_candidates_ab)
+                for _idx_ab, _row_ab in enumerate(_candidates_ab):
+                    _code_ab = _row_ab['code']
+                    _cname_ab = _row_ab['code_name']
+                    if _idx_ab % 10 == 0:
+                        print(f"  [num=24/AB] {_idx_ab+1}/{_total_ab} {_cname_ab}", end='\r', flush=True)
+                    try:
+                        _df120_ab = pd.read_sql(
+                            f"SELECT * FROM `{_cname_ab}` WHERE code = '{_code_ab}'"
+                            f" AND date <= '{date_rows_today}' ORDER BY date DESC LIMIT 120",
+                            self.engine_daily_craw
+                        )
+                        if len(_df120_ab) < 2:
+                            continue
+                        _df120_ab = _df120_ab.sort_values('date').reset_index(drop=True)
+                    except Exception:
+                        continue
+
+                    _rdict_ab = dict(_row_ab)
+                    _fd_ab = _fund_dict_ab.get(_code_ab) or None
+                    _best_score_ab = -9999
+                    _best_result_ab = None
+                    for _strategy_ab in _strat_ab:
+                        _sr = _strategy_ab.calculate_total_score(_rdict_ab, _df120_ab, _market_data_ab, _fd_ab)
+                        if not _sr['auto_reject'] and _sr['total'] > _best_score_ab:
+                            _best_score_ab = _sr['total']
+                            _best_result_ab = _sr
+
+                    if _best_result_ab is None:
+                        continue
+                    _st_ab = _best_result_ab['strategy_type']
+                    _min_sc_ab = cf.v4_min_score_a if _st_ab == 'A' else cf.v4_min_score_b
+                    if _best_score_ab >= _min_sc_ab:
+                        _rdict_ab['composite_score'] = int(_best_score_ab)
+                        _rdict_ab['score_a']       = _best_result_ab['score_a']
+                        _rdict_ab['score_b']       = _best_result_ab['score_b']
+                        _rdict_ab['score_c']       = _best_result_ab['score_c']
+                        _rdict_ab['score_d']       = _best_result_ab['score_d']
+                        _rdict_ab['score_e']       = _best_result_ab['score_e']
+                        _rdict_ab['score_f']       = _best_result_ab['score_f']
+                        _rdict_ab['score_g']       = _best_result_ab['score_g']
+                        _rdict_ab['score_h']       = _best_result_ab.get('score_h', 0)
+                        _rdict_ab['score_penalty'] = _best_result_ab['score_penalty']
+                        _rdict_ab['strategy_type'] = _st_ab
+                        _scored_ab.append((_rdict_ab, _best_score_ab))
+                        logger.debug(f"[num=24/AB] {_cname_ab}({_code_ab}) → {_st_ab} {_best_score_ab:.0f}pt ✅")
+
+                _scored_ab.sort(key=lambda x: x[1], reverse=True)
+                for _item_ab, _ in _scored_ab[:_ab_avail]:
+                    combined.append(_item_ab)
+                logger.debug(f"[num=24/AB] 선택 {min(len(_scored_ab), _ab_avail)}개 / 합격 {len(_scored_ab)}개")
+
+            # ── E 스크리닝 (Gate MA120 적용) ────────────────────────────────
+            if _e_avail > 0:
+                from library.value_strategy_e import ValueStrategyE
+                _regime_ok_e = True
+                if cf.e_regime_gate_on:
+                    try:
+                        _ma_p_e = int(getattr(cf, 'e_regime_gate_ma_period', 120))
+                        _kospi_rows_e = self.engine_daily_craw.execute(
+                            "SELECT close FROM kospi_index "
+                            "WHERE date <= '%s' ORDER BY date DESC LIMIT %d" % (date_rows_today, _ma_p_e)
+                        ).fetchall()
+                        if len(_kospi_rows_e) >= _ma_p_e:
+                            _k_close_e = float(_kospi_rows_e[0][0])
+                            _k_ma_e    = sum(float(_ke[0]) for _ke in _kospi_rows_e) / float(_ma_p_e)
+                            if _k_close_e < _k_ma_e:
+                                _regime_ok_e = False
+                    except Exception:
+                        pass  # NULL → PASS
+
+                if _regime_ok_e:
+                    _e_cands = ValueStrategyE().screen(
+                        date_str=date_rows_today,
+                        engine_dbl=self.engine_daily_buy_list,
+                    )
+                    for _ec in _e_cands[:_e_avail]:
+                        if isinstance(_ec, dict):
+                            _ec['strategy_type'] = 'E'
+                        combined.append(_ec)
+                    logger.debug(f"[num=24/E] E후보 {len(_e_cands[:_e_avail])}개 추가")
+                else:
+                    logger.debug(f"[num=24/E] 레짐 게이트 차단 — E 매수 없음")
+
+            realtime_daily_buy_list = combined
+            _n_ab_final = sum(1 for x in combined if isinstance(x, dict) and x.get('strategy_type') in ('A', 'B'))
+            _n_e_final  = sum(1 for x in combined if isinstance(x, dict) and x.get('strategy_type') == 'E')
+            logger.debug(f"[num=24] 최종 매수 후보: {len(combined)}개 (A/B:{_n_ab_final} E:{_n_e_final})")
+
         ######################################################################################################################################################################################
         else:
             print(f"{self.simul_num}번 알고리즘에 대한 self.db_to_realtime_daily_buy_list_num 설정이 비었습니다. variable_setting 함수에서 self.db_to_realtime_daily_buy_list_num 을 확인해주세요.")
             sys.exit(1)
-        # num=21 실전 모드: 0개여도 테이블을 클리어해 어제 데이터가 남지 않도록 함
+        # 실전 모드: 0개여도 테이블을 클리어해 어제 데이터가 남지 않도록 함
         # (트레이더가 date 컬럼으로 collector 실행 여부를 판단하므로 오래된 데이터가 남으면 오동작)
-        if self.db_to_realtime_daily_buy_list_num in (21, 22) and self.op == 'real' and len(realtime_daily_buy_list) == 0:
+        if self.db_to_realtime_daily_buy_list_num in (21, 22, 23, 24) and self.op == 'real' and len(realtime_daily_buy_list) == 0:
             try:
                 if self.is_simul_table_exist(self.db_name, "realtime_daily_buy_list"):
                     self.engine_simulator.execute("DELETE FROM realtime_daily_buy_list")
@@ -1865,13 +2139,13 @@ class simulator_func_mysql:
             # 종목코드를 6자리 문자열로 변환 (우선주 코드 'xxxRx' 형태도 처리)
             df_realtime_daily_buy_list['code'] = df_realtime_daily_buy_list['code'].astype(str).str.zfill(6)
 
-            # 섹션별 스코어 컬럼 주입 (num=21/22: row_dict에 이미 저장됨, 나머지: 0)
+            # 섹션별 스코어 컬럼 주입 (num=21/22/23: row_dict에 이미 저장됨, 나머지: 0)
             score_cols = ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_g', 'score_h', 'score_penalty']
-            if self.db_to_realtime_daily_buy_list_num in (21, 22) and isinstance(realtime_daily_buy_list[0], dict):
+            if self.db_to_realtime_daily_buy_list_num in (21, 22, 23, 24) and isinstance(realtime_daily_buy_list[0], dict):
                 for col in score_cols:
                     df_realtime_daily_buy_list[col] = [row.get(col, 0) for row in realtime_daily_buy_list]
-                if self.db_to_realtime_daily_buy_list_num == 22:
-                    df_realtime_daily_buy_list['strategy_type'] = [d.get('strategy_type', 'A') for d in realtime_daily_buy_list]
+                if self.db_to_realtime_daily_buy_list_num in (22, 23, 24):
+                    df_realtime_daily_buy_list['strategy_type'] = [d.get('strategy_type', 'E') for d in realtime_daily_buy_list]
             else:
                 for col in score_cols:
                     df_realtime_daily_buy_list[col] = 0
@@ -1902,6 +2176,26 @@ class simulator_func_mysql:
                     from ai_filter import ai_filter
                     ai_filter(self.ai_filter_num, engine=self.engine_simulator, until=date_rows_yesterday)
 
+                # [slot-cap fix] 슬롯 상한 적용 (buy_list_num=23 전용)
+                # 신규 매수 수량 = max(0, e_max_positions - 현재 보유 수)
+                # 원인: screen()의 LIMIT e_max_positions 는 '오늘 후보 수'를 제한할 뿐
+                #       기존 보유 포지션 수를 차감하지 않아 상한 초과가 발생했음.
+                if self.db_to_realtime_daily_buy_list_num == 23:
+                    _cur_holdings = 0
+                    if self.is_simul_table_exist(self.db_name, "all_item_db"):
+                        _cur_holdings = int(self.get_count_possessed_item())
+                    _available_slots = max(0, self.max_positions - _cur_holdings)
+                    if _available_slots == 0:
+                        self.engine_simulator.execute("DELETE FROM realtime_daily_buy_list")
+                    elif _available_slots < self.max_positions:
+                        # 상위 _available_slots 개만 남기고 나머지 삭제 (composite_score DESC 우선)
+                        self.engine_simulator.execute(
+                            "DELETE FROM realtime_daily_buy_list WHERE code NOT IN "
+                            "(SELECT code FROM (SELECT code FROM realtime_daily_buy_list "
+                            "ORDER BY composite_score DESC, code LIMIT %d) AS _slot_sub)"
+                            % _available_slots
+                        )
+
                 # 최종적으로 realtime_daily_buy_list 테이블에 저장 된 종목들을 가져온다.
                 self.get_realtime_daily_buy_list()
 
@@ -1909,8 +2203,8 @@ class simulator_func_mysql:
             else:
                 # check_item 컬럼에 0 으로 setting
                 df_realtime_daily_buy_list['check_item'] = int(0)
-                # num=21/22: row_dict 기반이므로 모든 컬럼(composite_score, strategy_type 포함) DataFrame으로 저장
-                if self.db_to_realtime_daily_buy_list_num in (21, 22):
+                # num=21/22/24: row_dict 기반이므로 모든 컬럼(composite_score, strategy_type 포함) DataFrame으로 저장
+                if self.db_to_realtime_daily_buy_list_num in (21, 22, 24):
                     import pandas as pd
                     df_write = pd.DataFrame(realtime_daily_buy_list)
                     df_write['check_item'] = int(0)
@@ -1971,8 +2265,8 @@ class simulator_func_mysql:
             )
             self.engine_simulator.execute(sql_minmax)
 
-        # RSI 추적 + rsi_peak 갱신 (B전략 Top Failure Swing 매도용)
-        if rsi14 is not None and self.simul_num in (5, 6):
+        # RSI 추적 + rsi_peak 갱신 (B전략 Top Failure Swing 매도용 + sim=10 TP_OVERHEAT용)
+        if rsi14 is not None and self.simul_num in (5, 6, 10, 11):
             try:
                 self.engine_simulator.execute(
                     f"UPDATE all_item_db SET rsi14 = {float(rsi14)}, "
@@ -2043,7 +2337,8 @@ class simulator_func_mysql:
                                               *(['score_h'] if self.simul_num in (7, 8, 9) else []),
                                               'score_penalty',
                                               'simul_num',
-                                              'max_high_pct', 'min_low_pct', 'rsi14', 'rsi_peak'])
+                                              'max_high_pct', 'min_low_pct', 'rsi14', 'rsi_peak',
+                                              'sell_reason'])
 
     # 가장 초기에 매수 했을 때 all_item_db 에 추가하는 함수
     def db_to_all_item(self, min_date, df, index, code, code_name, purchase_price, yesterday_close):
@@ -2101,13 +2396,16 @@ class simulator_func_mysql:
         self.df_all_item.loc[0, 'min_low_pct'] = 0.0
         self.df_all_item.loc[0, 'rsi14'] = 0.0
         self.df_all_item.loc[0, 'rsi_peak'] = 0.0
-        if self.simul_num in (4, 5, 6, 7, 8, 9):
+        self.df_all_item.loc[0, 'sell_reason'] = ''
+        if self.simul_num in (4, 5, 6, 7, 8, 9, 10, 11):
             if 'strategy_type' in df.columns:
                 self.df_all_item.loc[0, 'strategy_type'] = df.loc[index, 'strategy_type']
             elif self.simul_num == 4:
                 self.df_all_item.loc[0, 'strategy_type'] = 'A'
             elif self.simul_num == 5:
                 self.df_all_item.loc[0, 'strategy_type'] = 'B'
+            elif self.simul_num == 10:
+                self.df_all_item.loc[0, 'strategy_type'] = 'E'
 
         # 컬럼 중에 nan 값이 있는 경우 0으로 변경 -> 이렇게 안하면 아래 데이터베이스에 넣을 때
         # AttributeError: 'numpy.int64' object has no attribute 'translate' 에러 발생
@@ -2527,6 +2825,144 @@ class simulator_func_mysql:
             ).format(sp=sp, lc_a=lc_a, td_a=td_a, lc_b=lc_b, td_b=td_b, d=date_today_str)
             sell_list = self.engine_simulator.execute(sql).fetchall()
 
+        # Strategy E: 플래그 기반 토글 가능 매도 규칙 (sell_list_num=50)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # 활성/비활성 규칙은 cf.py의 e_sell_* 플래그로 제어한다.
+        # baseline_v1 기본값: SL_HARD(①), MA60이탈(②), RSI과매수(③) ON.
+        # 애블레이션 후보(A1~A6)는 모두 OFF. cf.py 참조.
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        elif self.sell_list_num == 50:
+            date_today_str = self.date_rows[i][0]
+
+            # ── CASE 절 (우선순위 순) ─────────────────────────────────────
+            case_clauses = []
+            where_clauses = []
+            sl_pct = cf.e_sell_sl_pct  # 기본 -15.0
+
+            # A1: SL -12% (애블레이션, 구버전 — baseline_v1에서 OFF)
+            if cf.e_sell_sl12_on:
+                case_clauses.append("  WHEN rate <= -12 THEN 'SL(-12%)[A1]'")
+                where_clauses.append("rate <= -12")
+
+            # ①: SL_HARD (baseline_v1 ON)
+            if cf.e_sell_sl_hard_on:
+                case_clauses.append(f"  WHEN rate <= {sl_pct} THEN 'SL_HARD({sl_pct}%)'")
+                where_clauses.append(f"rate <= {sl_pct}")
+
+            # A2: MA120 이탈 (애블레이션)
+            if cf.e_sell_ma120_on:
+                case_clauses.append("  WHEN present_price < ma120 THEN 'MA120이탈[A2]'")
+                where_clauses.append("present_price < ma120")
+
+            # ②: TREND_BREAK MA60 단독 이탈 (baseline_v1 ON)
+            if cf.e_sell_ma60_on:
+                case_clauses.append("  WHEN present_price < ma60 THEN 'TREND_BREAK(MA60)'")
+                where_clauses.append("present_price < ma60")
+
+            # A3: MA60+MA20 이중확인 (애블레이션)
+            if cf.e_sell_ma60_double_on:
+                case_clauses.append("  WHEN present_price < ma60 AND ma20 < ma60 THEN 'MA60이중확인[A3]'")
+                where_clauses.append("(present_price < ma60 AND ma20 < ma60)")
+
+            # A4: RSI78 + 수익>=20% (애블레이션)
+            if cf.e_sell_rsi78_rate_on:
+                case_clauses.append("  WHEN rsi14 >= 78 AND rate >= 20 THEN 'RSI78+수익20[A4]'")
+                where_clauses.append("(rsi14 >= 78 AND rate >= 20)")
+
+            # ③: TP_OVERHEAT RSI>=80 단독 (baseline_v1 ON)
+            if cf.e_sell_rsi80_on:
+                case_clauses.append("  WHEN rsi14 >= 80 THEN 'TP_OVERHEAT(RSI80)'")
+                where_clauses.append("rsi14 >= 80")
+
+            # A5: 목표TP +35% (애블레이션)
+            if cf.e_sell_tp35_on:
+                case_clauses.append("  WHEN rate >= 35 THEN 'TP_TARGET(35%)[A5]'")
+                where_clauses.append("rate >= 35")
+
+            # A6: 110일 시간청산 (애블레이션)
+            if cf.e_sell_time110_on:
+                case_clauses.append(
+                    "  WHEN DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), "
+                    "       STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 110 "
+                    "       AND rate < 5 THEN '시간청산(110일)[A6]'"
+                )
+                where_clauses.append(
+                    "(DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), "
+                    " STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 110 AND rate < 5)"
+                )
+
+            if not where_clauses:
+                # 모든 규칙이 OFF → 매도 없음 (설정 오류 방지)
+                logger.warning("[sell50] 활성 매도 규칙이 없습니다. cf.py의 e_sell_* 플래그를 확인하세요.")
+                sell_list = []
+            else:
+                case_sql = "CASE\n" + "\n".join(case_clauses) + "\n  ELSE NULL\nEND"
+                where_sql = "(" + "\n  OR ".join(where_clauses) + ")"
+                sql = (
+                    "SELECT code, code_name, rate, present_price, valuation_profit,\n"
+                    + case_sql + " AS sell_reason\n"
+                    "FROM all_item_db\n"
+                    "WHERE sell_date = '0'\n"
+                    "AND " + where_sql + "\n"
+                    "GROUP BY code"
+                ).format(d=date_today_str)
+                sell_list = self.engine_simulator.execute(sql).fetchall()
+
+        # sim=11: A+B+E strategy_type별 차별화 매도 (sell_list_num=51)
+        # A: +6%TP / -5%SL / 20d 시간청산
+        # B: 하드SL -5% / 트레일링(max_high_pct>=3 후 고점대비 -5%, 최소+1%) / 45d 시간청산
+        # E: SL_HARD -15% / MA60 이탈 (sell_list_num=50 baseline 준용)
+        elif self.sell_list_num == 51:
+            date_today_str = self.date_rows[i][0]
+            _sl_e = getattr(cf, 'e_sell_sl_pct', -15.0)
+            sql = (
+                "SELECT code, code_name, rate, present_price, valuation_profit, "
+                "CASE "
+                # A 전략
+                "  WHEN strategy_type = 'A' AND rate >= {sp} THEN '익절(A+{sp:.0f}%%)' "
+                "  WHEN strategy_type = 'A' AND rate <= {lc} THEN '손절(A{lc:.0f}%%)' "
+                "  WHEN strategy_type = 'A' AND "
+                "       DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 20 "
+                "       THEN '시간청산(A20일)' "
+                # B 전략
+                "  WHEN strategy_type = 'B' AND rate <= {lc} THEN '하드SL(B{lc:.0f}%%)' "
+                "  WHEN strategy_type = 'B' AND max_high_pct >= 3 "
+                "       AND rate <= GREATEST(max_high_pct - 5, 1.0) THEN '트레일링(B)' "
+                "  WHEN strategy_type = 'B' AND "
+                "       DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 45 "
+                "       THEN '시간청산(B45일)' "
+                # E 전략
+                "  WHEN strategy_type = 'E' AND rate <= {sl_e} THEN 'SL_HARD(E{sl_e:.0f}%%)' "
+                "  WHEN strategy_type = 'E' AND present_price < ma60 THEN 'TREND_BREAK(E·MA60)' "
+                "  ELSE 'hold' "
+                "END AS sell_reason "
+                "FROM all_item_db "
+                "WHERE sell_date = '0' "
+                "AND ("
+                # A 조건
+                "  (strategy_type = 'A' AND rate >= {sp}) "
+                "  OR (strategy_type = 'A' AND rate <= {lc}) "
+                "  OR (strategy_type = 'A' AND "
+                "      DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 20) "
+                # B 조건
+                "  OR (strategy_type = 'B' AND rate <= {lc}) "
+                "  OR (strategy_type = 'B' AND max_high_pct >= 3 "
+                "      AND rate <= GREATEST(max_high_pct - 5, 1.0)) "
+                "  OR (strategy_type = 'B' AND "
+                "      DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 45) "
+                # E 조건
+                "  OR (strategy_type = 'E' AND rate <= {sl_e}) "
+                "  OR (strategy_type = 'E' AND present_price < ma60) "
+                ") "
+                "GROUP BY code"
+            ).format(
+                sp=self.sell_point,
+                lc=self.losscut_point,
+                sl_e=_sl_e,
+                d=date_today_str
+            )
+            sell_list = self.engine_simulator.execute(sql).fetchall()
+
         # 🚀 고급 통합 전략: exit_strategy.py 사용 (ATR 기반 동적 손절/익절)
         elif self.sell_list_num == 100:
             from library.exit_strategy import get_exit_signals
@@ -2618,11 +3054,13 @@ class simulator_func_mysql:
         return sell_list
 
     # 실제로 매도를 하는 함수 (매도 한 결과를 all_item_db에 반영)
-    def sell_send_order(self, min_date, sell_price, sell_rate, code):
+    def sell_send_order(self, min_date, sell_price, sell_rate, code, sell_reason=''):
         # print("sell send order")
-        sql = "UPDATE all_item_db SET sell_date= '%s', sell_price ='%s' ,sell_rate ='%s' WHERE code='%s' and sell_date = '%s' " \
-              "ORDER BY buy_date desc LIMIT 1"
-        self.engine_simulator.execute(sql % (min_date, sell_price, sell_rate, code, 0))
+        sql = "UPDATE all_item_db SET sell_date='%s', sell_price='%s', sell_rate='%s', sell_reason='%s' " \
+              "WHERE code='%s' AND sell_date='%s' ORDER BY buy_date DESC LIMIT 1"
+        self.engine_simulator.execute(sql % (min_date, sell_price, sell_rate,
+                                             sell_reason.replace("'", "''"),
+                                             code, 0))
         # 매도 후 정산
         self.check_balance()
 
@@ -2648,7 +3086,7 @@ class simulator_func_mysql:
             print(f"  {emoji} {sell_reason}: {get_sell_code_name}({get_sell_code}) | 수익률: {get_sell_rate:.1f}% | {profit_label}: {valuation_profit:,}원")
 
             # 실제로 매도를 하는 함수 (매도 한 결과를 all_item_db에 반영)
-            self.sell_send_order(date, get_present_price, get_sell_rate, get_sell_code)
+            self.sell_send_order(date, get_present_price, get_sell_rate, get_sell_code, sell_reason)
 
     # 몇개의 주를 살지 계산해주는 함수
     def buy_num_count(self, invest_unit, present_price):
@@ -2856,6 +3294,36 @@ class simulator_func_mysql:
         sql = "update jango_data set today_earning_rate =round(today_profit / total_invest * '%s',2) WHERE date='%s'"
         # rows[i][0] 하는 이유는 rows[i]는 튜플( )로 나온다 그 튜플의 원소를 꺼내기 위해 rows[i]에 [0]을 추가
         self.engine_simulator.execute(sql % (100, date_rows_today))
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # 일별 자산곡선 스냅샷 저장 (simul_num=10 전용)
+    # db_to_jango() 직후 호출 → check_balance() 값이 이미 최신 상태
+    # Schema: equity_curve(date, total_equity, cash, position_value, n_positions)
+    # ─────────────────────────────────────────────────────────────────────────
+    def save_equity_snapshot(self, date):
+        if self.simul_num != 10:
+            return
+        try:
+            n_pos_row = self.engine_simulator.execute(
+                "SELECT COUNT(*) FROM all_item_db WHERE sell_date = '0'"
+            ).fetchone()
+            n_positions = int(n_pos_row[0]) if n_pos_row else 0
+        except Exception:
+            n_positions = 0
+
+        total_equity   = float(self.total_invest_price or 0)
+        cash           = float(self.d2_deposit or 0)
+        position_value = total_equity - cash
+
+        from pandas import DataFrame
+        df_snap = DataFrame([{
+            'date':           date,
+            'total_equity':   total_equity,
+            'cash':           cash,
+            'position_value': position_value,
+            'n_positions':    n_positions,
+        }])
+        df_snap.to_sql('equity_curve', self.engine_simulator, if_exists='append', index=False)
 
     # 시뮬레이션이 다 끝났을 때 마지막 jango_data 정리
     def arrange_jango_data(self):
@@ -3875,11 +4343,20 @@ class simulator_func_mysql:
             if self.jango_check():
                 # 돈있으면 매수 시작
                 self.auto_trade_stock_realtime(str(date_rows_today) + "0900", date_rows_today, date_rows_yesterday)
+                # [issue_004 fix] 당일 매수 포지션 평가 즉시 갱신
+                # update_all_db_etc()가 매수 전에 호출되므로 당일 신규 매수 종목의
+                # valuation_price / valuation_profit 이 0으로 남는 문제 수정.
+                # 이 호출 없이는 실전 컨트롤패널에서 당일 매수 종목 평가액이 0으로 표시됨.
+                if self.is_simul_table_exist(self.db_name, "all_item_db") and len(self.get_data_from_possessed_item()) != 0:
+                    self.update_all_db_etc()
 
         #  여긴 가장 초반에 all_itme_db를 만들어야 할때이거나 매수한 종목이 없을 때 들어가는 로직
         else:
             if self.jango_check():
                 self.auto_trade_stock_realtime(str(date_rows_today) + "0900", date_rows_today, date_rows_yesterday)
+                # [issue_004 fix] 첫 매수(초기 포지션)도 즉시 평가 갱신
+                if self.is_simul_table_exist(self.db_name, "all_item_db") and len(self.get_data_from_possessed_item()) != 0:
+                    self.update_all_db_etc()
 
     # 매일 시뮬레이팅 돌기 전 초기화 세팅
     def daily_variable_setting(self):
@@ -3926,12 +4403,132 @@ class simulator_func_mysql:
 
             # 일별 정산
             self.db_to_jango(date_rows_today)
+            # 일별 자산곡선 스냅샷 (simul_num=10 전용 — db_to_jango 내 check_balance 완료 후)
+            self.save_equity_snapshot(date_rows_today)
 
         else:
             print(date_rows_today + "테이블은 존재하지 않는다!!!")
 
     # 날짜 별 로테이팅 함수
+    # ─────────────────────────────────────────────────────────────────────────
+    # 실행 구성 덤프 (simul_num=10 전용)
+    # "문서 조건 != 실행 조건" 재발 방지 — rotate_date 루프 직전 호출
+    # 덤프 파일: backtest_report/bv2_executed_sql.txt
+    # ─────────────────────────────────────────────────────────────────────────
+    def dump_run_config(self):
+        if self.simul_num != 10:
+            return
+
+        import os, datetime
+        out_lines = []
+        ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        out_lines.append("=" * 70)
+        out_lines.append(f"baseline_v2 실행 구성 덤프  [{ts}]")
+        out_lines.append("=" * 70)
+
+        # ── 백테스트 파라미터 ──────────────────────────────────────────────
+        out_lines.append("\n[파라미터]")
+        out_lines.append(f"  simul_num          = {self.simul_num}")
+        out_lines.append(f"  simul_start_date   = {cf.e_simul_start_date}")
+        out_lines.append(f"  simul_end_date     = {cf.e_simul_end_date}")
+        out_lines.append(f"  e_invest_unit      = {cf.e_invest_unit:,}원")
+        out_lines.append(f"  e_max_positions    = {cf.e_max_positions}")
+        out_lines.append(f"  e_regime_gate_on   = {cf.e_regime_gate_on}")
+        out_lines.append(f"  buy_list_num       = {getattr(self, 'db_to_realtime_daily_buy_list_num', 'N/A')}")
+        out_lines.append(f"  sell_list_num      = {getattr(self, 'sell_list_num', 'N/A')}")
+        out_lines.append(f"  초기 자본          = {getattr(self, 'start_invest_price', 'N/A')}")
+
+        # ── 매수 SQL 전문 (baseline_v2 — 동적 생성, 치환값 확인) ─────────────
+        out_lines.append("\n[매수 SQL — value_strategy_e.py ValueStrategyE.screen()]")
+        try:
+            from library.value_strategy_e import ValueStrategyE as _VE
+            _min_liq   = _VE.MIN_VOL120_VALUE    # 실제 클래스 상수값
+            _max_atr   = _VE.MAX_ATR_RATE
+            _max_vol   = _VE.MAX_VOL20_RATIO
+            _max_pos   = _VE.MAX_POSITIONS       # ← 실제 SQL에 치환되는 LIMIT 값
+            buy_sql = (
+                f"SELECT a.*, ROUND((a.vol120+0.0)*a.close/100000000,1) AS liq_cap_100m\n"
+                f"FROM `{{date_str}}` a\n"
+                f"WHERE\n"
+                f"    -- ① vol120*close >= {_min_liq:,} ({_min_liq // 100_000_000}억)  [v1: vol20 100억]\n"
+                f"    (a.vol120 + 0.0) * a.close >= {_min_liq}\n"
+                f"    -- ② 단기 거래량 급증 배제  vol20 <= vol120 * {_max_vol}  [v1: 없음]\n"
+                f"    AND a.vol20 <= a.vol120 * {_max_vol}\n"
+                f"    -- ③ 3단 정배열 (close>clo20>clo60>clo120)\n"
+                f"    AND a.close > a.clo20 AND a.clo20 > a.clo60 AND a.clo60 > a.clo120\n"
+                f"    -- ④ DMI  plus_di > minus_di\n"
+                f"    AND a.plus_di > a.minus_di\n"
+                f"    -- ⑤ ATR/close <= {_max_atr} ({int(_max_atr*100)}%)  [v1: 없음]\n"
+                f"    AND a.atr14 <= a.close * {_max_atr}\n"
+                f"    -- ⑥~⑩ 위험종목 제외 (caution/warning/danger/managing/konex)\n"
+                f"    AND NOT EXISTS (SELECT 1 FROM stock_invest_caution  c WHERE c.code=a.code ...)\n"
+                f"    AND NOT EXISTS (SELECT 1 FROM stock_invest_warning  w WHERE w.code=a.code ...)\n"
+                f"    AND NOT EXISTS (SELECT 1 FROM stock_invest_danger   d WHERE d.code=a.code ...)\n"
+                f"    AND NOT EXISTS (SELECT 1 FROM stock_managing        m WHERE m.code=a.code)\n"
+                f"    AND NOT EXISTS (SELECT 1 FROM stock_konex           k WHERE k.code=a.code)\n"
+                f"ORDER BY (a.vol120 + 0.0) * a.close DESC   -- v1: clo120 모멘텀\n"
+                f"LIMIT {_max_pos}   -- ValueStrategyE.MAX_POSITIONS (실제 치환값)"
+            )
+            out_lines.append(buy_sql)
+            out_lines.append(f"\n  ★ LIMIT 치환 확인: screen() 실제 LIMIT = {_max_pos}"
+                             f"  (cf.e_max_positions = {cf.e_max_positions})")
+            if _max_pos != cf.e_max_positions:
+                out_lines.append(f"  ⚠️  LIMIT 불일치! MAX_POSITIONS={_max_pos} ≠ cf.e_max_positions={cf.e_max_positions}")
+            else:
+                out_lines.append(f"  ✓  LIMIT 일치: MAX_POSITIONS={_max_pos} = cf.e_max_positions={cf.e_max_positions}")
+        except Exception as _dump_e:
+            out_lines.append(f"  [dump_run_config] SQL 동적 생성 실패: {_dump_e}")
+
+        # ── 활성 매도 규칙 ────────────────────────────────────────────────
+        out_lines.append("\n[매도 규칙 (sell_list_num=50) — 활성 플래그]")
+        rules = [
+            ("A1 | SL -12%            (e_sell_sl12_on)       ",        cf.e_sell_sl12_on),
+            (f"①  SL_HARD {cf.e_sell_sl_pct}%       (e_sell_sl_hard_on)    ",   cf.e_sell_sl_hard_on),
+            ("A2 | MA120 이탈          (e_sell_ma120_on)      ",        cf.e_sell_ma120_on),
+            ("②  TREND_BREAK MA60     (e_sell_ma60_on)       ",        cf.e_sell_ma60_on),
+            ("A3 | MA60+MA20 이중확인  (e_sell_ma60_double_on)",        cf.e_sell_ma60_double_on),
+            ("A4 | RSI78+수익20%       (e_sell_rsi78_rate_on) ",        cf.e_sell_rsi78_rate_on),
+            ("③  TP_OVERHEAT RSI>=80  (e_sell_rsi80_on)      ",        cf.e_sell_rsi80_on),
+            ("A5 | 목표TP +35%         (e_sell_tp35_on)       ",        cf.e_sell_tp35_on),
+            ("A6 | 110일 시간청산      (e_sell_time110_on)    ",        cf.e_sell_time110_on),
+        ]
+        for label, flag in rules:
+            status = "ON  ✓" if flag else "OFF ✗"
+            out_lines.append(f"  [{status}]  {label}")
+
+        # ── 레짐 게이트 ───────────────────────────────────────────────────
+        out_lines.append(f"\n  레짐 게이트 (e_regime_gate_on) = {'ON  ✓' if cf.e_regime_gate_on else 'OFF ✗'}")
+
+        out_lines.append("\n" + "=" * 70)
+        text = "\n".join(out_lines)
+
+        # 파일 저장
+        try:
+            dump_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "backtest_report", "bv2_executed_sql.txt"
+            )
+            os.makedirs(os.path.dirname(dump_path), exist_ok=True)
+            with open(dump_path, "w", encoding="utf-8") as f:
+                f.write(text)
+            logger.info("[dump_run_config] → %s", dump_path)
+            print("[dump_run_config] 실행 구성 덤프 완료:", dump_path)
+        except Exception as e:
+            logger.error("[dump_run_config] 저장 실패: %s", e)
+
+        # 콘솔에도 출력
+        print(text)
+
     def rotate_date(self):
+        self.dump_run_config()
+        # sell_reason 컬럼 존재 확인 후 없으면 추가 (모든 simul_num 공통)
+        try:
+            self.engine_simulator.execute(
+                "ALTER TABLE all_item_db ADD COLUMN sell_reason VARCHAR(500) DEFAULT ''"
+            )
+            print("[schema_migration] sell_reason 컬럼 추가 완료 (ALTER TABLE)")
+        except Exception:
+            pass  # 이미 존재하면 무시
         for i in range(1, len(self.date_rows)):
             # print("self.date_rows!!" ,self.date_rows)
             # 시뮬레이팅 할 일자

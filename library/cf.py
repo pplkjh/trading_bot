@@ -18,6 +18,7 @@ imi1_accout = "8127145311" # [모의투자 계좌번호를 넣어주세요. 주�
 imi1_simul_num=6
 imi1_db_name = ("jackbot4_imi1" if imi1_simul_num in (4, 5, 6)
                 else "jackbot5_imi1" if imi1_simul_num == 10
+                else "jackbot6_imi1" if imi1_simul_num == 11
                 else "jackbot"+str(imi1_simul_num)+"_imi1")
 
 
