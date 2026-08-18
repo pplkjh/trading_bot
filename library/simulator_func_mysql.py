@@ -2246,8 +2246,11 @@ class simulator_func_mysql:
         # option이 ALL이면 모든 데이터 업데이트
         if option == "ALL":
             # 시뮬레이터는 간소화된 스키마: close/open/high/low 없음, clo* → ma*로 매핑
+            # None → 'NULL' 변환: 신규상장 종목의 clo120 등이 None일 때 SQL 오류 방지
+            def _sv(v):
+                return 'NULL' if v is None else v
             sql = f"update all_item_db set d1_diff_rate = {d1_diff_rate}, volume = {volume}, present_price = {present_price}, " \
-                  f"ma5 = {clo5}, ma10 = {clo10}, ma20 = {clo20}, ma60 = {clo60}, ma120 = {clo120} " \
+                  f"ma5 = {_sv(clo5)}, ma10 = {_sv(clo10)}, ma20 = {_sv(clo20)}, ma60 = {_sv(clo60)}, ma120 = {_sv(clo120)} " \
                   f"where code_name = '{code_name}' and sell_date = {0}"
         # option이 OPEN이면 present_price 만 업데이트
         else:
