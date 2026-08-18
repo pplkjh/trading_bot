@@ -990,11 +990,43 @@ def strategy_b_exit(pos: dict, ind: dict) -> tuple:
     return False, '', 0.0
 
 
+def strategy_d_exit(pos: dict, ind: dict) -> tuple:
+    """
+    Strategy D — 데이트레이딩 매도
+    하드SL(-2%) / 트레일링(+5%활성 → 5%트레일 / +1% 플로어)
+    손절 유예 없음 — 장중 포지션은 즉각 관리
+
+    트레일링 미활성 구간 (+5% 미달):
+      - 하드SL -2% 만 적용, 익절선 없음 (트레일링 발동 기다림)
+    트레일링 활성 구간 (최고가 >= 매수가×1.05):
+      - trail_stop = max(최고가×0.95, 매수가×1.01)
+      - 현재가 <= trail_stop → 트레일링 청산
+    """
+    entry   = float(pos.get('entry_price',  0))
+    current = float(pos.get('current_price', entry))
+    highest = float(pos.get('highest_price', current))
+
+    profit_pct = (current / entry - 1) * 100 if entry > 0 else 0
+
+    # 하드 SL -2% (트레일링 활성 여부 무관)
+    if profit_pct <= -2.0:
+        return True, f'D_하드SL({profit_pct:.2f}%)', entry * 0.98
+
+    # 트레일링 활성: 최고가 >= 매수가 +5%
+    if entry > 0 and highest >= entry * 1.05:
+        trail_stop = max(highest * 0.95, entry * 1.01)
+        if current <= trail_stop:
+            peak_pct = (highest / entry - 1) * 100
+            return True, f'D_트레일링(고점+{peak_pct:.1f}%→현재{profit_pct:.2f}%)', trail_stop
+
+    return False, '', 0.0
+
+
 # ── 전략 레지스트리 — 새 전략 추가 시 여기에만 등록 ───────────────────────────
 LIVE_EXIT_STRATEGY_MAP = {
     'A': strategy_a_exit,
     'B': strategy_b_exit,
-    # 'C': strategy_c_exit,   # 향후 추가 예시
+    'D': strategy_d_exit,
 }
 
 

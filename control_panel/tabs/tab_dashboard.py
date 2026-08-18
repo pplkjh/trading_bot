@@ -37,8 +37,8 @@ def _card(label, big=False) -> tuple:
     lay.setSpacing(1)
 
     lbl = QLabel(label)
-    lbl.setFont(QFont('Malgun Gothic', 7))
-    lbl.setStyleSheet('color:#999;border:none;')
+    lbl.setFont(QFont('Malgun Gothic', 8))
+    lbl.setStyleSheet('color:#555;border:none;')
 
     val = QLabel('—')
     val.setFont(QFont('Malgun Gothic', 13 if big else 10, QFont.Bold))
@@ -109,6 +109,8 @@ class DashboardTab(QWidget):
         self._det = {}
         det_items = [
             ('initial',     '초기 자금'),
+            ('deposit',     '예수금 (D+2)'),
+            ('total_val',   '총평가금액'),
             ('realized',    '실현 누계'),
             ('unrealized2', '미실현'),
             ('invest_unit', '종목당 투자금'),
@@ -252,7 +254,13 @@ class DashboardTab(QWidget):
         self._sub['avg_loss'].setText(f"{kpis['avg_loss']:+.2f}%" if kpis['avg_loss'] else '—')
 
         # 자산 상세 바
+        dep   = kpis.get('d2_deposit', 0)
+        tval  = kpis.get('total_value', 0)
+        dep_c = '#0044bb' if dep == 0 else '#111'
         self._det['initial'].setText(f'{INITIAL_CAPITAL:,}원')
+        self._det['deposit'].setText(f'{dep:,}원')
+        self._det['deposit'].setStyleSheet(f'color:{dep_c};font-weight:bold;border:none;')
+        self._det['total_val'].setText(f'{tval:,}원')
         self._det['realized'].setText(_won(kpis['realized']))
         self._det['realized'].setTextFormat(Qt.RichText)
         self._det['unrealized2'].setText(_won(kpis['unrealized']))

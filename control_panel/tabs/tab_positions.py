@@ -14,7 +14,7 @@ from control_panel.widgets.price_chart import PriceChart
 from control_panel import db
 
 HEADERS = ['종목명', '전략', '매수점수', '현재가', '매수가', '수익률%', '미실현손익',
-           '수량', '보유일', '최고가', '트레일링스톱', '여유%']
+           '수량', '보유일', '최고가', '트레일링스톱', '여유%', '트레일링']
 
 DANGER_PCT = 2.0
 
@@ -45,8 +45,8 @@ def _kpi(label) -> tuple:
     lay.setContentsMargins(8, 4, 8, 4)
     lay.setSpacing(1)
     l = QLabel(label)
-    l.setFont(QFont('Malgun Gothic', 7))
-    l.setStyleSheet('color:#888;border:none;')
+    l.setFont(QFont('Malgun Gothic', 8))
+    l.setStyleSheet('color:#555;border:none;')
     v = QLabel('—')
     v.setFont(QFont('Malgun Gothic', 11, QFont.Bold))
     v.setStyleSheet('color:#111;border:none;')
@@ -78,12 +78,14 @@ class PositionsTab(QWidget):
         kpi_lay.setSpacing(8)
         self._kpis = {}
         for key, label in [
-            ('count',      '보유 종목'),
-            ('unrealized', '미실현 손익'),
-            ('avg_rate',   '평균 수익률'),
-            ('avg_days',   '평균 보유일'),
-            ('danger',     '트레일링 임박'),
-            ('a_count',    '전략 A / B'),
+            ('count',          '보유 종목'),
+            ('total_purchase', '총매수금액'),
+            ('total_value',    '총평가금액'),
+            ('unrealized',     '미실현 손익'),
+            ('avg_rate',       '평균 수익률'),
+            ('avg_days',       '평균 보유일'),
+            ('danger',         '트레일링 임박'),
+            ('a_count',        '전략 A / B'),
         ]:
             frame, val = _kpi(label)
             self._kpis[key] = val
@@ -161,24 +163,30 @@ class PositionsTab(QWidget):
 
         rows = []
         total_unreal = total_rate = total_days = 0
+        total_purchase = total_value = 0
         danger_cnt = a_cnt = b_cnt = 0
 
         for p in positions:
-            rate_raw = float(p.get('rate') or 0)
-            rate    = rate_raw - 100 if rate_raw > 10 else rate_raw
-            unreal  = int(p.get('valuation_profit') or 0)
             price   = int(p.get('present_price') or 0)
             entry   = int(p.get('purchase_price') or 0)
+            # DB rate 컬럼은 신뢰하지 않고 가격으로 직접 계산 (Kiwoom 비율 혼용 이슈)
+            rate    = (price - entry) / entry * 100 if entry else 0
+            unreal  = int(p.get('valuation_profit') or 0)
+            qty     = int(p.get('holding_amount') or 0)
             strat   = str(p.get('strategy_type') or 'A')
             highest = float(p.get('highest_price') or price)
             days    = _hold_days(p.get('buy_date', ''))
             ts      = _trailing_stop(strat, highest, entry)
             margin  = ((price - ts) / ts * 100) if ts > 0 else 99.0
             is_dng  = 0 < margin < DANGER_PCT
+            # 트레일링 활성 여부: 최고가가 매수가+3% 이상이면 트레일링 발동 중
+            trail_on = entry > 0 and highest >= entry * 1.03
 
-            total_unreal += unreal
-            total_rate   += rate
-            total_days   += days
+            total_unreal   += unreal
+            total_rate     += rate
+            total_days     += days
+            total_purchase += entry * qty
+            total_value    += price * qty
             if is_dng:  danger_cnt += 1
             if strat == 'A': a_cnt += 1
             else:            b_cnt += 1
@@ -190,6 +198,8 @@ class PositionsTab(QWidget):
             score  = int(p.get('composite_score') or 0)
             sc_c   = RED if score >= 120 else (
                      QColor('#e07b00') if score >= 90 else None)
+
+            trail_txt = ('ON', QColor('#cc4400')) if trail_on else ('—', GRAY)
 
             rows.append([
                 str(p.get('code_name', '')),
@@ -204,6 +214,7 @@ class PositionsTab(QWidget):
                 (f"{int(highest):,}", None),
                 (f"{int(ts):,}", ts_c),
                 (f"{margin:+.1f}%", mg_c),
+                trail_txt,
             ])
 
         # set_rows 중 시그널 차단 → 잘못된 인덱스로 차트 로드 방지
@@ -225,7 +236,13 @@ class PositionsTab(QWidget):
         unr_c  = '#cc0000' if total_unreal >= 0 else '#0044bb'
         rate_c = '#cc0000' if avg_rate >= 0 else '#0044bb'
 
+        val_c = '#cc0000' if total_value >= total_purchase else '#0044bb'
+
         self._kpis['count'].setText(f'{n}종목')
+        self._kpis['total_purchase'].setText(f'{total_purchase:,}원')
+        self._kpis['total_purchase'].setStyleSheet('color:#111;font-weight:bold;')
+        self._kpis['total_value'].setText(f'{total_value:,}원')
+        self._kpis['total_value'].setStyleSheet(f'color:{val_c};font-weight:bold;')
         self._kpis['unrealized'].setText(f'{total_unreal:+,}원')
         self._kpis['unrealized'].setStyleSheet(f'color:{unr_c};font-weight:bold;')
         self._kpis['avg_rate'].setText(f'{avg_rate:+.2f}%')
@@ -312,10 +329,11 @@ class PositionsTab(QWidget):
     @staticmethod
     def _col_sort_key(col):
         """컬럼 인덱스 → 정렬 key 함수 반환."""
-        # HEADERS = ['종목명','전략','매수점수','현재가','매수가','수익률%','미실현손익','수량','보유일','최고가','트레일링스톱','여유%']
+        # HEADERS = ['종목명','전략','매수점수','현재가','매수가','수익률%','미실현손익','수량','보유일','최고가','트레일링스톱','여유%','트레일링']
         def _rate(p):
-            r = float(p.get('rate') or 0)
-            return r - 100 if r > 10 else r
+            entry = int(p.get('purchase_price') or 0)
+            price = int(p.get('present_price') or 0)
+            return (price - entry) / entry * 100 if entry else 0
         mapping = {
             0: lambda p: str(p.get('code_name', '')),
             1: lambda p: str(p.get('strategy_type', '')),
@@ -339,9 +357,10 @@ class PositionsTab(QWidget):
         code      = p.get('code', '')
         code_name = p.get('code_name', '')
         quantity  = int(p.get('holding_amount', 0))
-        rate      = float(p.get('rate') or 0)
-        rate      = rate - 100 if rate > 10 else rate
         pnl       = int(p.get('valuation_profit') or 0)
+        _ep       = int(p.get('purchase_price') or 0)
+        _pr       = int(p.get('present_price') or 0)
+        rate      = (_pr - _ep) / _ep * 100 if _ep else 0
 
         menu     = QMenu(self)
         info_act = QAction(f'수익률 {rate:+.2f}%  /  손익 {pnl:+,}원', self)

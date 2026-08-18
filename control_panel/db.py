@@ -48,20 +48,40 @@ def _exec(sql, args=None, db=None):
 # ── manual_orders 테이블 초기화 ───────────────────────────────────
 INIT_SQL = """
 CREATE TABLE IF NOT EXISTS manual_orders (
-  id           INT AUTO_INCREMENT PRIMARY KEY,
-  created_at   DATETIME DEFAULT NOW(),
-  order_type   ENUM('BUY','SELL','PART_SELL','SELL_ALL') NOT NULL,
-  code         VARCHAR(10),
-  code_name    VARCHAR(100),
-  quantity     INT DEFAULT 0,
-  status       ENUM('PENDING','EXECUTED','FAILED','CANCELLED') DEFAULT 'PENDING',
-  executed_at  DATETIME,
-  result_msg   VARCHAR(500)
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  created_at    DATETIME DEFAULT NOW(),
+  order_type    ENUM('BUY','SELL','PART_SELL','SELL_ALL','SCAN_D') NOT NULL,
+  code          VARCHAR(10),
+  code_name     VARCHAR(100),
+  quantity      INT DEFAULT 0,
+  strategy_type VARCHAR(5) DEFAULT NULL,
+  status        ENUM('PENDING','EXECUTED','FAILED','CANCELLED') DEFAULT 'PENDING',
+  executed_at   DATETIME,
+  result_msg    VARCHAR(500)
 ) CHARACTER SET utf8
 """
 
 def ensure_manual_orders_table():
     _exec(INIT_SQL)
+    # 기존 테이블에 strategy_type 컬럼 없으면 추가 (마이그레이션)
+    try:
+        _exec("ALTER TABLE manual_orders ADD COLUMN strategy_type VARCHAR(5) DEFAULT NULL")
+    except Exception:
+        pass  # 이미 존재하면 무시
+    # SCAN_D 커맨드 지원: ENUM에 'SCAN_D' 추가
+    try:
+        _exec("ALTER TABLE manual_orders MODIFY COLUMN order_type "
+              "ENUM('BUY','SELL','PART_SELL','SELL_ALL','SCAN_D') NOT NULL")
+    except Exception:
+        pass
+
+
+def ensure_jango_schema():
+    """jango_data에 total_evaluation 컬럼 자동 추가 (없으면). Control Panel 시작 시 호출."""
+    try:
+        _exec("ALTER TABLE jango_data ADD COLUMN total_evaluation BIGINT DEFAULT 0")
+    except Exception:
+        pass  # 이미 존재하면 무시
 
 
 # ── KPI ───────────────────────────────────────────────────────────
@@ -90,8 +110,6 @@ def get_kpis():
 
     realized   = int(r.get('realized') or 0)
     unrealized = int(r.get('unrealized') or 0)
-    total_asset = initial_capital + realized + unrealized
-    total_ret   = (realized + unrealized) / initial_capital * 100
 
     n     = int(r.get('total_trades') or 0)
     win_n = int(r.get('win_count') or 0)
@@ -99,6 +117,41 @@ def get_kpis():
     avg_w = float(r.get('avg_win') or 0)
     avg_l = float(r.get('avg_loss') or 0)
     pf    = abs(avg_w / avg_l) if avg_l else 0
+
+    # ── 실제 총자산: jango_data의 Kiwoom API 직접값 사용 ──────────────
+    # total_asset  = opw00018 기준 (예수금 + 총주식평가금액) — 트레이더가 매일 갱신
+    # total_evaluation = opw00018 총주식평가금액
+    # d2_deposit   = opw00001 D+2 출금가능금액
+    # fallback: d2_deposit + present_price×holding_amount 합산
+    jango = _fetch(
+        "SELECT d2_deposit, total_evaluation, total_asset "
+        "FROM jango_data ORDER BY date DESC LIMIT 1"
+    )
+    if jango:
+        j = jango[0]
+        d2_deposit       = int(j.get('d2_deposit')       or 0)
+        total_evaluation = int(j.get('total_evaluation') or 0)
+        jango_total_asset = int(j.get('total_asset')     or 0)
+    else:
+        d2_deposit = total_evaluation = jango_total_asset = 0
+
+    # 주식 평가금액 (all_item_db fallback용 — present_price × holding_amount)
+    val_rows = _fetch(
+        "SELECT COALESCE(SUM(present_price * holding_amount), 0) AS tot "
+        "FROM all_item_db WHERE sell_date='0'"
+    )
+    total_value = int(val_rows[0]['tot'] or 0) if val_rows else 0
+
+    # 총자산 결정: Kiwoom API 직접값 우선, 없으면 근사값
+    if jango_total_asset > 0:
+        total_asset = jango_total_asset                       # opw00018 실측값
+    elif d2_deposit > 0:
+        stock_val   = total_evaluation if total_evaluation > 0 else total_value
+        total_asset = d2_deposit + stock_val                  # 예수금 + 주식평가
+    else:
+        total_asset = initial_capital + realized + unrealized  # 최후 fallback
+
+    total_ret = (total_asset - initial_capital) / initial_capital * 100 if initial_capital else 0
 
     # 매수 후보 수
     cand_rows = _fetch("SELECT COUNT(*) AS cnt FROM realtime_daily_buy_list WHERE check_item='0'")
@@ -127,6 +180,8 @@ def get_kpis():
         'avg_win':     avg_w,
         'avg_loss':    avg_l,
         'pf':          pf,
+        'd2_deposit':  d2_deposit,
+        'total_value': total_value,
         'cand_count':  cand_count,
         'trader_status': trader_status,
         'buy_stop_val':  buy_stop,
@@ -243,11 +298,24 @@ def get_manual_orders(limit=50):
     """)
 
 
-def insert_manual_order(order_type, code, code_name, quantity):
+def insert_manual_order(order_type, code, code_name, quantity, strategy_type=None):
     return _exec("""
-        INSERT INTO manual_orders (order_type, code, code_name, quantity)
-        VALUES (%s, %s, %s, %s)
-    """, (order_type, code, code_name, int(quantity)))
+        INSERT INTO manual_orders (order_type, code, code_name, quantity, strategy_type)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (order_type, code, code_name, int(quantity), strategy_type))
+
+
+def request_d_scan():
+    """트레이더에게 D전략 즉시 스캔 요청 (SCAN_D 커맨드 삽입)."""
+    return _exec(
+        "INSERT INTO manual_orders (order_type, code, code_name, quantity) "
+        "VALUES ('SCAN_D', '', '', 0)"
+    )
+
+
+def reset_manual_orders():
+    """PENDING 제외한 완료/실패/취소 주문 내역 삭제."""
+    _exec("DELETE FROM manual_orders WHERE status != 'PENDING'")
 
 
 def cancel_manual_order(order_id):
@@ -275,6 +343,38 @@ def set_invest_unit(amount: int):
 
 def set_limit_money(amount: int):
     _exec("UPDATE setting_data SET limit_money=%s", (amount,))
+
+
+# ── Strategy D 긴급 후보 ──────────────────────────────────────────
+def get_urgent_candidates():
+    """
+    realtime_urgent_candidates 테이블 조회.
+    테이블 없으면 빈 리스트 반환.
+    """
+    chk = _fetch("SELECT COUNT(*) AS cnt FROM information_schema.tables "
+                 "WHERE table_schema=%s AND table_name='realtime_urgent_candidates'",
+                 (imi1_db_name,))
+    if not (chk and chk[0]['cnt'] > 0):
+        return []
+    return _fetch("""
+        SELECT code, code_name, current_price, change_rate, volume, inst_net_buy, scanned_at
+        FROM realtime_urgent_candidates
+        ORDER BY inst_net_buy DESC
+        LIMIT 50
+    """)
+
+
+def get_d_positions():
+    """strategy_type='D'인 현재 보유 종목 조회."""
+    return _fetch("""
+        SELECT a.code, a.code_name, a.purchase_price, a.present_price,
+               a.rate, a.valuation_profit, a.buy_date,
+               COALESCE(r.highest_price, a.present_price) AS highest_price
+        FROM all_item_db a
+        LEFT JOIN realtime_position_monitor r ON a.code = r.code
+        WHERE a.sell_date = '0' AND a.strategy_type = 'D'
+        ORDER BY a.buy_date DESC
+    """)
 
 
 # ── 종목명 조회 (daily_buy_list DB) ─────────────────────────────
@@ -318,7 +418,7 @@ def get_daily_trades(date8: str):
                END AS action_type
         FROM all_item_db
         WHERE sell_date LIKE '{date8}%%'
-           OR (buy_date  LIKE '{date8}%%' AND sell_date = '0')
+           OR buy_date  LIKE '{date8}%%'
         ORDER BY sell_date DESC, buy_date DESC
     """)
 
@@ -348,5 +448,34 @@ def get_price_history(code_name: str, days: int = 90) -> list:
         sql = f"SELECT date, `open`, high, low, close, volume FROM `{code_name}` ORDER BY date DESC LIMIT %s"
         rows = _fetch(sql, (days,), db='daily_craw')
         return list(reversed(rows))   # 오래된 날짜 순으로 정렬
+    except Exception:
+        return []
+
+
+# ── 긴급 매매 (D전략) ─────────────────────────────────────────────
+def get_urgent_candidates() -> list:
+    """실시간 긴급 매수 후보 (realtime_urgent_candidates 테이블, 없으면 빈 리스트)."""
+    try:
+        return _fetch("""
+            SELECT code, code_name, current_price, change_rate,
+                   volume, inst_net_buy, scanned_at
+            FROM realtime_urgent_candidates
+            ORDER BY scanned_at DESC, change_rate DESC
+            LIMIT 30
+        """)
+    except Exception:
+        return []
+
+
+def get_d_positions() -> list:
+    """D전략(strategy_type='D') 보유 종목."""
+    try:
+        return _fetch("""
+            SELECT code, code_name, purchase_price, present_price,
+                   rate, valuation_profit, buy_date
+            FROM all_item_db
+            WHERE sell_date = '0' AND strategy_type = 'D'
+            ORDER BY buy_date DESC
+        """)
     except Exception:
         return []

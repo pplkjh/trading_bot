@@ -191,6 +191,9 @@ class open_api(QAxWidget):
         # 여기에 이렇게 true로 고정해놔야 exit check 할때 false 인 경우에 들어갔을 때  today_buy_code is null 이런 에러 안생긴다.
         self.jango_is_null = True
         self.inst_today = {}    # OPT10045 당일 순매수 (collector 모드)
+        self.intraday_scan_opt10028 = []   # Strategy D: 시가대비등락률 상위
+        self.intraday_scan_opt10063 = []   # Strategy D: 장중 기관+외국 동시순매수
+        self._manual_buy_strategy  = {}   # Strategy D 수동매수 시 INSERT 직전 override용 {code: strategy_type}
         self.inst_history = {}  # OPT10045 전체 기간 순매수 (backfill 모드)
 
         self.py_gubun = False
@@ -400,14 +403,21 @@ class open_api(QAxWidget):
             self._collect_opt10045(rqname, trcode)
         elif rqname == "opt10045_backfill_req":
             self._backfill_opt10045(rqname, trcode)
-        elif rqname == "send_order_req":
+        elif rqname == "opt10028_req":
+            self._opt10028(rqname, trcode)
+        elif rqname == "opt10063_req":
+            self._opt10063(rqname, trcode)
+        elif rqname in ('send_order_req', 'cp_buy', 'cp_sell'):
             pass
         else:
             logger.debug(f'non existence code {rqname}, {trcode}')
         # except Exception as e:
         #     logger.critical(e)
 
-        if rqname != 'send_order_req':
+        # send_order_req, cp_buy, cp_sell 은 주문 확인응답(KOA_NORMAL_*_ORD)이
+        # _receive_tr_data 로 들어오지만 TR 이벤트루프 대기 대상이 아니므로 카운트 제외
+        _ORDER_RQNAMES = {'send_order_req', 'cp_buy', 'cp_sell'}
+        if rqname not in _ORDER_RQNAMES:
             self.tr_loop_count -= 1
         try:
             if self.tr_loop_count <= 0:
@@ -527,6 +537,13 @@ class open_api(QAxWidget):
             for _col in ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']:
                 self.sf.df_all_item.loc[0, _col] = 0
             self.sf.df_all_item.loc[0, 'strategy_type'] = 'A'
+
+        # ── D전략 수동매수 override: INSERT 시점에 직접 'D' 박기 ──────
+        # (deferred UPDATE에 의존하지 않고 chejan 콜백 내에서 즉시 처리)
+        _manual_stype = self._manual_buy_strategy.pop(code, None)
+        if _manual_stype:
+            self.sf.df_all_item.loc[0, 'strategy_type'] = _manual_stype
+            logger.debug(f"[CP] {code} strategy_type='{_manual_stype}' 직접 저장 (db_to_all_item)")
         self.sf.df_all_item.loc[0, 'simul_num'] = self.sf.simul_num
 
         # 컬럼 중에 nan 값이 있는 경우 0으로 변경 -> 이렇게 안하면 아래 데이터베이스에 넣을 때
@@ -1587,6 +1604,23 @@ class open_api(QAxWidget):
                         except Exception:
                             pass
 
+                elif strategy_type == 'E':
+                    # ── Strategy E: 하드SL -10% / 365일 시간청산
+                    # (실전에서 MA20 이탈 체크는 일봉 데이터 필요 — 현재는 SL+시간청산으로 운영)
+                    if losscut_active and profit_pct <= -10.0:
+                        should_sell = True
+                        sell_reason = f'E하드SL(-10%): {profit_pct:.2f}%'
+                    else:
+                        try:
+                            buy_date_only = str(buy_date_str)[:8]
+                            buy_d = datetime.datetime.strptime(buy_date_only, '%Y%m%d')
+                            holding_days = (now - buy_d).days
+                            if holding_days >= 365:
+                                should_sell = True
+                                sell_reason = f'E시간청산(365일)'
+                        except Exception:
+                            pass
+
                 else:
                     # ── Strategy A: 하드SL -5% / 트레일링스탑(3%활성화, 3%트레일) / 15일 시간청산
                     if losscut_active and profit_pct <= -5.0:
@@ -2125,6 +2159,88 @@ class open_api(QAxWidget):
         except Exception as e:
             logger.critical(e)
 
+    def rq_opt10028(self):
+        """OPT10028 시가대비등락률 상위 요청 (Strategy D 장중 스캔용)"""
+        self.intraday_scan_opt10028 = []
+        self.set_input_value("시장구분", "000")
+        self.set_input_value("등락구분", "1")
+        self.set_input_value("기준시가비율", "2")
+        self.comm_rq_data("opt10028_req", "opt10028", 0, "1028")
+
+    def rq_opt10063(self):
+        """OPT10063 장중투자자별매매 요청 (기관+외국 동시순매수, Strategy D 스캔용)"""
+        self.intraday_scan_opt10063 = []
+        self.set_input_value("시장구분", "000")
+        self.set_input_value("금액수량구분", "1")
+        self.set_input_value("투자자별", "7")
+        self.set_input_value("외국계전체", "0")
+        self.set_input_value("동시순매수구분", "1")
+        self.comm_rq_data("opt10063_req", "opt10063", 0, "1063")
+
+    def _opt10028(self, rqname, trcode):
+        """OPT10028 수신 처리 — GetCommDataEx 인덱스 직접 접근
+        인덱스 확인: [0]종목코드 [1]종목명 [2]현재가 [3]대비기호 [4]전일대비
+                     [5]등락률  [6]시가   [7]고가   [8]저가    [9]시가대비율
+                     [10]거래량 [11]거래량비율
+        """
+        try:
+            raw_data = self.dynamicCall("GetCommDataEx(QString,QString)", trcode, rqname)
+            if not raw_data:
+                return
+            for row in raw_data:
+                if len(row) < 11:
+                    continue
+                code      = str(row[0]).strip()
+                code_name = str(row[1]).strip()
+                price_raw = str(row[2]).strip()
+                rate_raw  = str(row[5]).strip()
+                vol_raw   = str(row[10]).strip()
+                if not code:
+                    continue
+                try:
+                    price = abs(int(price_raw.replace('+', '').replace('-', '').replace(',', ''))) if price_raw else 0
+                except ValueError:
+                    price = 0
+                try:
+                    rate = float(rate_raw.replace('+', '').replace(',', '')) if rate_raw else 0.0
+                except ValueError:
+                    rate = 0.0
+                try:
+                    vol = int(vol_raw.replace(',', '')) if vol_raw else 0
+                except ValueError:
+                    vol = 0
+                self.intraday_scan_opt10028.append({
+                    'code':          code.zfill(6),
+                    'code_name':     code_name,
+                    'current_price': price,
+                    'change_rate':   rate,
+                    'volume':        vol,
+                })
+        except Exception as e:
+            logger.error(f"_opt10028 오류: {e}")
+
+    def _opt10063(self, rqname, trcode):
+        """OPT10063 수신 처리 — 장중 투자자별 매매 멀티행 TR"""
+        try:
+            cnt = self._get_repeat_cnt(trcode, rqname)
+            for i in range(cnt):
+                code      = self._get_comm_data(trcode, rqname, i, "종목코드").strip()
+                code_name = self._get_comm_data(trcode, rqname, i, "종목명").strip()
+                net_raw   = self._get_comm_data(trcode, rqname, i, "순매수금액").strip()
+                if not code:
+                    continue
+                try:
+                    net_buy = int(net_raw.replace('+', '').replace(',', '')) if net_raw else 0
+                except ValueError:
+                    net_buy = 0
+                self.intraday_scan_opt10063.append({
+                    'code':         code.zfill(6),
+                    'code_name':    code_name,
+                    'inst_net_buy': net_buy,
+                })
+        except Exception as e:
+            logger.error(f"_opt10063 오류: {e}")
+
     def _collect_opt10045(self, rqname, trcode):
         """OPT10045 (종목별기관매매추이) 수신 — 첫 행에서 기관/외국인 당일 순매수량 추출.
         GetCommDataEx 인덱스: [7]=기관당일순매수, [9]=외국인당일순매수 (test_opt_inst.py 실증).
@@ -2490,7 +2606,6 @@ class open_api(QAxWidget):
                     self._update_intraday_candle(code, current_price, self._entry_price_cache[code], now)
 
             self._last_monitor_update = now
-            logger.debug(f"✅ realtime_position_monitor 업데이트 완료 ({len(holdings)}개 종목)")
 
         except Exception as e:
             logger.warning(f"⚠️  realtime_position_monitor 업데이트 실패: {e}")

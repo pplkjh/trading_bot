@@ -22,6 +22,8 @@ from control_panel.tabs.tab_history    import HistoryTab
 from control_panel.tabs.tab_orders     import OrdersTab
 from control_panel.tabs.tab_settings   import SettingsTab
 from control_panel.tabs.tab_daily      import DailyTab
+from control_panel.tabs.tab_log        import LogTab
+from control_panel.tabs.tab_urgent     import UrgentTab
 
 REFRESH_INTERVAL_MS = 5_000   # 5초
 
@@ -33,11 +35,15 @@ class MainWindow(QMainWindow):
         self.resize(1320, 820)
         self.setFont(QFont('Malgun Gothic', 9))
 
-        # ── manual_orders 테이블 자동 생성 ────────────────────────
+        # ── DB 초기화 / 스키마 마이그레이션 ──────────────────────
         try:
             db.ensure_manual_orders_table()
         except Exception as e:
-            print(f'[CP] DB init warning: {e}')
+            print(f'[CP] manual_orders init warning: {e}')
+        try:
+            db.ensure_jango_schema()   # jango_data.total_evaluation 컬럼 보장
+        except Exception as e:
+            print(f'[CP] jango schema init warning: {e}')
 
         # ── 탭 위젯 ───────────────────────────────────────────────
         self._tabs = QTabWidget()
@@ -49,6 +55,8 @@ class MainWindow(QMainWindow):
         self._tab_cand   = CandidatesTab(self)
         self._tab_hist   = HistoryTab(self)
         self._tab_daily  = DailyTab(self)
+        self._tab_log    = LogTab(self)
+        self._tab_urgent = UrgentTab(self)
         self._tab_orders = OrdersTab(self)
         self._tab_set    = SettingsTab(self)
 
@@ -57,7 +65,9 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._tab_cand,   '🎯 매수후보')
         self._tabs.addTab(self._tab_hist,   '📋 거래내역')
         self._tabs.addTab(self._tab_daily,  '📅 일별현황')
-        self._tabs.addTab(self._tab_orders, '⚡ 즉시주문')
+        self._tabs.addTab(self._tab_log,    '🔔 이벤트로그')
+        self._tabs.addTab(self._tab_urgent, '⚡ D긴급매매')
+        self._tabs.addTab(self._tab_orders, '🖱️ 즉시주문')
         self._tabs.addTab(self._tab_set,    '⚙️  설정')
 
         # ── 상태바 ────────────────────────────────────────────────
@@ -169,14 +179,20 @@ class MainWindow(QMainWindow):
             self._tab_cand.refresh(candidates)
             self._tab_orders.update_positions(positions)
 
-            # 현재 활성 탭에만 갱신 (인덱스: 4=일별현황 5=즉시주문 6=설정)
+            # 현재 활성 탭에만 갱신 (4=일별 5=로그 6=긴급 7=주문 8=설정)
             active = self._tabs.currentIndex()
             if active == 4:
                 self._tab_daily.refresh()
-            elif active == 5:
-                self._tab_orders.refresh(kpis)
             elif active == 6:
+                try:
+                    self._tab_urgent.refresh()
+                except Exception:
+                    pass
+            elif active == 7:
+                self._tab_orders.refresh(kpis)
+            elif active == 8:
                 self._tab_set.refresh()
+            # 로그 탭(5)은 자체 QTimer(2s)로 갱신 — 여기서 호출 불필요
 
             self._status_lbl.setText(
                 f'🟢 연결됨  |  보유 {kpis["open_count"]}종목  |  '

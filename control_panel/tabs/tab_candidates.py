@@ -3,12 +3,13 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QComboBox, QSpinBox, QPushButton,
     QMenu, QAction, QDialog, QDialogButtonBox,
-    QFormLayout, QMessageBox,
+    QFormLayout, QMessageBox, QSplitter,
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 
 from control_panel.widgets.colored_table import ColoredTable, RED, BLUE, GRAY
+from control_panel.widgets.price_chart import PriceChart
 from PyQt5.QtGui import QColor
 from control_panel import db
 
@@ -23,7 +24,10 @@ HEADERS = ['상태', '종목명', '종목코드', '전략', '복합점수', 'A�
 class CandidatesTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._rows_cache = []
+        self._rows_cache      = []
+        self._displayed_rows  = []   # 현재 화면에 표시된 행과 1:1 대응
+        self._selected_code   = None  # 선택 복원용 종목코드
+        self._last_chart_code = None  # 중복 차트 요청 방지
         self._build_ui()
 
     def _build_ui(self):
@@ -45,7 +49,7 @@ class CandidatesTab(QWidget):
         filter_lay.addWidget(QLabel('최소 점수:'))
         self._min_score = QSpinBox()
         self._min_score.setRange(0, 300)
-        self._min_score.setValue(0)           # 기본값 0 → 탈락 종목 포함 전체 표시
+        self._min_score.setValue(0)
         self._min_score.setFixedWidth(70)
         self._min_score.valueChanged.connect(self._apply_filter)
         filter_lay.addWidget(self._min_score)
@@ -62,11 +66,24 @@ class CandidatesTab(QWidget):
 
         root.addLayout(filter_lay)
 
-        # 테이블
+        # 수평 스플리터: 왼쪽=테이블, 오른쪽=차트
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+
         self._table = ColoredTable(HEADERS, self)
+        self._table.setSortingEnabled(False)   # 정렬 끔 — 시각 행 순서 = _displayed_rows 순서 유지
         self._table.setContextMenuPolicy(Qt.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._show_context_menu)
-        root.addWidget(self._table)
+        self._table.itemClicked.connect(self._on_row_selected)
+        splitter.addWidget(self._table)
+
+        self._chart = PriceChart()
+        self._chart.setMinimumWidth(260)
+        splitter.addWidget(self._chart)
+
+        splitter.setStretchFactor(0, 62)
+        splitter.setStretchFactor(1, 38)
+        root.addWidget(splitter, stretch=1)
 
     def refresh(self, candidates: list):
         self._rows_cache = candidates
@@ -78,7 +95,10 @@ class CandidatesTab(QWidget):
         filtered = [r for r in self._rows_cache
                     if int(r.get('composite_score') or 0) >= min_s
                     and (strat == '전체' or r.get('strategy_type') == strat)]
-        self._render(filtered)
+        # 미달 종목은 상위 10개만
+        passed = [r for r in filtered if int(r.get('passed', 1)) == 1]
+        failed = [r for r in filtered if int(r.get('passed', 1)) != 1][:10]
+        self._render(passed + failed)
 
     def _manual_refresh(self):
         strat = self._strat_combo.currentText()
@@ -86,7 +106,29 @@ class CandidatesTab(QWidget):
         data  = db.get_candidates(min_s, strat)
         self.refresh(data)
 
+    def _on_row_selected(self, item):
+        """사용자가 직접 클릭했을 때만 호출 (itemClicked → item.row() 로 정확한 행 취득)."""
+        row = item.row()
+        if row < 0 or row >= len(self._displayed_rows):
+            return
+        c    = self._displayed_rows[row]
+        code = c.get('code', '')
+        name = c.get('code_name', '')
+        if not name:
+            return
+        self._selected_code = code
+        # 이미 같은 종목 차트가 표시 중이면 재요청 건너뜀
+        if code == self._last_chart_code:
+            return
+        self._last_chart_code = code
+        ohlcv = db.get_price_history(name, days=90)
+        if ohlcv:
+            self._chart.plot(rows=ohlcv, title=name)
+        else:
+            self._chart._show_placeholder(f'{name} — 데이터 없음')
+
     def _render(self, data: list):
+        self._displayed_rows = list(data)
         rows = []
         for c in data:
             passed  = int(c.get('passed', 1))  # 0=임계점미달, 1=합격
@@ -126,7 +168,17 @@ class CandidatesTab(QWidget):
                 cell(f"{float(c.get('vol5') or 0) / max(float(c.get('vol20') or 1), 1):.2f}"),
                 cell(f"{float(c.get('rsi14') or 0):.1f}"),
             ])
+        # 시그널 차단 후 렌더 → itemSelectionChanged가 set_rows 중에 발동하지 않음
+        self._table.blockSignals(True)
         self._table.set_rows(rows)
+        # 선택 행 복원 — 시그널 차단 유지 (차트는 수동 클릭 시에만)
+        if self._selected_code:
+            for i, c in enumerate(self._displayed_rows):
+                if c.get('code') == self._selected_code:
+                    self._table.selectRow(i)
+                    break
+        self._table.blockSignals(False)
+
         passed_n = sum(1 for c in data if int(c.get('passed', 1)) == 1)
         bought_n = sum(1 for c in data if str(c.get('check_item', '0')) not in ('0', '', 'False', 'None'))
         fail_n   = len(data) - passed_n
@@ -136,9 +188,9 @@ class CandidatesTab(QWidget):
 
     def _show_context_menu(self, pos):
         row = self._table.rowAt(pos.y())
-        if row < 0 or row >= len(self._rows_cache):
+        if row < 0 or row >= len(self._displayed_rows):
             return
-        c         = self._rows_cache[row]
+        c         = self._displayed_rows[row]
         code      = c.get('code', '')
         code_name = c.get('code_name', '')
         price     = int(c.get('close') or 0)

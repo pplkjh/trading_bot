@@ -873,7 +873,7 @@ class TraderAdvanced(QMainWindow):
         """Control Panel(control_panel/)에서 수동 접수한 주문을 처리한다."""
         try:
             rows = self.open_api.engine_JB.execute(
-                "SELECT id, order_type, code, code_name, quantity "
+                "SELECT id, order_type, code, code_name, quantity, strategy_type "
                 "FROM manual_orders WHERE status='PENDING' ORDER BY id ASC"
             ).fetchall()
         except Exception:
@@ -885,6 +885,7 @@ class TraderAdvanced(QMainWindow):
             code  = row[2]
             name  = row[3]
             qty   = int(row[4] or 0)
+            stype = row[5] if len(row) > 5 else None   # strategy_type (e.g. 'D')
             try:
                 if otype in ('SELL', 'PART_SELL'):
                     if qty <= 0:
@@ -894,12 +895,27 @@ class TraderAdvanced(QMainWindow):
                             "cp_sell", "9999", self.open_api.account_number,
                             2, code, qty, 0, "03", "")
                         logger.info(f"[CP] 수동 매도 실행: {name}({code}) {qty}주")
+                elif otype == 'SCAN_D':
+                    from library.intraday_scanner import run_intraday_scan
+                    run_intraday_scan(self.open_api, self.open_api.engine_JB)
+                    logger.info("[CP] D전략 수동 스캔 완료")
                 elif otype == 'BUY':
                     if qty > 0:
+                        # strategy_type override를 send_order 호출 전에 등록
+                        # → chejan 콜백 내 db_to_all_item()이 INSERT 시점에 직접 사용
+                        if stype:
+                            if not hasattr(self.open_api, '_manual_buy_strategy'):
+                                self.open_api._manual_buy_strategy = {}
+                            self.open_api._manual_buy_strategy[code] = stype
                         self.open_api.send_order(
                             "cp_buy", "9999", self.open_api.account_number,
                             1, code, qty, 0, "03", "")
-                        logger.info(f"[CP] 수동 매수 실행: {name}({code}) {qty}주")
+                        logger.info(f"[CP] 수동 매수 실행: {name}({code}) {qty}주 strategy={stype or 'default'}")
+                        # 안전망: chejan이 이미 fired 됐거나 타이밍 문제 시 deferred UPDATE도 유지
+                        if stype:
+                            if not hasattr(self, '_pending_strategy_updates'):
+                                self._pending_strategy_updates = {}
+                            self._pending_strategy_updates[code] = stype
                 self.open_api.engine_JB.execute(
                     f"UPDATE manual_orders SET status='EXECUTED', executed_at=NOW() WHERE id={oid}")
             except Exception as e:
@@ -939,6 +955,8 @@ class TraderAdvanced(QMainWindow):
         last_dashboard_update = 0  # 첫 업데이트를 즉시 실행하도록 0으로 설정
         dashboard_update_interval = 1.0  # 1초마다 대시보드 업데이트
         last_heartbeat = 0  # 30분마다 heartbeat 로그
+        last_intraday_scan = 0  # Strategy D 장중 스캔 (20분마다)
+        _INTRADAY_SCAN_INTERVAL = 1200  # 20분
 
         # 초기 계좌 정보 로드
         try:
@@ -988,6 +1006,21 @@ class TraderAdvanced(QMainWindow):
                     # 1-1. Control Panel 수동 주문 처리
                     self.process_manual_orders()
 
+                    # 1-2. 수동 매수 후 strategy_type 지연 업데이트 (체결 반영 대기)
+                    for _code in list(getattr(self, '_pending_strategy_updates', {}).keys()):
+                        _stype = self._pending_strategy_updates[_code]
+                        try:
+                            _aff = self.open_api.engine_JB.execute(
+                                "UPDATE all_item_db SET strategy_type=%s "
+                                "WHERE code=%s AND sell_date='0'",
+                                (_stype, _code)
+                            ).rowcount
+                            if _aff:
+                                del self._pending_strategy_updates[_code]
+                                logger.debug(f"[CP] {_code} strategy_type='{_stype}' 저장 완료")
+                        except Exception as _ue:
+                            logger.debug(f"[CP] strategy_type 업데이트 대기: {_ue}")
+
                     # 2. 매수 조건 확인
                     should_try_buy = (
                         (self.buy_candidates_available is None or self.buy_candidates_available == True) and
@@ -1004,6 +1037,17 @@ class TraderAdvanced(QMainWindow):
                     if current_time - last_dashboard_update >= dashboard_update_interval:
                         self.update_dashboard_display()
                         last_dashboard_update = current_time
+
+                    # Strategy D 장중 스캔 (20분마다, 09:00~14:40)
+                    now_hhmm = datetime.now().strftime('%H%M')
+                    if (current_time - last_intraday_scan >= _INTRADAY_SCAN_INTERVAL
+                            and '0900' <= now_hhmm <= '1440'):
+                        try:
+                            from library.intraday_scanner import run_intraday_scan
+                            run_intraday_scan(self.open_api, self.open_api.engine_JB)
+                        except Exception as _se:
+                            logger.warning(f"[D스캔] 실패 (무시): {_se}")
+                        last_intraday_scan = current_time
 
                     # 30분마다 heartbeat 로그 (DeduplicateFilter 우회)
                     if current_time - last_heartbeat >= 1800:
@@ -1042,7 +1086,7 @@ class TraderAdvanced(QMainWindow):
                             try:
                                 today_str = datetime.now().strftime('%Y%m%d')
                                 rows = self.open_api.engine_JB.execute(
-                                    f"SELECT purchase_price, sell_price FROM all_item_db WHERE LEFT(sell_date, 8) = '{today_str}' AND simul_num=3"
+                                    f"SELECT purchase_price, sell_price FROM all_item_db WHERE LEFT(sell_date, 8) = '{today_str}' AND sell_price > 0"
                                 ).fetchall()
                                 sell_rates = [(float(r[1]) / float(r[0]) - 1) * 100 for r in rows if float(r[0]) > 0]
                                 wins_db = [r for r in sell_rates if r > 0]
