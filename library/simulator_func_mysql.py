@@ -349,10 +349,10 @@ class simulator_func_mysql:
             # E  : sim=10 알고리즘 (ValueStrategyE baseline_v2)
             # 자본 배분: A/B=4/5, E=1/5 — invest_unit 기준 슬롯 수 동적 계산
             # 레짐 게이트: E 전략에만 KOSPI MA120 적용 (A/B는 무게이트)
-            # 매도: strategy_type별 차별
-            #   A: +6%TP / -5%SL / 20d 시간청산
-            #   B: 하드SL -5% / 트레일링(+3%활성, -5%트레일) / 45d 시간청산
-            #   E: MA60 이탈 / -15%SL
+            # 매도: strategy_type별 차별 (sell_list_num=51)
+            #   A: +6%TP / -5%SL / 20d 시간청산       (sell=32 A와 동일)
+            #   B: -8%SL / MA20반등완료 / 30d          (sell=32 B와 동일, sim=9 준용)
+            #   E: cf.e_sell_* 플래그 기반             (sell=50 소프트코딩 준용)
             self.simul_start_date = "20230103"   # A/B와 동일 시작점 (sim=6/7/8/9 기준)
             self.use_min = False
             self.only_nine_buy = False
@@ -362,8 +362,8 @@ class simulator_func_mysql:
             self.invest_unit = self._resolve_invest_unit(self.start_invest_price)  # 100만원/슬롯
             self.limit_money = 300_000
             self.sell_point = 6                          # A전략 익절 기준
-            self.losscut_point = -5                      # A/B전략 SL (-5%)
-            self.time_stop_days = 20                     # A전략 시간청산 (B=45d, E=MA60 이탈)
+            self.losscut_point = -5                      # A전략 SL (-5%) — B SL은 sell=51에서 -8.0%
+            self.time_stop_days = 20                     # A전략 시간청산 (B=30d/sell=51, E=MA60이탈)
             self.max_positions    = 999                  # 하드캡 제거 — 자본 기반 분배
             # A/B : E = 4 : 1 비율, invest_unit 기준 슬롯 수 동적 계산
             # 예) 10M / 100만원 = 10슬롯 → AB=8, E=2
@@ -1926,6 +1926,7 @@ class simulator_func_mysql:
         # 🤝 전략 24: A+B+E 혼합 매수 (simul_num=11)
         # A/B: sim=9 알고리즘 (BreakoutV6 전조건필수 + ReversalV4 ≥100pt)
         # E  : sim=10 알고리즘 (ValueStrategyE baseline_v2) + Gate MA120
+        # 우선순위: E > B > A  (중복 코드 제거 — E 선정 종목은 A/B에서 제외)
         elif self.db_to_realtime_daily_buy_list_num == 24:
             import pandas as pd
             from library.hybrid_strategy_v5 import BreakoutStrategyV6
@@ -1955,8 +1956,42 @@ class simulator_func_mysql:
             logger.debug(f"[num=24] 슬롯 — A/B: 보유{_ab_hold}/가용{_ab_avail} / E: 보유{_e_hold}/가용{_e_avail}")
 
             combined = []
+            _e_codes = set()  # ① E 선정 코드 집합 — A/B 중복 제거에 사용
 
-            # ── A/B 스코어링 (sim=6 로직 준용) ─────────────────────────────
+            # ── ① E 스크리닝 (최우선, Gate MA120 적용) ───────────────────────
+            if _e_avail > 0:
+                from library.value_strategy_e import ValueStrategyE
+                _regime_ok_e = True
+                if cf.e_regime_gate_on:
+                    try:
+                        _ma_p_e = int(getattr(cf, 'e_regime_gate_ma_period', 120))
+                        _kospi_rows_e = self.engine_daily_craw.execute(
+                            "SELECT close FROM kospi_index "
+                            "WHERE date <= '%s' ORDER BY date DESC LIMIT %d" % (date_rows_today, _ma_p_e)
+                        ).fetchall()
+                        if len(_kospi_rows_e) >= _ma_p_e:
+                            _k_close_e = float(_kospi_rows_e[0][0])
+                            _k_ma_e    = sum(float(_ke[0]) for _ke in _kospi_rows_e) / float(_ma_p_e)
+                            if _k_close_e < _k_ma_e:
+                                _regime_ok_e = False
+                    except Exception:
+                        pass  # NULL → PASS
+
+                if _regime_ok_e:
+                    _e_cands = ValueStrategyE().screen(
+                        date_str=date_rows_today,
+                        engine_dbl=self.engine_daily_buy_list,
+                    )
+                    for _ec in _e_cands[:_e_avail]:
+                        if isinstance(_ec, dict):
+                            _ec['strategy_type'] = 'E'
+                            _e_codes.add(_ec.get('code', ''))
+                        combined.append(_ec)
+                    logger.debug(f"[num=24/E] E후보 {len(_e_cands[:_e_avail])}개 추가 | E코드={_e_codes}")
+                else:
+                    logger.debug(f"[num=24/E] 레짐 게이트 차단 — E 매수 없음")
+
+            # ── ② A/B 스코어링 (E 이후 실행) ────────────────────────────────
             if _ab_avail > 0:
                 _strat_ab = [BreakoutStrategyV6(), ReversalStrategyV4()]
                 _candidates_ab = []
@@ -2068,42 +2103,35 @@ class simulator_func_mysql:
                         _scored_ab.append((_rdict_ab, _best_score_ab))
                         logger.debug(f"[num=24/AB] {_cname_ab}({_code_ab}) → {_st_ab} {_best_score_ab:.0f}pt ✅")
 
+                # ── ③ E>B>A 우선순위로 A/B 슬롯 채우기 ──────────────────────
+                # E 코드와 겹치는 종목을 먼저 걸러낸 후, B 우선 → A 순으로 채움
                 _scored_ab.sort(key=lambda x: x[1], reverse=True)
-                for _item_ab, _ in _scored_ab[:_ab_avail]:
-                    combined.append(_item_ab)
-                logger.debug(f"[num=24/AB] 선택 {min(len(_scored_ab), _ab_avail)}개 / 합격 {len(_scored_ab)}개")
+                _b_scored = [(r, s) for r, s in _scored_ab
+                             if r['strategy_type'] == 'B' and r['code'] not in _e_codes]
+                _a_scored = [(r, s) for r, s in _scored_ab
+                             if r['strategy_type'] == 'A' and r['code'] not in _e_codes]
 
-            # ── E 스크리닝 (Gate MA120 적용) ────────────────────────────────
-            if _e_avail > 0:
-                from library.value_strategy_e import ValueStrategyE
-                _regime_ok_e = True
-                if cf.e_regime_gate_on:
-                    try:
-                        _ma_p_e = int(getattr(cf, 'e_regime_gate_ma_period', 120))
-                        _kospi_rows_e = self.engine_daily_craw.execute(
-                            "SELECT close FROM kospi_index "
-                            "WHERE date <= '%s' ORDER BY date DESC LIMIT %d" % (date_rows_today, _ma_p_e)
-                        ).fetchall()
-                        if len(_kospi_rows_e) >= _ma_p_e:
-                            _k_close_e = float(_kospi_rows_e[0][0])
-                            _k_ma_e    = sum(float(_ke[0]) for _ke in _kospi_rows_e) / float(_ma_p_e)
-                            if _k_close_e < _k_ma_e:
-                                _regime_ok_e = False
-                    except Exception:
-                        pass  # NULL → PASS
+                _ab_filled = 0
+                _b_added = 0
+                for _item_b, _ in _b_scored:
+                    if _ab_filled >= _ab_avail:
+                        break
+                    combined.append(_item_b)
+                    _ab_filled += 1
+                    _b_added += 1
 
-                if _regime_ok_e:
-                    _e_cands = ValueStrategyE().screen(
-                        date_str=date_rows_today,
-                        engine_dbl=self.engine_daily_buy_list,
-                    )
-                    for _ec in _e_cands[:_e_avail]:
-                        if isinstance(_ec, dict):
-                            _ec['strategy_type'] = 'E'
-                        combined.append(_ec)
-                    logger.debug(f"[num=24/E] E후보 {len(_e_cands[:_e_avail])}개 추가")
-                else:
-                    logger.debug(f"[num=24/E] 레짐 게이트 차단 — E 매수 없음")
+                _a_added = 0
+                for _item_a, _ in _a_scored:
+                    if _ab_filled >= _ab_avail:
+                        break
+                    combined.append(_item_a)
+                    _ab_filled += 1
+                    _a_added += 1
+
+                logger.debug(
+                    f"[num=24/AB] B{_b_added}+A{_a_added}={_ab_filled}개 선택 "
+                    f"/ 합격(B:{len(_b_scored)} A:{len(_a_scored)}) / E중복제거={len(_e_codes)}개"
+                )
 
             realtime_daily_buy_list = combined
             _n_ab_final = sum(1 for x in combined if isinstance(x, dict) and x.get('strategy_type') in ('A', 'B'))
@@ -2919,57 +2947,67 @@ class simulator_func_mysql:
                 sell_list = self.engine_simulator.execute(sql).fetchall()
 
         # sim=11: A+B+E strategy_type별 차별화 매도 (sell_list_num=51)
-        # A: +6%TP / -5%SL / 20d 시간청산
-        # B: 하드SL -5% / 트레일링(max_high_pct>=3 후 고점대비 -5%, 최소+1%) / 45d 시간청산
-        # E: SL_HARD -15% / MA60 이탈 (sell_list_num=50 baseline 준용)
+        # A: +6%TP / -5%SL / 20d 시간청산          — sell=32 A와 동일
+        # B: -8%SL / close>MA20 반등완료 / 30d      — sell=32 B와 동일 (sim=9 준용)
+        # E: cf.e_sell_* 플래그 기반 소프트코딩     — sell=50 준용
         elif self.sell_list_num == 51:
             date_today_str = self.date_rows[i][0]
-            _sl_e = getattr(cf, 'e_sell_sl_pct', -15.0)
+            sp   = self.sell_point      # A 익절 (+6%)
+            lc_a = self.losscut_point   # A SL   (-5%)
+            td_a = 20                   # A 시간청산 (고정)
+            lc_b = -8.0                 # B SL (sim=9/sell=32 준용)
+            td_b = 30                   # B 시간청산 (sim=9/sell=32 준용)
+            _sl_e = cf.e_sell_sl_pct
+
+            # E 매도 조건: cf 플래그 기반 동적 빌드 (sell=50 준용)
+            _e_case_parts  = []
+            _e_where_parts = []
+            if getattr(cf, 'e_sell_sl_hard_on', True):
+                _e_case_parts.append(
+                    f"  WHEN strategy_type = 'E' AND rate <= {_sl_e} THEN 'SL_HARD(E{_sl_e:.0f}%%)'")
+                _e_where_parts.append(f"(strategy_type = 'E' AND rate <= {_sl_e})")
+            if getattr(cf, 'e_sell_ma60_on', True):
+                _e_case_parts.append(
+                    "  WHEN strategy_type = 'E' AND present_price < ma60 THEN 'TREND_BREAK(E·MA60)'")
+                _e_where_parts.append("(strategy_type = 'E' AND present_price < ma60)")
+
+            # CASE / WHERE 조각 조립
+            _a_case = (
+                f"  WHEN strategy_type = 'A' AND rate >= {sp} THEN '익절(A+{sp:.0f}%%)' "
+                f"  WHEN strategy_type = 'A' AND rate <= {lc_a} THEN '손절(A{lc_a:.0f}%%)' "
+                f"  WHEN strategy_type = 'A' AND DATEDIFF(STR_TO_DATE('{date_today_str}', '%Y%m%d'), "
+                f"       STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= {td_a} THEN '시간청산(A{td_a}일)' "
+            )
+            _b_case = (
+                f"  WHEN strategy_type = 'B' AND rate <= {lc_b} THEN '손절(B{lc_b:.0f}%%)' "
+                f"  WHEN strategy_type = 'B' AND present_price > ma20 THEN '반등완료(B>MA20)' "
+                f"  WHEN strategy_type = 'B' AND DATEDIFF(STR_TO_DATE('{date_today_str}', '%Y%m%d'), "
+                f"       STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= {td_b} THEN '시간청산(B{td_b}일)' "
+            )
+            _e_case_str  = (" ".join(_e_case_parts) + " ") if _e_case_parts else ""
+            _a_where = (
+                f"  (strategy_type = 'A' AND rate >= {sp}) "
+                f"  OR (strategy_type = 'A' AND rate <= {lc_a}) "
+                f"  OR (strategy_type = 'A' AND DATEDIFF(STR_TO_DATE('{date_today_str}', '%Y%m%d'), "
+                f"       STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= {td_a}) "
+            )
+            _b_where = (
+                f"  OR (strategy_type = 'B' AND rate <= {lc_b}) "
+                f"  OR (strategy_type = 'B' AND present_price > ma20) "
+                f"  OR (strategy_type = 'B' AND DATEDIFF(STR_TO_DATE('{date_today_str}', '%Y%m%d'), "
+                f"       STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= {td_b}) "
+            )
+            _e_where_str = ("  OR " + "\n  OR ".join(_e_where_parts)) if _e_where_parts else ""
+
             sql = (
                 "SELECT code, code_name, rate, present_price, valuation_profit, "
                 "CASE "
-                # A 전략
-                "  WHEN strategy_type = 'A' AND rate >= {sp} THEN '익절(A+{sp:.0f}%%)' "
-                "  WHEN strategy_type = 'A' AND rate <= {lc} THEN '손절(A{lc:.0f}%%)' "
-                "  WHEN strategy_type = 'A' AND "
-                "       DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 20 "
-                "       THEN '시간청산(A20일)' "
-                # B 전략
-                "  WHEN strategy_type = 'B' AND rate <= {lc} THEN '하드SL(B{lc:.0f}%%)' "
-                "  WHEN strategy_type = 'B' AND max_high_pct >= 3 "
-                "       AND rate <= GREATEST(max_high_pct - 5, 1.0) THEN '트레일링(B)' "
-                "  WHEN strategy_type = 'B' AND "
-                "       DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 45 "
-                "       THEN '시간청산(B45일)' "
-                # E 전략
-                "  WHEN strategy_type = 'E' AND rate <= {sl_e} THEN 'SL_HARD(E{sl_e:.0f}%%)' "
-                "  WHEN strategy_type = 'E' AND present_price < ma60 THEN 'TREND_BREAK(E·MA60)' "
-                "  ELSE 'hold' "
-                "END AS sell_reason "
+                + _a_case + _b_case + _e_case_str
+                + "  ELSE 'hold' END AS sell_reason "
                 "FROM all_item_db "
-                "WHERE sell_date = '0' "
-                "AND ("
-                # A 조건
-                "  (strategy_type = 'A' AND rate >= {sp}) "
-                "  OR (strategy_type = 'A' AND rate <= {lc}) "
-                "  OR (strategy_type = 'A' AND "
-                "      DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 20) "
-                # B 조건
-                "  OR (strategy_type = 'B' AND rate <= {lc}) "
-                "  OR (strategy_type = 'B' AND max_high_pct >= 3 "
-                "      AND rate <= GREATEST(max_high_pct - 5, 1.0)) "
-                "  OR (strategy_type = 'B' AND "
-                "      DATEDIFF(STR_TO_DATE('{d}', '%Y%m%d'), STR_TO_DATE(LEFT(buy_date, 8), '%Y%m%d')) >= 45) "
-                # E 조건
-                "  OR (strategy_type = 'E' AND rate <= {sl_e}) "
-                "  OR (strategy_type = 'E' AND present_price < ma60) "
-                ") "
-                "GROUP BY code"
-            ).format(
-                sp=self.sell_point,
-                lc=self.losscut_point,
-                sl_e=_sl_e,
-                d=date_today_str
+                "WHERE sell_date = '0' AND ("
+                + _a_where + _b_where + _e_where_str
+                + ") GROUP BY code"
             )
             sell_list = self.engine_simulator.execute(sql).fetchall()
 
