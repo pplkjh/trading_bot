@@ -42,10 +42,16 @@ def run_intraday_scan(open_api, engine_JB):
         time.sleep(cf.TR_REQ_TIME_INTERVAL)
         map10028 = {r['code']: r for r in open_api.intraday_scan_opt10028}
 
-        # 2. OPT10063 — 기관+외국 동시순매수
+        # 2. OPT10063 — 기관+외국 동시순매수 스크리닝 (투자자별=7)
         open_api.rq_opt10063()
         time.sleep(cf.TR_REQ_TIME_INTERVAL)
         map10063 = {r['code']: r for r in open_api.intraday_scan_opt10063}
+
+        # 3. OPT10063 — 외국계 순매수 금액 별도 요청 (투자자별=6)
+        open_api.rq_opt10063_foreign()
+        time.sleep(cf.TR_REQ_TIME_INTERVAL)
+        map10063_foreign = {r['code']: r['foreign_net_buy']
+                            for r in open_api.intraday_scan_opt10063_foreign}
 
         if not map10028:
             logger.warning("[D스캔] OPT10028 결과 없음 (장 외 시간 or API 오류)")
@@ -54,7 +60,7 @@ def run_intraday_scan(open_api, engine_JB):
             logger.warning("[D스캔] OPT10063 결과 없음")
             return
 
-        # 3. 교집합 + 최소 등락률 필터
+        # 4. 교집합 + 최소 등락률 필터
         common = set(map10028.keys()) & set(map10063.keys())
         candidates = []
         for code in common:
@@ -71,7 +77,7 @@ def run_intraday_scan(open_api, engine_JB):
                 'change_rate':     a['change_rate'],
                 'volume':          a['volume'],
                 'inst_net_buy':    b['inst_net_buy'],
-                'foreign_net_buy': b.get('foreign_net_buy', 0),
+                'foreign_net_buy': map10063_foreign.get(code, 0),
             })
 
         # 4. DB 저장

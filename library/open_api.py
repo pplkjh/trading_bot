@@ -192,7 +192,8 @@ class open_api(QAxWidget):
         self.jango_is_null = True
         self.inst_today = {}    # OPT10045 당일 순매수 (collector 모드)
         self.intraday_scan_opt10028 = []   # Strategy D: 시가대비등락률 상위
-        self.intraday_scan_opt10063 = []   # Strategy D: 장중 기관+외국 동시순매수
+        self.intraday_scan_opt10063         = []   # Strategy D: 장중 기관 동시순매수 (투자자별=7)
+        self.intraday_scan_opt10063_foreign = []   # Strategy D: 장중 외국계 순매수 (투자자별=6)
         self._manual_buy_strategy  = {}   # Strategy D 수동매수 시 INSERT 직전 override용 {code: strategy_type}
         self.inst_history = {}  # OPT10045 전체 기간 순매수 (backfill 모드)
 
@@ -407,6 +408,8 @@ class open_api(QAxWidget):
             self._opt10028(rqname, trcode)
         elif rqname == "opt10063_req":
             self._opt10063(rqname, trcode)
+        elif rqname == "opt10063_foreign_req":
+            self._opt10063_foreign(rqname, trcode)
         elif rqname in ('send_order_req', 'cp_buy', 'cp_sell'):
             pass
         else:
@@ -2220,12 +2223,10 @@ class open_api(QAxWidget):
             logger.error(f"_opt10028 오류: {e}")
 
     def _opt10063(self, rqname, trcode):
-        """OPT10063 수신 처리 — 장중 투자자별 매매 멀티행 TR
-        투자자별=7(기관+외국 동시), 동시순매수구분=1 → 해당 조건 통과 종목만 반환.
-
-        기관 순매수: "기관순매수금액" FID 우선, 없으면 "순매수금액" 사용 (하위 호환).
-        외국계 순매수: "외국계순매수금액" → "외국인순매수금액" 순으로 시도.
-        첫 행에서 raw FID 값을 DEBUG 로그로 출력 → 장 중 실제값 확인 가능.
+        """OPT10063 수신 처리 — 투자자별=7(기관+외국 동시순매수 스크리닝)
+        동시순매수구분=1 → 기관과 외국 모두 순매수인 종목만 반환.
+        순매수금액(=기관순매수금액): 기관 순매수 금액.
+        외국계 금액은 별도 rq_opt10063_foreign() 로 취득 후 합산.
         """
         def _to_int(raw):
             try:
@@ -2240,34 +2241,48 @@ class open_api(QAxWidget):
                 code_name = self._get_comm_data(trcode, rqname, i, "종목명").strip()
                 if not code:
                     continue
-
-                # ── 기관 순매수 ────────────────────────────────────────────────
                 inst_raw = self._get_comm_data(trcode, rqname, i, "기관순매수금액").strip()
                 if not inst_raw:
-                    # 필드명이 다를 경우 기존 FID로 fallback
                     inst_raw = self._get_comm_data(trcode, rqname, i, "순매수금액").strip()
-
-                # ── 외국계 순매수 ──────────────────────────────────────────────
-                foreign_raw = self._get_comm_data(trcode, rqname, i, "외국계순매수금액").strip()
-                if not foreign_raw:
-                    foreign_raw = self._get_comm_data(trcode, rqname, i, "외국인순매수금액").strip()
-
-                # 첫 행 raw 출력 — 실제 FID 구조 확인용 (장 중 로그에서 확인)
-                if i == 0:
-                    logger.debug(
-                        f"[opt10063 FID확인] code={code} "
-                        f"기관순매수금액={inst_raw!r} "
-                        f"외국계순매수금액={foreign_raw!r}"
-                    )
-
                 self.intraday_scan_opt10063.append({
-                    'code':            code.zfill(6),
-                    'code_name':       code_name,
-                    'inst_net_buy':    _to_int(inst_raw),
-                    'foreign_net_buy': _to_int(foreign_raw),
+                    'code':         code.zfill(6),
+                    'code_name':    code_name,
+                    'inst_net_buy': _to_int(inst_raw),
                 })
         except Exception as e:
             logger.error(f"_opt10063 오류: {e}")
+
+    def rq_opt10063_foreign(self):
+        """OPT10063 외국계 장중 순매수 요청 (투자자별=6, 외국계전체=2)"""
+        self.intraday_scan_opt10063_foreign = []
+        self.set_input_value("시장구분", "000")
+        self.set_input_value("금액수량구분", "1")
+        self.set_input_value("투자자별", "6")
+        self.set_input_value("외국계전체", "2")
+        self.set_input_value("동시순매수구분", "0")
+        self.comm_rq_data("opt10063_foreign_req", "opt10063", 0, "1064")
+
+    def _opt10063_foreign(self, rqname, trcode):
+        """OPT10063 외국계 순매수 수신 — 순매수금액 = 외국계 순매수금액."""
+        def _to_int(raw):
+            try:
+                return int(raw.replace('+', '').replace(',', '')) if raw.strip() else 0
+            except ValueError:
+                return 0
+
+        try:
+            cnt = self._get_repeat_cnt(trcode, rqname)
+            for i in range(cnt):
+                code    = self._get_comm_data(trcode, rqname, i, "종목코드").strip()
+                net_raw = self._get_comm_data(trcode, rqname, i, "순매수금액").strip()
+                if not code:
+                    continue
+                self.intraday_scan_opt10063_foreign.append({
+                    'code':            code.zfill(6),
+                    'foreign_net_buy': _to_int(net_raw),
+                })
+        except Exception as e:
+            logger.error(f"_opt10063_foreign 오류: {e}")
 
     def _collect_opt10045(self, rqname, trcode):
         """OPT10045 (종목별기관매매추이) 수신 — 첫 행에서 기관/외국인 당일 순매수량 추출.
