@@ -17,10 +17,11 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from library.cf import invest_unit as cf_invest_unit
 
-_CAND_HEADERS = ['종목명', '종목코드', '현재가', '시가대비(%)', '거래량', '기관순매수(백만)', '스캔시간']
+_CAND_HEADERS = ['종목명', '종목코드', '현재가', '시가대비(%)', '거래량',
+                 '기관(백만)', '외국계(백만)', '스캔시간']
 _POS_HEADERS  = ['종목명', '종목코드', '매입가', '현재가', '수익률(%)', '평가손익', '매수시간']
-_CAND_WIDTHS  = [105, 65, 72, 70, 88, 108, 60]
-_POS_WIDTHS   = [105, 65, 72, 72, 72,  95, 60]
+_CAND_WIDTHS  = [105, 65, 72, 70, 88, 88, 88, 60]
+_POS_WIDTHS   = [105, 65, 72, 72, 72, 95, 60]
 
 
 class UrgentTab(QWidget):
@@ -161,6 +162,7 @@ class UrgentTab(QWidget):
             ('rate',     '시가대비'),
             ('volume',   '거래량'),
             ('inst',     '기관순매수'),
+            ('foreign',  '외국계순매수'),
             ('entry',    '매입가'),
             ('pnl_rate', '수익률'),
             ('pnl',      '평가손익'),
@@ -236,14 +238,17 @@ class UrgentTab(QWidget):
                 lbl.setStyleSheet('')
 
     def _info_from_cand(self, c: dict):
-        rate = float(c.get('change_rate') or 0)
+        rate    = float(c.get('change_rate') or 0)
+        inst    = int(c.get('inst_net_buy') or 0)
+        foreign = int(c.get('foreign_net_buy') or 0)
         self._set_info({
-            'name':   c.get('code_name', ''),
-            'code':   c.get('code', ''),
-            'price':  f"{int(c.get('current_price') or 0):,}원",
-            'rate':   f"{rate:+.2f}%",
-            'volume': f"{int(c.get('volume') or 0):,}주",
-            'inst':   f"{int(c.get('inst_net_buy') or 0):,}백만원",
+            'name':    c.get('code_name', ''),
+            'code':    c.get('code', ''),
+            'price':   f"{int(c.get('current_price') or 0):,}원",
+            'rate':    f"{rate:+.2f}%",
+            'volume':  f"{int(c.get('volume') or 0):,}주",
+            'inst':    f"{inst:,}백만원" if inst else "—",
+            'foreign': f"{foreign:,}백만원" if foreign else "—",
         }, f'⚡ {c.get("code_name", "")}')
 
     def _info_from_pos(self, p: dict):
@@ -392,10 +397,13 @@ class UrgentTab(QWidget):
     def _build_cand_rows(self, data):
         rows = []
         for c in data:
-            rate = float(c.get('change_rate') or 0)
-            inst = int(c.get('inst_net_buy') or 0)
+            rate    = float(c.get('change_rate') or 0)
+            inst    = int(c.get('inst_net_buy') or 0)
+            foreign = int(c.get('foreign_net_buy') or 0)
             scanned = str(c.get('scanned_at') or '')[-8:]
             rate_color = RED if rate >= 3.0 else (QColor('#e07b00') if rate >= 2.0 else None)
+            # 외국계: 값이 있으면 파랑(기관과 색상 구분), 없으면 회색
+            f_color = QColor('#0044bb') if foreign > 0 else GRAY
             rows.append([
                 (str(c.get('code_name', '')), None),
                 (str(c.get('code', '')), GRAY),
@@ -403,6 +411,7 @@ class UrgentTab(QWidget):
                 (f"{rate:+.2f}", rate_color),
                 (f"{int(c.get('volume') or 0):,}", None),
                 (f"{inst:,}", RED if inst > 0 else GRAY),
+                (f"{foreign:,}" if foreign else "—", f_color),
                 (scanned, GRAY),
             ])
         return rows

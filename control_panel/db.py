@@ -11,8 +11,14 @@ import pymysql
 from datetime import datetime
 from library.cf import (
     db_id, db_passwd, db_ip, db_port,
-    imi1_db_name, initial_capital
+    imi1_db_name, initial_capital,
+    imi1_simul_num as SIMUL_NUM,
 )
+
+# 현재 운영 중인 전략 목록 (simul_num 기반 자동 감지)
+STRATEGY_LIST = ['전체', 'A', 'B', 'E'] if SIMUL_NUM == 11 else ['전체', 'A', 'B']
+# sim=11: 조건형(binary), sim=6: 점수형(numeric)
+SCORE_IS_BINARY = SIMUL_NUM == 11
 
 def _today():
     return datetime.now().strftime('%Y%m%d')
@@ -346,24 +352,6 @@ def set_limit_money(amount: int):
 
 
 # ── Strategy D 긴급 후보 ──────────────────────────────────────────
-def get_urgent_candidates():
-    """
-    realtime_urgent_candidates 테이블 조회.
-    테이블 없으면 빈 리스트 반환.
-    """
-    chk = _fetch("SELECT COUNT(*) AS cnt FROM information_schema.tables "
-                 "WHERE table_schema=%s AND table_name='realtime_urgent_candidates'",
-                 (imi1_db_name,))
-    if not (chk and chk[0]['cnt'] > 0):
-        return []
-    return _fetch("""
-        SELECT code, code_name, current_price, change_rate, volume, inst_net_buy, scanned_at
-        FROM realtime_urgent_candidates
-        ORDER BY inst_net_buy DESC
-        LIMIT 50
-    """)
-
-
 def get_d_positions():
     """strategy_type='D'인 현재 보유 종목 조회."""
     return _fetch("""
@@ -454,11 +442,21 @@ def get_price_history(code_name: str, days: int = 90) -> list:
 
 # ── 긴급 매매 (D전략) ─────────────────────────────────────────────
 def get_urgent_candidates() -> list:
-    """실시간 긴급 매수 후보 (realtime_urgent_candidates 테이블, 없으면 빈 리스트)."""
+    """실시간 긴급 매수 후보 (realtime_urgent_candidates 테이블, 없으면 빈 리스트).
+    foreign_net_buy 컬럼이 없는 구 버전 테이블은 자동 마이그레이션.
+    """
     try:
+        # foreign_net_buy 컬럼 자동 추가 (테이블은 있는데 컬럼이 없는 구 버전 대응)
+        try:
+            _exec(
+                "ALTER TABLE realtime_urgent_candidates "
+                "ADD COLUMN foreign_net_buy BIGINT DEFAULT 0"
+            )
+        except Exception:
+            pass  # 이미 존재 or 테이블 자체 없음 → 무시
         return _fetch("""
             SELECT code, code_name, current_price, change_rate,
-                   volume, inst_net_buy, scanned_at
+                   volume, inst_net_buy, foreign_net_buy, scanned_at
             FROM realtime_urgent_candidates
             ORDER BY scanned_at DESC, change_rate DESC
             LIMIT 30
