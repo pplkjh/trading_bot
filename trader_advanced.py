@@ -44,10 +44,11 @@ import logging
 import time
 
 # 콘솔 로깅 비활성화 (대시보드 모드)
-# 모든 로그는 파일에만 기록되고, 콘솔에는 대시보드만 표시
-for handler in logger.handlers[:]:
-    if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
-        logger.removeHandler(handler)
+# StreamHandler는 root logger에 붙어 있으므로 root를 대상으로 제거
+_root_logger = logging.getLogger()
+for _h in _root_logger.handlers[:]:
+    if isinstance(_h, logging.StreamHandler) and not isinstance(_h, logging.FileHandler):
+        _root_logger.removeHandler(_h)
 
 logger.debug("===== Trader Advanced Start =====")
 
