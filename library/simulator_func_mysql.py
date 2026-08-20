@@ -709,28 +709,32 @@ class simulator_func_mysql:
 
     # DB 이름 세팅 함수
     def db_name_setting(self):
+        # pool_pre_ping=True  : 커넥션 체크아웃 전 SELECT 1 로 생존 확인 → 장시간 백테스트 후 MySQL
+        #                       wait_timeout 으로 연결이 끊겨도 자동 재연결 (error 2006 방지)
+        # pool_recycle=3600   : 1시간마다 커넥션을 강제 교체 (추가 안전장치)
+        _pool_kw = dict(pool_pre_ping=True, pool_recycle=3600)
+
         self.engine_simulator = create_engine(
             "mysql+mysqldb://" + cf.db_id + ":" + cf.db_passwd + "@" + cf.db_ip + ":" + cf.db_port + "/" + str(
                 self.db_name),
-            encoding='utf-8')
+            encoding='utf-8', **_pool_kw)
         if self.op != "real":
             # db_name을 setting 한다.
             self.db_name = "simulator" + str(self.simul_num)
             self.engine_simulator = create_engine(
                 "mysql+mysqldb://" + cf.db_id + ":" + cf.db_passwd + "@" + cf.db_ip + ":" + cf.db_port + "/" + str(
-                    self.db_name), encoding='utf-8')
-
+                    self.db_name), encoding='utf-8', **_pool_kw)
 
         self.engine_daily_craw = create_engine(
             "mysql+mysqldb://" + cf.db_id + ":" + cf.db_passwd + "@" + cf.db_ip + ":" + cf.db_port + "/daily_craw",
-            encoding='utf-8')
+            encoding='utf-8', **_pool_kw)
 
         self.engine_craw = create_engine(
             "mysql+mysqldb://" + cf.db_id + ":" + cf.db_passwd + "@" + cf.db_ip + ":" + cf.db_port + "/min_craw",
-            encoding='utf-8')
+            encoding='utf-8', **_pool_kw)
         self.engine_daily_buy_list = create_engine(
             "mysql+mysqldb://" + cf.db_id + ":" + cf.db_passwd + "@" + cf.db_ip + ":" + cf.db_port + "/daily_buy_list",
-            encoding='utf-8')
+            encoding='utf-8', **_pool_kw)
 
         event.listen(self.engine_simulator, 'before_execute', escape_percentage, retval=True)
         event.listen(self.engine_daily_craw, 'before_execute', escape_percentage, retval=True)
