@@ -993,11 +993,11 @@ def strategy_b_exit(pos: dict, ind: dict) -> tuple:
 def strategy_d_exit(pos: dict, ind: dict) -> tuple:
     """
     Strategy D — 데이트레이딩 매도
-    하드SL(-2%) / 트레일링(+5%활성 → 5%트레일 / +1% 플로어)
+    하드SL(-15%) / 트레일링(+5%활성 → 5%트레일 / +1% 플로어)
     손절 유예 없음 — 장중 포지션은 즉각 관리
 
     트레일링 미활성 구간 (+5% 미달):
-      - 하드SL -2% 만 적용, 익절선 없음 (트레일링 발동 기다림)
+      - 하드SL -15% 만 적용, 익절선 없음 (트레일링 발동 기다림)
     트레일링 활성 구간 (최고가 >= 매수가×1.05):
       - trail_stop = max(최고가×0.95, 매수가×1.01)
       - 현재가 <= trail_stop → 트레일링 청산
@@ -1008,9 +1008,9 @@ def strategy_d_exit(pos: dict, ind: dict) -> tuple:
 
     profit_pct = (current / entry - 1) * 100 if entry > 0 else 0
 
-    # 하드 SL -2% (트레일링 활성 여부 무관)
-    if profit_pct <= -2.0:
-        return True, f'D_하드SL({profit_pct:.2f}%)', entry * 0.98
+    # 하드 SL -15% (트레일링 활성 여부 무관)
+    if profit_pct <= -15.0:
+        return True, f'D_하드SL({profit_pct:.2f}%)', entry * 0.85
 
     # 트레일링 활성: 최고가 >= 매수가 +5%
     if entry > 0 and highest >= entry * 1.05:
