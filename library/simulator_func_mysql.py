@@ -364,12 +364,9 @@ class simulator_func_mysql:
             self.sell_point = 6                          # A전략 익절 기준
             self.losscut_point = -5                      # A전략 SL (-5%) — B SL은 sell=51에서 -8.0%
             self.time_stop_days = 20                     # A전략 시간청산 (B=30d/sell=51, E=MA60이탈)
-            self.max_positions    = 999                  # 하드캡 제거 — 자본 기반 분배
-            # A/B : E = 4 : 1 비율, invest_unit 기준 슬롯 수 동적 계산
-            # 예) 10M / 100만원 = 10슬롯 → AB=8, E=2
-            _slots_total = max(1, self.start_invest_price // self.invest_unit)
-            self.max_positions_ab = max(1, _slots_total * 4 // 5)  # A/B: 4/5
-            self.max_positions_e  = max(1, _slots_total     // 5)  # E:   1/5
+            self.max_positions    = 999                  # 하드캡 없음
+            self.max_positions_ab = 999                  # A/B 슬롯 무제한
+            self.max_positions_e  = 999                  # E   슬롯 무제한
             self.invest_limit_rate = 1.02
             self.invest_min_limit_rate = 0.97
 
