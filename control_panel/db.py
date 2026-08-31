@@ -1,7 +1,7 @@
 """
 DB 헬퍼 — control panel 전용.
 pymysql 직접 사용 (SQLAlchemy 불필요).
-jackbot4_imi1 + daily_buy_list 두 DB 모두 접근.
+imi1_db_name(cf.py 연동) + daily_buy_list 두 DB 모두 접근.
 """
 import sys
 import os

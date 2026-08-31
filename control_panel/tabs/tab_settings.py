@@ -109,7 +109,7 @@ class SettingsTab(QWidget):
         score_form.addRow('Strategy B 최소 점수:', self._score_b)
 
         self._simul_num = QSpinBox()
-        self._simul_num.setRange(1, 10)
+        self._simul_num.setRange(1, 99)
         self._simul_num.setValue(getattr(_cf, 'imi1_simul_num', 6))
         score_form.addRow('simul_num (imi1):', self._simul_num)
 
