@@ -93,10 +93,12 @@ if not any(isinstance(h, TimedRotatingFileHandler) for h in root_logger.handlers
     root_logger.addHandler(file_handler)
 
 # 서드파티 라이브러리 DEBUG/INFO 노이즈 억제
-# root를 DEBUG로 열면 Selenium, urllib3 의 HTTP 요청 하나하나가 전부 찍힘 → 차단
+# root를 DEBUG로 열면 각 라이브러리 내부 로그가 전부 jackbot.log에 찍힘 → 차단
 logging.getLogger('urllib3').setLevel(logging.WARNING)
 logging.getLogger('selenium').setLevel(logging.WARNING)
 logging.getLogger('webdriver_manager').setLevel(logging.INFO)   # 드라이버 다운로드 알림은 유지
+logging.getLogger('matplotlib').setLevel(logging.WARNING)       # font/path/cache DEBUG 억제
+logging.getLogger('PIL').setLevel(logging.WARNING)              # Pillow 이미지 처리 DEBUG 억제
 
 # 하위 호환: logging_pack.logger 직접 참조하는 곳은 root로 포워딩
 logger.addHandler(logging.NullHandler())
