@@ -196,7 +196,20 @@ class DashboardTab(QWidget):
         last_val   = cumul[-1]
         line_color = '#cc0000' if last_val >= 0 else '#0044bb'
         ax.plot(xs, cumul, color=line_color, linewidth=1.5, zorder=3)
-        ax.annotate(f'{last_val:+,.1f}M',
+
+        # Y축 단위 자동 선택: 최대 절댓값 기준
+        max_abs = max(abs(v) for v in cumul) if cumul else 1
+        if max_abs >= 1.0:          # 100만원 이상 → M 단위
+            y_fmt   = lambda v, _: f'{v:+,.1f}M'
+            ann_txt = f'{last_val:+,.1f}M'
+        elif max_abs >= 0.01:       # 1만원 이상 ~ 100만원 미만 → 만원 단위
+            y_fmt   = lambda v, _: f'{v*100:+,.0f}만'
+            ann_txt = f'{last_val*100:+,.0f}만'
+        else:                       # 극소액 → 원 단위
+            y_fmt   = lambda v, _: f'{v*1_000_000:+,.0f}원'
+            ann_txt = f'{last_val*1_000_000:+,.0f}원'
+
+        ax.annotate(ann_txt,
                     xy=(xs[-1], last_val),
                     xytext=(xs[-1] - 0.5, last_val),
                     fontsize=8, color=line_color, va='center', ha='right')
@@ -206,8 +219,7 @@ class DashboardTab(QWidget):
         ax.set_xticks(xs[::step])
         ax.set_xticklabels([f"{d[4:6]}/{d[6:8]}" for d in dates[::step]], fontsize=7)
         ax.set_xlim(-0.5, n - 0.5)
-        ax.yaxis.set_major_formatter(
-            matplotlib.ticker.FuncFormatter(lambda v, _: f'{v:+,.0f}M'))
+        ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(y_fmt))
         ax.tick_params(axis='y', labelsize=7)
         ax.set_title('누적 실현손익', fontsize=9, pad=3)
         ax.grid(axis='y', color='#e0e0e0', linewidth=0.5)
