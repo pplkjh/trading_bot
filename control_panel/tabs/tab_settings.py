@@ -71,6 +71,7 @@ class SettingsTab(QWidget):
         self._invest_unit.setSingleStep(100_000)
         self._invest_unit.setSuffix(' 원')
         self._invest_unit.setValue(getattr(_cf, 'invest_unit', 1_000_000))
+        self._invest_unit.setFixedWidth(130)
         imm_form.addRow('종목당 투자금:', self._invest_unit)
 
         self._limit_money = QSpinBox()
@@ -78,6 +79,7 @@ class SettingsTab(QWidget):
         self._limit_money.setSingleStep(10_000)
         self._limit_money.setSuffix(' 원')
         self._limit_money.setValue(300_000)
+        self._limit_money.setFixedWidth(130)
         imm_form.addRow('최소 보유 예수금:', self._limit_money)
 
         save_imm_btn = QPushButton('즉시 반영 저장')
@@ -101,15 +103,18 @@ class SettingsTab(QWidget):
         self._a_tp = QDoubleSpinBox()
         self._a_tp.setRange(1.0, 50.0); self._a_tp.setSingleStep(0.5)
         self._a_tp.setDecimals(1); self._a_tp.setSuffix(' %'); self._a_tp.setValue(6.0)
+        self._a_tp.setFixedWidth(90)
         sell_form.addRow('익절 TP (A):', self._a_tp)
 
         self._a_sl = QDoubleSpinBox()
         self._a_sl.setRange(-30.0, -0.5); self._a_sl.setSingleStep(0.5)
         self._a_sl.setDecimals(1); self._a_sl.setSuffix(' %'); self._a_sl.setValue(-5.0)
+        self._a_sl.setFixedWidth(90)
         sell_form.addRow('하드 SL (A):', self._a_sl)
 
         self._a_td = QSpinBox()
         self._a_td.setRange(1, 120); self._a_td.setSuffix(' 일'); self._a_td.setValue(20)
+        self._a_td.setFixedWidth(90)
         sell_form.addRow('시간청산 (A):', self._a_td)
 
         lbl_b = QLabel('── 전략 B (반전 · MA20반등이탈 상시 적용) ──')
@@ -119,10 +124,12 @@ class SettingsTab(QWidget):
         self._b_sl = QDoubleSpinBox()
         self._b_sl.setRange(-30.0, -0.5); self._b_sl.setSingleStep(0.5)
         self._b_sl.setDecimals(1); self._b_sl.setSuffix(' %'); self._b_sl.setValue(-8.0)
+        self._b_sl.setFixedWidth(90)
         sell_form.addRow('하드 SL (B):', self._b_sl)
 
         self._b_td = QSpinBox()
         self._b_td.setRange(1, 120); self._b_td.setSuffix(' 일'); self._b_td.setValue(30)
+        self._b_td.setFixedWidth(90)
         sell_form.addRow('시간청산 (B):', self._b_td)
 
         lbl_e = QLabel('── 전략 E (가치) ──')
@@ -132,6 +139,7 @@ class SettingsTab(QWidget):
         self._e_sl = QDoubleSpinBox()
         self._e_sl.setRange(-50.0, -1.0); self._e_sl.setSingleStep(1.0)
         self._e_sl.setDecimals(1); self._e_sl.setSuffix(' %'); self._e_sl.setValue(-15.0)
+        self._e_sl.setFixedWidth(90)
         sell_form.addRow('하드 SL % (E):', self._e_sl)
 
         self._e_sl_on  = QCheckBox('하드 SL 활성화')
@@ -163,16 +171,19 @@ class SettingsTab(QWidget):
         self._score_a = QSpinBox()
         self._score_a.setRange(0, 300)
         self._score_a.setValue(getattr(_cf, 'v4_min_score_a', 110))
+        self._score_a.setFixedWidth(90)
         score_form.addRow('Strategy A 최소 점수:', self._score_a)
 
         self._score_b = QSpinBox()
         self._score_b.setRange(0, 300)
         self._score_b.setValue(getattr(_cf, 'v4_min_score_b', 110))
+        self._score_b.setFixedWidth(90)
         score_form.addRow('Strategy B 최소 점수:', self._score_b)
 
         self._simul_num = QSpinBox()
         self._simul_num.setRange(1, 99)
         self._simul_num.setValue(getattr(_cf, 'imi1_simul_num', 6))
+        self._simul_num.setFixedWidth(90)
         score_form.addRow('simul_num (imi1):', self._simul_num)
 
         save_score_btn = QPushButton('점수 임계값 저장')
