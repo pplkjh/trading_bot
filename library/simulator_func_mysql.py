@@ -87,6 +87,18 @@ class simulator_func_mysql:
         sql = "update realtime_daily_buy_list set check_item = '%s' where code = '%s'"
         self.engine_simulator.execute(sql % (min_date, code))
 
+    def _load_sell_config(self) -> dict:
+        """bot_config 테이블에서 매도 파라미터 로드.
+        실전(jackbot6_imi1): 컨트롤 패널이 쓴 값을 읽어 즉시 반영.
+        백테스트(simulator*): 테이블 없음 → 빈 dict 반환 → 호출부가 기본값 사용."""
+        try:
+            rows = self.engine_simulator.execute(
+                "SELECT param_key, param_value FROM bot_config"
+            ).fetchall()
+            return {dict(r)['param_key']: dict(r)['param_value'] for r in rows}
+        except Exception:
+            return {}
+
     # cf.invest_unit / invest_unit_pct 기반으로 invest_unit 계산
     @staticmethod
     def _resolve_invest_unit(base_balance):
@@ -2953,21 +2965,27 @@ class simulator_func_mysql:
         # E: cf.e_sell_* 플래그 기반 소프트코딩     — sell=50 준용
         elif self.sell_list_num == 51:
             date_today_str = self.date_rows[i][0]
-            sp   = self.sell_point      # A 익절 (+6%)
-            lc_a = self.losscut_point   # A SL   (-5%)
-            td_a = 20                   # A 시간청산 (고정)
-            lc_b = -8.0                 # B SL (sim=9/sell=32 준용)
-            td_b = 30                   # B 시간청산 (sim=9/sell=32 준용)
-            _sl_e = cf.e_sell_sl_pct
 
-            # E 매도 조건: cf 플래그 기반 동적 빌드 (sell=50 준용)
+            # bot_config 테이블에서 매도 파라미터 로드
+            # 실전: 컨트롤 패널 저장값 즉시 반영 / 백테스트: 빈 dict → 기본값 사용
+            _cfg = self._load_sell_config()
+            sp   = float(_cfg.get('a_tp_pct',    self.sell_point))    # A 익절
+            lc_a = float(_cfg.get('a_sl_pct',    self.losscut_point)) # A SL
+            td_a = int(  _cfg.get('a_time_stop', 20))                 # A 시간청산
+            lc_b = float(_cfg.get('b_sl_pct',    -8.0))               # B SL
+            td_b = int(  _cfg.get('b_time_stop', 30))                 # B 시간청산
+            _sl_e         = float(_cfg.get('e_sl_pct',     cf.e_sell_sl_pct))
+            _e_sl_hard_on = _cfg.get('e_sl_hard_on', '1') == '1'
+            _e_ma60_on    = _cfg.get('e_ma60_on',    '1') == '1'
+
+            # E 매도 조건: bot_config 플래그 기반 동적 빌드 (sell=50 준용)
             _e_case_parts  = []
             _e_where_parts = []
-            if getattr(cf, 'e_sell_sl_hard_on', True):
+            if _e_sl_hard_on:
                 _e_case_parts.append(
                     f"  WHEN strategy_type = 'E' AND rate <= {_sl_e} THEN 'SL_HARD(E{_sl_e:.0f}%%)'")
                 _e_where_parts.append(f"(strategy_type = 'E' AND rate <= {_sl_e})")
-            if getattr(cf, 'e_sell_ma60_on', True):
+            if _e_ma60_on:
                 _e_case_parts.append(
                     "  WHEN strategy_type = 'E' AND present_price < ma60 THEN 'TREND_BREAK(E·MA60)'")
                 _e_where_parts.append("(strategy_type = 'E' AND present_price < ma60)")

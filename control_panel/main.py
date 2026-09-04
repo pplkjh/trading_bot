@@ -44,6 +44,10 @@ class MainWindow(QMainWindow):
             db.ensure_jango_schema()   # jango_data.total_evaluation 컬럼 보장
         except Exception as e:
             print(f'[CP] jango schema init warning: {e}')
+        try:
+            db.ensure_bot_config_table()  # bot_config 매도 파라미터 테이블 보장
+        except Exception as e:
+            print(f'[CP] bot_config init warning: {e}')
 
         # ── 탭 위젯 ───────────────────────────────────────────────
         self._tabs = QTabWidget()

@@ -351,6 +351,63 @@ def set_limit_money(amount: int):
     _exec("UPDATE setting_data SET limit_money=%s", (amount,))
 
 
+# ── bot_config (매도 파라미터 즉시 반영) ──────────────────────────
+# 트레이더 매도 사이클마다 이 테이블을 읽어 파라미터 적용.
+# 백테스트(simulator*)에서는 테이블이 없으므로 cf.py/기본값 폴백.
+
+SELL_CONFIG_DEFAULTS = {
+    'a_tp_pct':     '6.0',    # A 익절 %
+    'a_sl_pct':     '-5.0',   # A 하드SL %
+    'a_time_stop':  '20',     # A 시간청산 일
+    'b_sl_pct':     '-8.0',   # B 하드SL %
+    'b_time_stop':  '30',     # B 시간청산 일
+    'e_sl_pct':     '-15.0',  # E 하드SL %
+    'e_sl_hard_on': '1',      # E 하드SL ON(1)/OFF(0)
+    'e_ma60_on':    '1',      # E MA60이탈 ON(1)/OFF(0)
+}
+
+
+def ensure_bot_config_table():
+    """bot_config 테이블 생성 및 기본값 초기화 (없는 키만 INSERT IGNORE)."""
+    _exec("""
+        CREATE TABLE IF NOT EXISTS bot_config (
+            param_key   VARCHAR(64) PRIMARY KEY,
+            param_value VARCHAR(256) NOT NULL,
+            updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) CHARACTER SET utf8
+    """)
+    for k, v in SELL_CONFIG_DEFAULTS.items():
+        try:
+            _exec(
+                "INSERT IGNORE INTO bot_config (param_key, param_value) VALUES (%s, %s)",
+                (k, v)
+            )
+        except Exception:
+            pass
+
+
+def get_sell_config() -> dict:
+    """bot_config 테이블에서 매도 파라미터 로드. 기본값과 머지하여 반환."""
+    result = dict(SELL_CONFIG_DEFAULTS)
+    try:
+        rows = _fetch("SELECT param_key, param_value FROM bot_config")
+        for r in rows:
+            result[r['param_key']] = r['param_value']
+    except Exception:
+        pass
+    return result
+
+
+def save_sell_config(params: dict):
+    """매도 파라미터를 bot_config 테이블에 즉시 저장 (upsert)."""
+    for k, v in params.items():
+        _exec(
+            "INSERT INTO bot_config (param_key, param_value) VALUES (%s, %s) "
+            "ON DUPLICATE KEY UPDATE param_value=%s, updated_at=NOW()",
+            (k, str(v), str(v))
+        )
+
+
 # ── Strategy D 긴급 후보 ──────────────────────────────────────────
 def get_d_positions():
     """strategy_type='D'인 현재 보유 종목 조회."""

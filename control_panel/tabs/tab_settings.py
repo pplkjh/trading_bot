@@ -5,7 +5,7 @@ import sys
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QSpinBox, QDoubleSpinBox, QPushButton,
-    QGroupBox, QMessageBox, QScrollArea,
+    QGroupBox, QMessageBox, QScrollArea, QCheckBox,
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -88,6 +88,68 @@ class SettingsTab(QWidget):
 
         root.addWidget(imm_box)
 
+        # ── 즉시 반영: 매도 파라미터 (bot_config 테이블) ──────────
+        sell_box = QGroupBox('매도 파라미터 — sim=11 (즉시 반영 · 다음 매도 사이클부터 적용)')
+        sell_box.setFont(QFont('Malgun Gothic', 9, QFont.Bold))
+        sell_form = QFormLayout(sell_box)
+        sell_form.setSpacing(6)
+
+        lbl_a = QLabel('── 전략 A (돌파) ──')
+        lbl_a.setStyleSheet('color:#0055cc; font-weight:bold;')
+        sell_form.addRow(lbl_a)
+
+        self._a_tp = QDoubleSpinBox()
+        self._a_tp.setRange(1.0, 50.0); self._a_tp.setSingleStep(0.5)
+        self._a_tp.setDecimals(1); self._a_tp.setSuffix(' %'); self._a_tp.setValue(6.0)
+        sell_form.addRow('익절 TP (A):', self._a_tp)
+
+        self._a_sl = QDoubleSpinBox()
+        self._a_sl.setRange(-30.0, -0.5); self._a_sl.setSingleStep(0.5)
+        self._a_sl.setDecimals(1); self._a_sl.setSuffix(' %'); self._a_sl.setValue(-5.0)
+        sell_form.addRow('하드 SL (A):', self._a_sl)
+
+        self._a_td = QSpinBox()
+        self._a_td.setRange(1, 120); self._a_td.setSuffix(' 일'); self._a_td.setValue(20)
+        sell_form.addRow('시간청산 (A):', self._a_td)
+
+        lbl_b = QLabel('── 전략 B (반전 · MA20반등이탈 상시 적용) ──')
+        lbl_b.setStyleSheet('color:#007700; font-weight:bold;')
+        sell_form.addRow(lbl_b)
+
+        self._b_sl = QDoubleSpinBox()
+        self._b_sl.setRange(-30.0, -0.5); self._b_sl.setSingleStep(0.5)
+        self._b_sl.setDecimals(1); self._b_sl.setSuffix(' %'); self._b_sl.setValue(-8.0)
+        sell_form.addRow('하드 SL (B):', self._b_sl)
+
+        self._b_td = QSpinBox()
+        self._b_td.setRange(1, 120); self._b_td.setSuffix(' 일'); self._b_td.setValue(30)
+        sell_form.addRow('시간청산 (B):', self._b_td)
+
+        lbl_e = QLabel('── 전략 E (가치) ──')
+        lbl_e.setStyleSheet('color:#880088; font-weight:bold;')
+        sell_form.addRow(lbl_e)
+
+        self._e_sl = QDoubleSpinBox()
+        self._e_sl.setRange(-50.0, -1.0); self._e_sl.setSingleStep(1.0)
+        self._e_sl.setDecimals(1); self._e_sl.setSuffix(' %'); self._e_sl.setValue(-15.0)
+        sell_form.addRow('하드 SL % (E):', self._e_sl)
+
+        self._e_sl_on  = QCheckBox('하드 SL 활성화')
+        self._e_sl_on.setChecked(True)
+        sell_form.addRow('', self._e_sl_on)
+
+        self._e_ma60_on = QCheckBox('MA60 이탈 시 매도')
+        self._e_ma60_on.setChecked(True)
+        sell_form.addRow('', self._e_ma60_on)
+
+        save_sell_btn = QPushButton('매도 파라미터 저장 (즉시 반영)')
+        save_sell_btn.setFixedHeight(30)
+        save_sell_btn.setStyleSheet('background:#008800;color:white;border-radius:4px;font-weight:bold;')
+        save_sell_btn.clicked.connect(self._save_sell_config)
+        sell_form.addRow('', save_sell_btn)
+
+        root.addWidget(sell_box)
+
         note_restart = QLabel('🔁 재시작 후 반영 — 트레이더 재시작 필요 (cf.py 직접 수정)')
         note_restart.setStyleSheet('color: #e07b00; font-size: 9pt;')
         root.addWidget(note_restart)
@@ -121,62 +183,6 @@ class SettingsTab(QWidget):
 
         root.addWidget(score_box)
 
-        # ── 재시작 후 반영: 매도 파라미터 ─────────────────────────
-        sell_box = QGroupBox('매도 파라미터 (simulator_func_mysql.py 기준 — cf.py 경유 없음)')
-        sell_box.setFont(QFont('Malgun Gothic', 9, QFont.Bold))
-        sell_form = QFormLayout(sell_box)
-        sell_form.setSpacing(8)
-
-        self._losscut = QDoubleSpinBox()
-        self._losscut.setRange(-30, 0)
-        self._losscut.setSingleStep(0.5)
-        self._losscut.setDecimals(1)
-        self._losscut.setSuffix(' %')
-        self._losscut.setValue(-5.0)
-        sell_form.addRow('하드 손절 % (losscut_point):', self._losscut)
-
-        self._trail_act = QDoubleSpinBox()
-        self._trail_act.setRange(0, 30)
-        self._trail_act.setSingleStep(0.5)
-        self._trail_act.setDecimals(1)
-        self._trail_act.setSuffix(' %')
-        self._trail_act.setValue(3.0)
-        sell_form.addRow('트레일링 활성화 수익률 (A/B):', self._trail_act)
-
-        self._trail_pct_a = QDoubleSpinBox()
-        self._trail_pct_a.setRange(0, 20)
-        self._trail_pct_a.setSingleStep(0.5)
-        self._trail_pct_a.setDecimals(1)
-        self._trail_pct_a.setSuffix(' %')
-        self._trail_pct_a.setValue(3.0)
-        sell_form.addRow('트레일링 하락 허용 % (A전략):', self._trail_pct_a)
-
-        self._trail_pct_b = QDoubleSpinBox()
-        self._trail_pct_b.setRange(0, 20)
-        self._trail_pct_b.setSingleStep(0.5)
-        self._trail_pct_b.setDecimals(1)
-        self._trail_pct_b.setSuffix(' %')
-        self._trail_pct_b.setValue(5.0)
-        sell_form.addRow('트레일링 하락 허용 % (B전략):', self._trail_pct_b)
-
-        self._time_stop_a = QSpinBox()
-        self._time_stop_a.setRange(1, 90)
-        self._time_stop_a.setValue(15)
-        self._time_stop_a.setSuffix(' 일')
-        sell_form.addRow('시간청산 일수 (A전략):', self._time_stop_a)
-
-        self._time_stop_b = QSpinBox()
-        self._time_stop_b.setRange(1, 90)
-        self._time_stop_b.setValue(45)
-        self._time_stop_b.setSuffix(' 일')
-        sell_form.addRow('시간청산 일수 (B전략):', self._time_stop_b)
-
-        note_sell = QLabel('※ 매도 파라미터는 open_api.py의 get_basic_sell_list()에 하드코딩.\n'
-                           '   실제 코드를 직접 수정 후 트레이더를 재시작하세요.')
-        note_sell.setStyleSheet('color: #888; font-size: 8pt;')
-        sell_form.addRow('', note_sell)
-
-        root.addWidget(sell_box)
         root.addStretch()
 
     def refresh(self, _=None):
@@ -190,6 +196,19 @@ class SettingsTab(QWidget):
                     self._limit_money.setValue(int(sd['limit_money']))
         except Exception:
             pass
+        # bot_config 최신값 로드
+        try:
+            cfg = db.get_sell_config()
+            self._a_tp.setValue(float(cfg.get('a_tp_pct', 6.0)))
+            self._a_sl.setValue(float(cfg.get('a_sl_pct', -5.0)))
+            self._a_td.setValue(int(cfg.get('a_time_stop', 20)))
+            self._b_sl.setValue(float(cfg.get('b_sl_pct', -8.0)))
+            self._b_td.setValue(int(cfg.get('b_time_stop', 30)))
+            self._e_sl.setValue(float(cfg.get('e_sl_pct', -15.0)))
+            self._e_sl_on.setChecked(cfg.get('e_sl_hard_on', '1') == '1')
+            self._e_ma60_on.setChecked(cfg.get('e_ma60_on', '1') == '1')
+        except Exception:
+            pass
 
     def _save_immediate(self):
         invest = self._invest_unit.value()
@@ -201,6 +220,29 @@ class SettingsTab(QWidget):
                 f'종목당 투자금: {invest:,}원\n'
                 f'최소 예수금: {limit:,}원\n\n'
                 '트레이더 다음 루프에서 반영됩니다.')
+        except Exception as e:
+            QMessageBox.critical(self, '저장 실패', str(e))
+
+    def _save_sell_config(self):
+        params = {
+            'a_tp_pct':     self._a_tp.value(),
+            'a_sl_pct':     self._a_sl.value(),
+            'a_time_stop':  self._a_td.value(),
+            'b_sl_pct':     self._b_sl.value(),
+            'b_time_stop':  self._b_td.value(),
+            'e_sl_pct':     self._e_sl.value(),
+            'e_sl_hard_on': '1' if self._e_sl_on.isChecked() else '0',
+            'e_ma60_on':    '1' if self._e_ma60_on.isChecked() else '0',
+        }
+        try:
+            db.ensure_bot_config_table()
+            db.save_sell_config(params)
+            QMessageBox.information(self, '저장 완료',
+                f'A: TP={params["a_tp_pct"]}% / SL={params["a_sl_pct"]}% / {params["a_time_stop"]}일\n'
+                f'B: SL={params["b_sl_pct"]}% / {params["b_time_stop"]}일\n'
+                f'E: SL={params["e_sl_pct"]}% / '
+                f'SL_ON={params["e_sl_hard_on"]} / MA60={params["e_ma60_on"]}\n\n'
+                '✅ 다음 매도 사이클부터 즉시 반영됩니다.')
         except Exception as e:
             QMessageBox.critical(self, '저장 실패', str(e))
 
