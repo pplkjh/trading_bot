@@ -82,8 +82,8 @@ class SettingsTab(QWidget):
         self._limit_money.setFixedWidth(130)
         imm_form.addRow('최소 보유 예수금:', self._limit_money)
 
-        save_imm_btn = QPushButton('즉시 반영 저장')
-        save_imm_btn.setFixedHeight(30)
+        save_imm_btn = QPushButton('저장')
+        save_imm_btn.setFixedSize(80, 26)
         save_imm_btn.setStyleSheet('background:#008800;color:white;border-radius:4px;font-weight:bold;')
         save_imm_btn.clicked.connect(self._save_immediate)
         imm_form.addRow('', save_imm_btn)
@@ -150,8 +150,21 @@ class SettingsTab(QWidget):
         self._e_ma60_on.setChecked(True)
         sell_form.addRow('', self._e_ma60_on)
 
-        save_sell_btn = QPushButton('매도 파라미터 저장 (즉시 반영)')
-        save_sell_btn.setFixedHeight(30)
+        lbl_regime = QLabel('── E 레짐 게이트 ──')
+        lbl_regime.setStyleSheet('color:#880088; font-weight:bold;')
+        sell_form.addRow(lbl_regime)
+
+        self._regime_on = QCheckBox('KOSPI 레짐 게이트 ON (E전략 매수 제한)')
+        self._regime_on.setChecked(True)
+        sell_form.addRow('', self._regime_on)
+
+        self._regime_ma = QSpinBox()
+        self._regime_ma.setRange(20, 200); self._regime_ma.setSuffix(' MA')
+        self._regime_ma.setValue(120); self._regime_ma.setFixedWidth(90)
+        sell_form.addRow('KOSPI 기준선 기간:', self._regime_ma)
+
+        save_sell_btn = QPushButton('저장')
+        save_sell_btn.setFixedSize(80, 26)
         save_sell_btn.setStyleSheet('background:#008800;color:white;border-radius:4px;font-weight:bold;')
         save_sell_btn.clicked.connect(self._save_sell_config)
         sell_form.addRow('', save_sell_btn)
@@ -186,8 +199,8 @@ class SettingsTab(QWidget):
         self._simul_num.setFixedWidth(90)
         score_form.addRow('simul_num (imi1):', self._simul_num)
 
-        save_score_btn = QPushButton('점수 임계값 저장')
-        save_score_btn.setFixedHeight(30)
+        save_score_btn = QPushButton('저장')
+        save_score_btn.setFixedSize(80, 26)
         save_score_btn.setStyleSheet('background:#e07b00;color:white;border-radius:4px;font-weight:bold;')
         save_score_btn.clicked.connect(self._save_scores)
         score_form.addRow('', save_score_btn)
@@ -218,6 +231,8 @@ class SettingsTab(QWidget):
             self._e_sl.setValue(float(cfg.get('e_sl_pct', -15.0)))
             self._e_sl_on.setChecked(cfg.get('e_sl_hard_on', '1') == '1')
             self._e_ma60_on.setChecked(cfg.get('e_ma60_on', '1') == '1')
+            self._regime_on.setChecked(cfg.get('e_regime_on', '1') == '1')
+            self._regime_ma.setValue(int(cfg.get('e_regime_ma', 120)))
         except Exception:
             pass
 
@@ -244,16 +259,19 @@ class SettingsTab(QWidget):
             'e_sl_pct':     self._e_sl.value(),
             'e_sl_hard_on': '1' if self._e_sl_on.isChecked() else '0',
             'e_ma60_on':    '1' if self._e_ma60_on.isChecked() else '0',
+            'e_regime_on':  '1' if self._regime_on.isChecked() else '0',
+            'e_regime_ma':  self._regime_ma.value(),
         }
         try:
             db.ensure_bot_config_table()
             db.save_sell_config(params)
+            regime_txt = f'MA{params["e_regime_ma"]} ON' if params["e_regime_on"] == '1' else 'OFF'
             QMessageBox.information(self, '저장 완료',
                 f'A: TP={params["a_tp_pct"]}% / SL={params["a_sl_pct"]}% / {params["a_time_stop"]}일\n'
                 f'B: SL={params["b_sl_pct"]}% / {params["b_time_stop"]}일\n'
-                f'E: SL={params["e_sl_pct"]}% / '
-                f'SL_ON={params["e_sl_hard_on"]} / MA60={params["e_ma60_on"]}\n\n'
-                '✅ 다음 매도 사이클부터 즉시 반영됩니다.')
+                f'E: SL={params["e_sl_pct"]}% / MA60={params["e_ma60_on"]}\n'
+                f'E 레짐게이트: {regime_txt}\n\n'
+                '✅ 다음 루프부터 즉시 반영됩니다.')
         except Exception as e:
             QMessageBox.critical(self, '저장 실패', str(e))
 

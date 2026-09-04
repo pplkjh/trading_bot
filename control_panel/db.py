@@ -356,14 +356,16 @@ def set_limit_money(amount: int):
 # 백테스트(simulator*)에서는 테이블이 없으므로 cf.py/기본값 폴백.
 
 SELL_CONFIG_DEFAULTS = {
-    'a_tp_pct':     '6.0',    # A 익절 %
-    'a_sl_pct':     '-5.0',   # A 하드SL %
-    'a_time_stop':  '20',     # A 시간청산 일
-    'b_sl_pct':     '-8.0',   # B 하드SL %
-    'b_time_stop':  '30',     # B 시간청산 일
-    'e_sl_pct':     '-15.0',  # E 하드SL %
-    'e_sl_hard_on': '1',      # E 하드SL ON(1)/OFF(0)
-    'e_ma60_on':    '1',      # E MA60이탈 ON(1)/OFF(0)
+    'a_tp_pct':       '6.0',    # A 익절 %
+    'a_sl_pct':       '-5.0',   # A 하드SL %
+    'a_time_stop':    '20',     # A 시간청산 일
+    'b_sl_pct':       '-8.0',   # B 하드SL %
+    'b_time_stop':    '30',     # B 시간청산 일
+    'e_sl_pct':       '-15.0',  # E 하드SL %
+    'e_sl_hard_on':   '1',      # E 하드SL ON(1)/OFF(0)
+    'e_ma60_on':      '1',      # E MA60이탈 ON(1)/OFF(0)
+    'e_regime_on':    '1',      # E 레짐 게이트 ON(1)/OFF(0)
+    'e_regime_ma':    '120',    # E 레짐 게이트 KOSPI MA 기간
 }
 
 

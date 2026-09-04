@@ -1910,12 +1910,15 @@ class simulator_func_mysql:
             from library.value_strategy_e import ValueStrategyE
 
             # ── 시장 레짐 게이트: KOSPI < MA_N 이면 신규 매수 금지 ─────────────
-            # cf.e_regime_gate_on        = True/False
-            # cf.e_regime_gate_ma_period = 60 (MA60) or 120 (MA120)
+            # bot_config 우선 → cf.py 폴백
+            _bcfg23 = self._load_sell_config()
+            _regime_gate_on = _bcfg23.get('e_regime_on', '1') == '1' \
+                              if 'e_regime_on' in _bcfg23 else cf.e_regime_gate_on
+            _regime_ma_period_cf = int(getattr(cf, 'e_regime_gate_ma_period', 120))
             _regime_ok = True
-            if cf.e_regime_gate_on:
+            if _regime_gate_on:
                 try:
-                    _ma_period = int(getattr(cf, 'e_regime_gate_ma_period', 60))
+                    _ma_period = int(_bcfg23.get('e_regime_ma', _regime_ma_period_cf))
                     _kospi_rows = self.engine_daily_craw.execute(
                         "SELECT close FROM kospi_index "
                         "WHERE date <= '%s' ORDER BY date DESC LIMIT %d" % (date_rows_today, _ma_period)
@@ -1974,10 +1977,14 @@ class simulator_func_mysql:
             # ── ① E 스크리닝 (최우선, Gate MA120 적용) ───────────────────────
             if _e_avail > 0:
                 from library.value_strategy_e import ValueStrategyE
+                _bcfg24 = self._load_sell_config()
+                _regime_gate_on24 = _bcfg24.get('e_regime_on', '1') == '1' \
+                                   if 'e_regime_on' in _bcfg24 else cf.e_regime_gate_on
                 _regime_ok_e = True
-                if cf.e_regime_gate_on:
+                if _regime_gate_on24:
                     try:
-                        _ma_p_e = int(getattr(cf, 'e_regime_gate_ma_period', 120))
+                        _ma_p_e = int(_bcfg24.get('e_regime_ma',
+                                      getattr(cf, 'e_regime_gate_ma_period', 120)))
                         _kospi_rows_e = self.engine_daily_craw.execute(
                             "SELECT close FROM kospi_index "
                             "WHERE date <= '%s' ORDER BY date DESC LIMIT %d" % (date_rows_today, _ma_p_e)
