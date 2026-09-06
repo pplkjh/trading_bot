@@ -90,7 +90,7 @@ class open_api(QAxWidget):
         if not self.sf.is_simul_table_exist(self.db_name, "setting_data"):
             self.init_db_setting_data()
         else:
-            logger.debug("setting_data db 존재한다!!!")
+            pass
 
         # 여기서 invest_unit 설정함
         self.sf_variable_setting()
@@ -103,7 +103,7 @@ class open_api(QAxWidget):
 
     # invest_unit을 가져오는 함수
     def get_invest_unit(self):
-        logger.debug("get_invest_unit 함수에 들어왔습니다!")
+        # logger.debug("get_invest_unit 함수에 들어왔습니다!")
         sql = "select invest_unit from setting_data limit 1"
         # 데이타 Fetch
         # rows 는 list안에 튜플이 있는 [()] 형태로 받아온다
@@ -114,7 +114,6 @@ class open_api(QAxWidget):
         self.date_rows_yesterday = self.sf.get_recent_daily_buy_list_date()
 
         if not self.sf.is_simul_table_exist(self.db_name, "all_item_db"):
-            logger.debug("all_item_db 없어서 생성!! init !! ")
             self.invest_unit = 0
             self.db_to_all_item(0, 0, 0, 0, 0)
             self.delete_all_item("0")
@@ -131,7 +130,7 @@ class open_api(QAxWidget):
 
     # 보유량 가져오는 함수
     def get_holding_amount(self, code):
-        logger.debug("get_holding_amount 함수에 들어왔습니다!")
+        # logger.debug("get_holding_amount 함수에 들어왔습니다!")
         sql = "select holding_amount from possessed_item where code = '%s' group by code"
         rows = self.engine_JB.execute(sql % (code)).fetchall()
         if len(rows):
@@ -164,37 +163,46 @@ class open_api(QAxWidget):
 
     # 변수 설정 함수
     def variable_setting(self):
-        logger.debug("variable_setting 함수에 들어왔다.")
+        # logger.debug("variable_setting 함수에 들어왔다.")
         self.get_today_buy_list_code = 0
+        self.get_today_buy_list_code_name = ''
+        self.get_today_buy_list_atr14 = 0
+        self.get_today_buy_list_bb_bandwidth = 0.0
         self.cf = cf
         self.reset_opw00018_output()
         # 아래 분기문은 실전 투자 인지, 모의 투자 인지 결정
         if self.account_number == cf.real_account:  # 실전
             self.simul_num = cf.real_simul_num
-            logger.debug("실전!@@@@@@@@@@@" + cf.real_account)
+            logger.info("실전 계좌 연결: %s", cf.real_account)
             self.db_name_setting(cf.real_db_name)
             # 실전과 모의투자가 다른 것은 아래 mod_gubun 이 다르다.
             # 금일 수익률 표시 하는게 달라서(중요X)
             self.mod_gubun = 100
 
         elif self.account_number == cf.imi1_accout:  # 모의1
-            logger.debug("모의투자 1!!")
+            logger.info("모의투자 계좌 연결")
             self.simul_num = cf.imi1_simul_num
             self.db_name_setting(cf.imi1_db_name)
             self.mod_gubun = 1
 
         else:
-            logger.debug("계정이 존재하지 않습니다!! library/cf.py 파일에 계좌번호를 입력해주세요!")
+            logger.critical("계좌번호를 찾을 수 없습니다. library/cf.py 파일에 계좌번호를 입력해주세요.")
             exit(1)
         # 여기에 이렇게 true로 고정해놔야 exit check 할때 false 인 경우에 들어갔을 때  today_buy_code is null 이런 에러 안생긴다.
         self.jango_is_null = True
+        self.inst_today = {}    # OPT10045 당일 순매수 (collector 모드)
+        self.intraday_scan_opt10028 = []   # Strategy D: 시가대비등락률 상위
+        self.intraday_scan_opt10063         = []   # Strategy D: 장중 기관 동시순매수 (투자자별=7)
+        self.intraday_scan_opt10063_foreign = []   # Strategy D: 장중 외국계 순매수 (투자자별=6)
+        self._manual_buy_strategy  = {}   # Strategy D 수동매수 시 INSERT 직전 override용 {code: strategy_type}
+        self.inst_history = {}  # OPT10045 전체 기간 순매수 (backfill 모드)
 
         self.py_gubun = False
 
 
     # 봇 데이터 베이스를 만드는 함수
     def create_database(self, cursor):
-        logger.debug("create_database!!! {}".format(self.db_name))
+        logger.debug("create_database: %s", self.db_name)
         sql = 'CREATE DATABASE {}'
         cursor.execute(sql.format(self.db_name))
 
@@ -202,16 +210,14 @@ class open_api(QAxWidget):
     def is_database_exist(self, cursor):
         sql = "SELECT 1 FROM Information_schema.SCHEMATA WHERE SCHEMA_NAME = '{}'"
         if cursor.execute(sql.format(self.db_name)):
-            logger.debug("%s 데이터 베이스가 존재한다! ", self.db_name)
             return True
         else:
-            logger.debug("%s 데이터 베이스가 존재하지 않는다! ", self.db_name)
             return False
 
     # db 세팅 함수
     def db_name_setting(self, db_name):
         self.db_name = db_name
-        logger.debug("db name !!! : %s", self.db_name)
+        logger.debug("db: %s", self.db_name)
         conn = pymysql.connect(
             host=cf.db_ip,
             port=int(cf.db_port),
@@ -248,14 +254,14 @@ class open_api(QAxWidget):
 
     # 계좌 정보 함수
     def account_info(self):
-        logger.debug("account_info 함수에 들어왔습니다!")
+        # logger.debug("account_info 함수에 들어왔습니다!")
         account_number = self.get_login_info("ACCNO")
         self.account_number = account_number.split(';')[0]
         logger.debug("계좌번호 : " + self.account_number)
 
     # OpenAPI+에서 계좌 정보 및 로그인 사용자 정보를 얻어오는 메서드는 GetLoginInfo입니다.
     def get_login_info(self, tag):
-        logger.debug("get_login_info 함수에 들어왔습니다!")
+        # logger.debug("get_login_info 함수에 들어왔습니다!")
         try:
             print(tag)
             ret = cf.imi1_accout
@@ -296,15 +302,7 @@ class open_api(QAxWidget):
             logger.critical(e)
 
     def _receive_msg(self, sScrNo, sRQName, sTrCode, sMsg):
-        logger.debug("_receive_msg 함수에 들어왔습니다!")
-        # logger.debug("sScrNo!!!")
-        # logger.debug(sScrNo)
-        # logger.debug("sRQName!!!")
-        # logger.debug(sRQName)
-        # logger.debug("sTrCode!!!")
-        # logger.debug(sTrCode)
-        # logger.debug("sMsg!!!")
-        logger.debug(sMsg)
+        pass
 
     def _event_connect(self, err_code):
         try:
@@ -362,7 +360,7 @@ class open_api(QAxWidget):
         else:
             self.remained_data = False
         # print("self.py_gubun!!", self.py_gubun)
-        if rqname == "opt10081_req" and self.py_gubun == "trader":
+        if rqname == "opt10081_req" and self.py_gubun in ["trader", "trader_advanced"]:
             # logger.debug("opt10081_req trader!!!")
             # logger.debug("Get an item info !!!!")
             self._opt10081(rqname, trcode)
@@ -398,17 +396,35 @@ class open_api(QAxWidget):
             # logger.debug("opt10080_req!!!")
             # logger.debug("Get an de_deposit!!!")
             self._opt10080(rqname, trcode)
-        elif rqname == "send_order_req":
+        elif rqname == "opt10001_req":
+            self._opt10001(rqname, trcode)
+        elif rqname == "opt20006_req":
+            self._opt20006(rqname, trcode)
+        elif rqname == "opt10045_coll_req":
+            self._collect_opt10045(rqname, trcode)
+        elif rqname == "opt10045_backfill_req":
+            self._backfill_opt10045(rqname, trcode)
+        elif rqname == "opt10028_req":
+            self._opt10028(rqname, trcode)
+        elif rqname == "opt10063_req":
+            self._opt10063(rqname, trcode)
+        elif rqname == "opt10063_foreign_req":
+            self._opt10063_foreign(rqname, trcode)
+        elif rqname in ('send_order_req', 'cp_buy', 'cp_sell'):
             pass
         else:
             logger.debug(f'non existence code {rqname}, {trcode}')
         # except Exception as e:
         #     logger.critical(e)
 
-        if rqname != 'send_order_req':
+        # send_order_req, cp_buy, cp_sell 은 주문 확인응답(KOA_NORMAL_*_ORD)이
+        # _receive_tr_data 로 들어오지만 TR 이벤트루프 대기 대상이 아니므로 카운트 제외
+        _ORDER_RQNAMES = {'send_order_req', 'cp_buy', 'cp_sell'}
+        if rqname not in _ORDER_RQNAMES:
             self.tr_loop_count -= 1
         try:
             if self.tr_loop_count <= 0:
+                self.timer.stop()  # TR 응답 받았으니 타임아웃 타이머 취소
                 self.tr_event_loop.exit()
                 self.tr_loop_count = 0
         except AttributeError:
@@ -416,7 +432,6 @@ class open_api(QAxWidget):
 
     # setting_data를 초기화 하는 함수
     def init_db_setting_data(self):
-        logger.debug("init_db_setting_data !! ")
 
         #  추가하면 여기에도 추가해야함
         df_setting_data_temp = {'loan_money': [], 'limit_money': [], 'invest_unit': [], 'max_invest_unit': [],
@@ -461,23 +476,25 @@ class open_api(QAxWidget):
 
     # all_item_db에 추가하는 함수
     def db_to_all_item(self, order_num, code, chegyul_check, purchase_price, rate):
-        logger.debug("db_to_all_item 함수에 들어왔다!!!")
+        # logger.debug("db_to_all_item 함수에 들어왔다!!!")
         self.date_setting()
         self.sf.init_df_all_item()
-        self.sf.df_all_item.loc[0, 'order_num'] = order_num
         self.sf.df_all_item.loc[0, 'code'] = str(code)
         self.sf.df_all_item.loc[0, 'rate'] = float(rate)
 
         self.sf.df_all_item.loc[0, 'buy_date'] = self.today_detail
+        self.sf.df_all_item.loc[0, 'buy_time'] = ''
         # 사는 순간 chegyul_check 1 로 만드는거다.
-        self.sf.df_all_item.loc[0, 'chegyul_check'] = chegyul_check
-        # int로 넣어야 나중에 ++ 할수 있다.
-        self.sf.df_all_item.loc[0, 'reinvest_date'] = '#'
-        # df_all_item.loc[0, 'reinvest_count'] = int(0)
-        # 다음에 투자할 금액은 invest_unit과 같은 금액이다.
-        self.sf.df_all_item.loc[0, 'invest_unit'] = self.invest_unit
-        # df_all_item.loc[0, 'reinvest_unit'] = self.invest_unit
+        self.sf.df_all_item.loc[0, 'chegyul_check'] = str(chegyul_check)
         self.sf.df_all_item.loc[0, 'purchase_price'] = purchase_price
+        self.sf.df_all_item.loc[0, 'holding_amount'] = 0
+        self.sf.df_all_item.loc[0, 'present_price'] = purchase_price
+        self.sf.df_all_item.loc[0, 'valuation_profit'] = 0
+        self.sf.df_all_item.loc[0, 'sell_date'] = '0'
+        self.sf.df_all_item.loc[0, 'sell_time'] = ''
+        self.sf.df_all_item.loc[0, 'sell_price'] = 0
+        self.sf.df_all_item.loc[0, 'sell_rate'] = float(0)
+        self.sf.df_all_item.loc[0, 'realized_profit'] = 0
 
         # 신규 매수의 경우
         if order_num != 0:
@@ -486,62 +503,99 @@ class open_api(QAxWidget):
                 df = self.sf.get_daily_buy_list_by_code(code, recent_daily_buy_list_date)
                 if not df.empty:
                     self.sf.df_all_item.loc[0, 'code_name'] = df.loc[0, 'code_name']
-                    self.sf.df_all_item.loc[0, 'close'] = df.loc[0, 'close']
-                    self.sf.df_all_item.loc[0, 'open'] = df.loc[0, 'open']
-                    self.sf.df_all_item.loc[0, 'high'] = df.loc[0, 'high']
-                    self.sf.df_all_item.loc[0, 'low'] = df.loc[0, 'low']
                     self.sf.df_all_item.loc[0, 'volume'] = df.loc[0, 'volume']
                     self.sf.df_all_item.loc[0, 'd1_diff_rate'] = float(df.loc[0, 'd1_diff_rate'])
-                    self.sf.df_all_item.loc[0, 'clo5'] = df.loc[0, 'clo5']
-                    self.sf.df_all_item.loc[0, 'clo10'] = df.loc[0, 'clo10']
-                    self.sf.df_all_item.loc[0, 'clo20'] = df.loc[0, 'clo20']
-                    self.sf.df_all_item.loc[0, 'clo40'] = df.loc[0, 'clo40']
-                    self.sf.df_all_item.loc[0, 'clo60'] = df.loc[0, 'clo60']
-                    self.sf.df_all_item.loc[0, 'clo80'] = df.loc[0, 'clo80']
-                    self.sf.df_all_item.loc[0, 'clo100'] = df.loc[0, 'clo100']
-                    self.sf.df_all_item.loc[0, 'clo120'] = df.loc[0, 'clo120']
+                    self.sf.df_all_item.loc[0, 'yes_close'] = 0
+                    self.sf.df_all_item.loc[0, 'today_percent'] = 0
 
-                    if df.loc[0, 'clo5_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo5_diff_rate'] = float(df.loc[0, 'clo5_diff_rate'])
-                    if df.loc[0, 'clo10_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo10_diff_rate'] = float(df.loc[0, 'clo10_diff_rate'])
-                    if df.loc[0, 'clo20_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo20_diff_rate'] = float(df.loc[0, 'clo20_diff_rate'])
-                    if df.loc[0, 'clo40_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo40_diff_rate'] = float(df.loc[0, 'clo40_diff_rate'])
+                    # Map clo* columns to ma* columns
+                    self.sf.df_all_item.loc[0, 'ma5'] = df.loc[0, 'clo5'] if 'clo5' in df.columns else 0
+                    self.sf.df_all_item.loc[0, 'ma10'] = df.loc[0, 'clo10'] if 'clo10' in df.columns else 0
+                    self.sf.df_all_item.loc[0, 'ma20'] = df.loc[0, 'clo20'] if 'clo20' in df.columns else 0
+                    self.sf.df_all_item.loc[0, 'ma60'] = df.loc[0, 'clo60'] if 'clo60' in df.columns else 0
+                    self.sf.df_all_item.loc[0, 'ma120'] = df.loc[0, 'clo120'] if 'clo120' in df.columns else 0
 
-                    if df.loc[0, 'clo60_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo60_diff_rate'] = float(df.loc[0, 'clo60_diff_rate'])
-                    if df.loc[0, 'clo80_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo80_diff_rate'] = float(df.loc[0, 'clo80_diff_rate'])
-                    if df.loc[0, 'clo100_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo100_diff_rate'] = float(df.loc[0, 'clo100_diff_rate'])
-                    if df.loc[0, 'clo120_diff_rate'] is not None:
-                        self.sf.df_all_item.loc[0, 'clo120_diff_rate'] = float(df.loc[0, 'clo120_diff_rate'])
+        # 스코어 + strategy_type + code_name: realtime_daily_buy_list에서 읽어서 저장
+        try:
+            score_row = self.engine_JB.execute(
+                "SELECT composite_score, score_a, score_b, score_c, score_d, score_e, score_f, score_penalty, strategy_type, code_name "
+                "FROM realtime_daily_buy_list WHERE code = '%s' LIMIT 1" % str(code)
+            ).fetchone()
+            if score_row:
+                for _col, _val in zip(
+                    ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty'],
+                    score_row[:8]
+                ):
+                    self.sf.df_all_item.loc[0, _col] = float(_val) if _val else 0
+                self.sf.df_all_item.loc[0, 'strategy_type'] = str(score_row[8] or 'A')
+                # code_name이 아직 없으면 realtime_daily_buy_list에서 보완
+                cur_name = self.sf.df_all_item.loc[0, 'code_name']
+                if (not cur_name or str(cur_name) in ('', 'nan')) and score_row[9]:
+                    self.sf.df_all_item.loc[0, 'code_name'] = score_row[9]
+            else:
+                for _col in ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']:
+                    self.sf.df_all_item.loc[0, _col] = 0
+                self.sf.df_all_item.loc[0, 'strategy_type'] = 'A'
+        except Exception:
+            for _col in ['composite_score', 'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_penalty']:
+                self.sf.df_all_item.loc[0, _col] = 0
+            self.sf.df_all_item.loc[0, 'strategy_type'] = 'A'
+
+        # ── D전략 수동매수 override: INSERT 시점에 직접 'D' 박기 ──────
+        # (deferred UPDATE에 의존하지 않고 chejan 콜백 내에서 즉시 처리)
+        _manual_stype = self._manual_buy_strategy.pop(code, None)
+        if _manual_stype:
+            self.sf.df_all_item.loc[0, 'strategy_type'] = _manual_stype
+            logger.debug(f"[CP] {code} strategy_type='{_manual_stype}' 직접 저장 (db_to_all_item)")
+        self.sf.df_all_item.loc[0, 'simul_num'] = self.sf.simul_num
 
         # 컬럼 중에 nan 값이 있는 경우 0으로 변경 -> 이렇게 안하면 아래 데이터베이스에 넣을 때
         # AttributeError: 'numpy.int64' object has no attribute 'translate' 에러 발생
         self.sf.df_all_item = self.sf.df_all_item.fillna(0)
-        self.sf.df_all_item.to_sql('all_item_db', self.engine_JB, if_exists='append', dtype={
+        self.sf.df_all_item.to_sql('all_item_db', self.engine_JB, if_exists='append', index=False, dtype={
             'code_name': Text,
+            'chegyul_check': Text,
+            'buy_date': Text,
+            'buy_time': Text,
+            'sell_date': Text,
+            'sell_time': Text,
             'rate': Float,
             'sell_rate': Float,
-            'purchase_rate': Float,
-            'sell_date': Text,
-            'd1_diff_rate': Float,
-            'clo5_diff_rate': Float,
-            'clo10_diff_rate': Float,
-            'clo20_diff_rate': Float,
-            'clo40_diff_rate': Float,
-            'clo60_diff_rate': Float,
-            'clo80_diff_rate': Float,
-            'clo100_diff_rate': Float,
-            'clo120_diff_rate': Float
+            'd1_diff_rate': Float
         })
+
+        # ✅ realtime_position_monitor에도 추가 (highest_price 추적용)
+        try:
+            code_name = str(self.sf.df_all_item.loc[0, 'code_name'])
+            sql_insert_monitor = """
+            INSERT INTO realtime_position_monitor
+            (code, code_name, entry_price, entry_date, current_price, highest_price, last_update)
+            VALUES ('%s', '%s', %d, '%s', %d, %d, NOW())
+            ON DUPLICATE KEY UPDATE
+                entry_price = VALUES(entry_price),
+                entry_date = VALUES(entry_date),
+                current_price = VALUES(current_price),
+                highest_price = VALUES(highest_price),
+                last_update = NOW()
+            """
+            self.engine_JB.execute(sql_insert_monitor % (
+                code, code_name, purchase_price, self.today_detail,
+                purchase_price, purchase_price
+            ))
+            logger.debug(f"✅ realtime_position_monitor 추가: {code_name}({code})")
+        except Exception as e:
+            logger.warning(f"⚠️  realtime_position_monitor 추가 실패: {e}")
+
+        # 투자보고서 비동기 업데이트 (매수 체결 → 보고서 즉시 갱신)
+        try:
+            if getattr(self, '_reporter', None):
+                self._reporter.generate_async()
+        except Exception:
+            pass
 
     def check_balance(self):
 
-        logger.debug("check_balance 함수에 들어왔습니다!")
+        # logger.debug("check_balance 함수에 들어왔습니다!")
         # 1차원 / 2차원 인스턴스 변수 생성
         self.reset_opw00018_output()
 
@@ -564,7 +618,7 @@ class open_api(QAxWidget):
             # print("self.opw00018_output: ", self.opw00018_output)
 
     def get_count_possesed_item(self):
-        logger.debug("get_count_possesed_item!!!")
+        # logger.debug("get_count_possesed_item!!!")
 
         sql = "select count(*) from possessed_item"
         rows = self.engine_JB.execute(sql).fetchall()
@@ -581,7 +635,7 @@ class open_api(QAxWidget):
 
     # 실제로 키움증권에서 보유한 종목들의 리스트를 가져오는 함수
     def db_to_possesed_item(self):
-        logger.debug("db_to_possesed_item 함수에 들어왔습니다!")
+        # logger.debug("db_to_possesed_item 함수에 들어왔습니다!")
         item_count = len(self.opw00018_output['multi'])
         possesed_item_temp = {'date': [], 'code': [], 'code_name': [], 'holding_amount': [], 'puchase_price': [],
                               'present_price': [], 'valuation_profit': [], 'rate': [], 'item_total_purchase': []}
@@ -666,7 +720,7 @@ class open_api(QAxWidget):
     # code: 종목코드(ex. '005930' )
     # date : 기준일자. (ex. '20200424') => 20200424 일자 까지의 모든 open, high, low, close, volume 데이터 출력
     def get_total_data(self, code, code_name, date):
-        logger.debug("get_total_data 함수에 들어왔다!")
+        # logger.debug("get_total_data 함수에 들어왔다!")
 
         self.ohlcv = defaultdict(list)
         self.set_input_value("종목코드", code)
@@ -775,9 +829,7 @@ class open_api(QAxWidget):
         if df.empty:
             return False
         try:
-            logger.debug("get_one_day_option_data df : {} ".format(df))
-            logger.debug("code : {},type(code): {}, start: {}, option: {} ".format(code, type(code), start, option))
-            logger.debug("df.iloc[0, 3] (close) : {} ".format(df.iloc[0, 3]))
+            pass
         except Exception as e:
             logger.critical(e)
 
@@ -855,7 +907,7 @@ class open_api(QAxWidget):
                 f'_opt10081: ({code}, {self.get_today_buy_list_code})'
             )
         try:
-            logger.debug("_opt10081!!!")
+            # logger.debug("_opt10081!!!")
             date = self._get_comm_data(trcode, rqname, 0, "일자")
             open = self._get_comm_data(trcode, rqname, 0, "시가")
             high = self._get_comm_data(trcode, rqname, 0, "고가")
@@ -909,11 +961,14 @@ class open_api(QAxWidget):
     #
     # openapi 매수 요청
     def send_order(self, rqname, screen_no, acc_no, order_type, code, quantity, price, hoga, order_no):
-        logger.debug("send_order!!!")
         try:
             self.exit_check()
-            self.dynamicCall("SendOrder(QString, QString, QString, int, QString, int, int, QString, QString)",
+            ret = self.dynamicCall("SendOrder(QString, QString, QString, int, QString, int, int, QString, QString)",
                              [rqname, screen_no, acc_no, order_type, code, quantity, price, hoga, order_no])
+            if ret == 0:
+                logger.debug("send_order 성공: %s qty=%s price=%s hoga=%s", code, quantity, price, hoga)
+            else:
+                logger.warning("⚠️ send_order 실패 (ret=%s): %s qty=%s price=%s hoga=%s", ret, code, quantity, price, hoga)
         except Exception as e:
             logger.critical(e)
 
@@ -939,9 +994,6 @@ class open_api(QAxWidget):
         if len(rows) != 0:
             return rows[0][0]
 
-        logger.debug("code를 찾을 수 없다!! name이 긴놈이다!!!!")
-        logger.debug(codename)
-
         sql = f"select code from stock_item_all where code_name like '{codename}%'"
         rows = self.engine_daily_buy_list.execute(sql).fetchall()
 
@@ -953,9 +1005,9 @@ class open_api(QAxWidget):
         return False
 
     def end_invest_count_check(self, code):
-        logger.debug("end_invest_count_check 함수로 들어왔습니다!")
-        logger.debug("end_invest_count_check_code!!!!!!!!")
-        logger.debug(code)
+        # logger.debug("end_invest_count_check 함수로 들어왔습니다!")
+        # logger.debug("end_invest_count_check_code!!!!!!!!")
+        # logger.debug(code)
 
         sql = "UPDATE all_item_db SET chegyul_check='%s' WHERE code='%s' and sell_date = '%s' ORDER BY buy_date desc LIMIT 1"
 
@@ -968,28 +1020,37 @@ class open_api(QAxWidget):
 
     # 매도 했는데 완벽히 매도 못한 경우
     def sell_chegyul_fail_check(self, code):
-        logger.debug("sell_chegyul_fail_check 함수에 들어왔습니다!")
+        # logger.debug("sell_chegyul_fail_check 함수에 들어왔습니다!")
         logger.debug(code + " check!")
         sql = "UPDATE all_item_db SET chegyul_check='%s' WHERE code='%s' and sell_date = '%s' ORDER BY buy_date desc LIMIT 1"
         self.engine_JB.execute(sql % (1, code, 0))
 
     # 잔액이 생겨서 다시 매수 할 수 있는 상황인 경우 setting_data의 today_buy_stop 옵션을 0으로 변경
     def buy_check_reset(self):
-        logger.debug("buy_check_reset!!!")
-
         sql = "UPDATE setting_data SET today_buy_stop='%s' WHERE id='%s'"
         self.engine_JB.execute(sql % (0, 1))
 
     # 투자 가능한 잔액이 부족한 경우이거나, 매수할 종목이 더이상 없는 경우
     # setting_data의 today_buy_stop 옵션을 1로 변경-> 더이상 매수 하지 않는다.
     def buy_check_stop(self):
-        logger.debug("buy_check_stop!!!")
+        logger.info("⛔ 당일 매수 중단 설정")
         sql = "UPDATE setting_data SET today_buy_stop='%s' limit 1"
         self.engine_JB.execute(sql % (self.today))
 
     # 잔액 체크 함수
     def jango_check(self):
-        logger.debug("jango_check 함수에 들어왔습니다!")
+        # logger.debug("jango_check 함수에 들어왔습니다!")
+
+        # 1. 보유 종목 수 체크
+        current_positions = self.get_count_possesed_item()
+        max_positions = getattr(self.sf, 'max_positions', 10)  # 기본값 10개
+
+        if current_positions >= max_positions:
+            logger.info("보유 종목 수 한도 도달 (%d/%d)", current_positions, max_positions)
+            self.jango_is_null = True
+            return False
+
+        # 2. 잔고(돈) 체크
         self.get_d2_deposit()
         # 아래에 1.5 곱해준 이유는 invest unit보다 d2가 조금 많으면 못사네 ; 그래서 넉넉히 잡은거임  매수증거금때문이다.
         # if (int(self.d2_deposit_before_format) > (int(self.sf.limit_money) + int(self.invest_unit)*1.5)) :
@@ -997,11 +1058,10 @@ class open_api(QAxWidget):
             if int(self.d2_deposit_before_format) > (int(self.sf.limit_money)):
                 # jango_is_null 역할은 trade 루프 돌다가 하나 샀더니 돈 부족해질때 그때 루프를 빠져나오는 용도
                 self.jango_is_null = False
-                logger.debug("돈안부족해 투자 가능!!!!!!!!")
                 return True
             else:
                 # self.open_api.buy_check_stop()
-                logger.debug("돈부족해서 invest 불가!!!!!!!!")
+                logger.info("💰 예수금 부족으로 매수 불가 (예수금: %s, 필요: %s)", self.d2_deposit_before_format, self.sf.limit_money)
                 self.jango_is_null = True
                 return False
         except Exception as e:
@@ -1011,47 +1071,73 @@ class open_api(QAxWidget):
     # setting_data 테이블의 today_buy_stop 컬럼에 오늘 날짜가 찍혀있는지 확인하는 함수
     # setting_data 테이블의 today_buy_stop에 날짜가 찍혀 있으면 매수 중지, 0이면 매수 진행 가능
     def buy_check(self):
-        logger.debug("buy_check 함수에 들어왔습니다!")
+        # logger.debug("buy_check 함수에 들어왔습니다!")
         sql = "select today_buy_stop from setting_data limit 1"
         rows = self.engine_JB.execute(sql).fetchall()[0][0]
 
         if rows != self.today:
-            logger.debug("GoGo Buying!!!!!!")
+            # logger.debug("GoGo Buying!!!!!!")
             return True
         else:
-            logger.debug("Stop Buying!!!!!!")
+            # logger.debug("Stop Buying!!!!!!")
             return False
 
     # 몇 개의 주를 살지 계산 하는 함수
     def buy_num_count(self, invest_unit, present_price):
-        logger.debug("buy_num_count 함수에 들어왔습니다!")
+        # logger.debug("buy_num_count 함수에 들어왔습니다!")
         return int(invest_unit / present_price)
 
     # 매수 함수
     def trade(self):
-        logger.debug("trade 함수에 들어왔다!")
-        logger.debug("매수 대상 종목 코드! " + self.get_today_buy_list_code)
+        # logger.debug("trade 함수에 들어왔다!")
+        logger.debug("매수 시도: %s(%s)", self.get_today_buy_list_code_name, self.get_today_buy_list_code)
 
         # 실시간 현재가(close) 가져오는 함수
         # close는 종가 이지만, 현재 시점의 종가를 가져오기 때문에 현재가를 가져온다.
         current_price = self.get_one_day_option_data(self.get_today_buy_list_code, self.today, 'close')
 
         if current_price == False:
-            logger.debug(self.get_today_buy_list_code + " 의 현재가가 비어있다 !!!")
+            logger.warning("⚠️ 현재가 조회 실패: %s(%s)", self.get_today_buy_list_code_name, self.get_today_buy_list_code)
             return False
 
-        # 매수 가격 최저 범위
-        min_buy_limit = int(self.get_today_buy_list_close) * self.sf.invest_min_limit_rate
-        # 매수 가격 최고 범위
-        max_buy_limit = int(self.get_today_buy_list_close) * self.sf.invest_limit_rate
+        prev_close = int(self.get_today_buy_list_close)
+        atr14 = self.get_today_buy_list_atr14
+        bb_bandwidth = self.get_today_buy_list_bb_bandwidth
+        strategy_type = getattr(self, 'get_today_buy_list_strategy_type', '')
+        if atr14 and atr14 > 0:
+            losscut_pct = self.sf.losscut_point / 100  # e.g. -5 → -0.05
+            if current_price > prev_close:
+                if strategy_type == 'A':
+                    # Strategy A 돌파: 갭업 자체가 돌파 신호 — ATR×5 vs +10% 중 더 큰 값으로 허용
+                    max_buy_limit = max(prev_close + atr14 * 5.0, prev_close * 1.10)
+                elif bb_bandwidth > 0 and bb_bandwidth < 0.15:
+                    # BB스퀴즈 해소 모멘텀: 압축 에너지 방출 → 더 넓게 허용
+                    max_buy_limit = prev_close + atr14 * 2.5
+                else:
+                    # 일반 갭상승 (Strategy B 등)
+                    max_buy_limit = prev_close + atr14 * 1.5
+            else:
+                max_buy_limit = prev_close + atr14 * 1.0  # 갭하락 or 보합: 기존 유지
+            min_buy_limit = prev_close * (1 + losscut_pct)
+        else:
+            # ATR 없는 경우 기존 고정 비율로 폴백
+            min_buy_limit = prev_close * self.sf.invest_min_limit_rate
+            max_buy_limit = prev_close * self.sf.invest_limit_rate
         # 현재가가 매수 가격 최저 범위와 매수 가격 최고 범위 안에 들어와 있다면 매수 한다.
         if min_buy_limit < current_price < max_buy_limit:
             buy_num = self.buy_num_count(self.invest_unit, int(current_price))
+            if buy_num <= 0:
+                logger.warning("⚠️ 매수 불가 — 현재가(%s)가 투자단위(%s) 이상 (수량 0): %s(%s)",
+                               current_price, self.invest_unit,
+                               self.get_today_buy_list_code_name, self.get_today_buy_list_code)
+                return
             logger.debug(
-                "매수!!!!+-+-+-+-+-+-+-+-+-+-+-+-+-+-+- code :%s, 목표가: %s, 현재가: %s, 매수량: %s, min_buy_limit: %s, max_buy_limit: %s , invest_limit_rate: %s,예수금: %s , today : %s, today_min : %s, date_rows_yesterday : %s, invest_unit : %s, real_invest_unit : %s +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-",
-                self.get_today_buy_list_code, self.get_today_buy_list_close, current_price, buy_num, min_buy_limit,
-                max_buy_limit, self.sf.invest_limit_rate, self.d2_deposit_before_format, self.today, self.today_detail,
-                self.date_rows_yesterday, self.invest_unit, int(current_price) * int(buy_num))
+                "🛒 매수 주문: %s(%s)[%s] 현재가=%s 목표가=%s 수량=%s 금액=%s원",
+                self.get_today_buy_list_code_name, self.get_today_buy_list_code,
+                strategy_type, current_price, self.get_today_buy_list_close, buy_num,
+                format(int(current_price) * int(buy_num), ','),
+                extra={'no_dedup': True}
+            )
 
             # 03 시장가 매수
             # 4번째 인자: 1: 신규매수 / 2: 신규매도 / 3:매수취소 / 4:매도취소 / 5: 매수정정 / 6:매도정정
@@ -1061,39 +1147,32 @@ class open_api(QAxWidget):
             # 만약 sf.only_nine_buy가 False 이면 즉, 한번 매수하고 금일 매수를 중단하는 것이 아니라면, 매도 후에 잔액이 생기면 다시 매수를 시작
             # sf.only_nine_buy가 True이면 1회만 매수, 1회 매수 시 잔액이 부족해지면 바로 매수 중단 
             if not self.jango_check() and self.sf.only_nine_buy:
-                logger.debug("하나 샀더니 잔고가 부족해진 구간!!!!!")
+                logger.info("💰 잔고 부족 — 당일 추가 매수 중단")
                 # setting_data에 today_buy_stop을 1 로 설정
                 self.buy_check_stop()
         else:
-            logger.debug(
-                "invest_limit_rate 만큼 급등 or invest_min_limit_rate 만큼 급락 해서 매수 안함 !!! code :%s, 목표가: %s , 현재가: %s, invest_limit_rate: %s , invest_min_limit_rate : %s, today : %s, today_min : %s, date_rows_yesterday : %s",
-                self.get_today_buy_list_code, self.get_today_buy_list_close, current_price, self.sf.invest_limit_rate,
-                self.sf.invest_min_limit_rate, self.today, self.today_detail, self.date_rows_yesterday)
+            logger.info(
+                "⛔ 매수 스킵 (가격 범위 초과): %s(%s)[%s] 목표가=%s 현재가=%s 허용범위=[%s~%s]",
+                self.get_today_buy_list_code_name, self.get_today_buy_list_code,
+                strategy_type, self.get_today_buy_list_close, current_price, min_buy_limit, max_buy_limit)
 
     # 오늘 매수 할 종목들을 가져오는 함수
     def get_today_buy_list(self):
-        logger.debug("get_today_buy_list 함수에 들어왔습니다!")
-
-        logger.debug("self.today : %s , self.date_rows_yesterday : %s !", self.today, self.date_rows_yesterday)
+        # logger.debug("get_today_buy_list 함수에 들어왔습니다!")
 
         if self.sf.is_simul_table_exist(self.db_name, "realtime_daily_buy_list"):
-            logger.debug("realtime_daily_buy_list 생겼다!!!!! ")
             self.sf.get_realtime_daily_buy_list()
             if self.sf.len_df_realtime_daily_buy_list == 0:
-                logger.debug("realtime_daily_buy_list 생겼지만 아직 data가 없다!!!!! ")
+                logger.debug("realtime_daily_buy_list: 테이블 있으나 데이터 없음")
                 return
         else:
-            logger.debug("realtime_daily_buy_list 없다 !! ")
+            logger.debug("realtime_daily_buy_list: 테이블 없음")
             return
-
-
-        logger.debug("self.sf.len_df_realtime_daily_buy_list 이제 사러간다!! ")
-        logger.debug("매수 리스트!!!!")
-        logger.debug(self.sf.df_realtime_daily_buy_list)
         # 만약에 realtime_daily_buy_list 의 종목 수가 1개 이상이면 아래 로직을 들어간다
         for i in range(self.sf.len_df_realtime_daily_buy_list):
             # code를 가져온다
             code = self.sf.df_realtime_daily_buy_list.loc[i, 'code']
+            code_name = self.sf.df_realtime_daily_buy_list.loc[i, 'code_name']
             # 종가를 가져온다
             close = self.sf.df_realtime_daily_buy_list.loc[i, 'close']
             # 이미 오늘 매수 한 종목이면 check_item은 1 / 아직 매수 안했으면 0
@@ -1103,6 +1182,7 @@ class open_api(QAxWidget):
                 break
             # 이미 매수한 종목은 넘기고 다음 종목을 사라는 의미
             if check_item == True:
+                logger.debug("매수 스킵 (이미 처리됨): %s(%s)", code_name, code)
                 continue
             else:
                 # (추가) 매수 조건 함수(trade_check) ##########################################
@@ -1118,7 +1198,20 @@ class open_api(QAxWidget):
                 ###################################################################################
 
                 self.get_today_buy_list_code = code
+                self.get_today_buy_list_code_name = code_name
                 self.get_today_buy_list_close = close
+                try:
+                    self.get_today_buy_list_atr14 = float(self.sf.df_realtime_daily_buy_list.loc[i, 'atr14'] or 0)
+                except Exception:
+                    self.get_today_buy_list_atr14 = 0
+                try:
+                    self.get_today_buy_list_bb_bandwidth = float(self.sf.df_realtime_daily_buy_list.loc[i, 'bb_bandwidth'] or 0)
+                except Exception:
+                    self.get_today_buy_list_bb_bandwidth = 0.0
+                try:
+                    self.get_today_buy_list_strategy_type = str(self.sf.df_realtime_daily_buy_list.loc[i, 'strategy_type'] or '')
+                except Exception:
+                    self.get_today_buy_list_strategy_type = ''
                 # 매수 하기 전에 해당 종목의 check_item을 1로 변경. 즉, 이미 매수 했으니까 다시 매수 하지말라고 체크 하는 로직
                 sql = "UPDATE realtime_daily_buy_list SET check_item='%s' WHERE code='%s'"
                 self.engine_JB.execute(sql % (1, self.get_today_buy_list_code))
@@ -1127,6 +1220,449 @@ class open_api(QAxWidget):
         # 모든 매수를 마쳤으면 더이상 매수 하지 않도록 설정하는 함수
         if self.sf.only_nine_buy:
             self.buy_check_stop()
+
+    def get_advanced_buy_list(self, use_advanced_strategy=True):
+        """
+        collector가 생성한 매수 리스트 로드
+
+        ⚠️ 중요: trader는 매수 후보를 자체 생성하지 않습니다.
+        collector_v3.py를 먼저 실행하여 realtime_daily_buy_list를 생성해야 합니다.
+        """
+        # logger.debug("get_advanced_buy_list 함수 실행")
+
+        today = datetime.datetime.now().strftime("%Y%m%d")
+
+        # 가장 최근에 생성된 daily_buy_list 날짜 테이블 찾기
+        # (시간 경계에 무관하게 항상 실제 존재하는 최신 테이블을 사용)
+        try:
+            recent = self.sf.engine_daily_buy_list.execute(
+                "SELECT TABLE_NAME FROM information_schema.TABLES "
+                "WHERE TABLE_SCHEMA='daily_buy_list' "
+                "AND TABLE_NAME REGEXP '^[0-9]{8}$' "
+                "ORDER BY TABLE_NAME DESC LIMIT 1"
+            ).fetchone()
+            target_date = recent[0] if recent else None
+        except Exception as e:
+            logger.error(f"daily_buy_list 테이블 조회 실패: {e}")
+            target_date = None
+
+        if not target_date:
+            logger.error("❌ collector가 실행되지 않았습니다 (daily_buy_list 날짜 테이블 없음)")
+            logger.error("💡 collector_v3.py를 먼저 실행하세요")
+            return
+
+        logger.info(f"[get_advanced_buy_list] 기준 날짜: {target_date}")
+
+        # collector 오늘 실행 여부: daily_crawler 타임스탬프로 확인
+        # (target_date는 장전 수집 시 전일 종가 기준이므로 today와 다를 수 있음)
+        try:
+            row_dc = self.engine_JB.execute(
+                "SELECT daily_crawler FROM setting_data LIMIT 1"
+            ).fetchone()
+            collection_today = str(row_dc[0])[:8] if (row_dc and row_dc[0]) else None
+        except Exception:
+            collection_today = None
+
+        if collection_today != today:
+            logger.warning(
+                f"⚠️ 오늘({today}) collector 미실행 "
+                f"(daily_crawler={collection_today}, buy_list={target_date}) → 매수 스킵"
+            )
+            return
+
+        # collector 오늘 실행 확인됨 → realtime_daily_buy_list 로드
+        if self.sf.is_simul_table_exist(self.db_name, "realtime_daily_buy_list"):
+            candidate_count = self.engine_JB.execute(
+                "SELECT COUNT(*) FROM realtime_daily_buy_list"
+            ).fetchone()[0]
+
+            if candidate_count > 0:
+                logger.info(f"✅ 오늘자 매수 후보 로드 ({candidate_count}개 종목)")
+                self.sf.get_realtime_daily_buy_list()
+            else:
+                # collector 완료됐지만 v2_min_score 이상 종목 없음 → 매수 없이 매도 대기
+                logger.warning(f"⚠️ 오늘({today}) {cf.v2_min_score}점 이상 매수 후보가 없습니다 (collector 실행 확인됨)")
+                logger.warning("💡 보유 종목 매도 감시는 계속 진행합니다.")
+        else:
+            # realtime_daily_buy_list 테이블 자체가 없음 (collector가 scoring 전에 종료된 경우)
+            logger.warning(f"⚠️ realtime_daily_buy_list 테이블이 없습니다 (collector가 scoring 전에 종료된 것으로 추정)")
+            logger.warning("💡 보유 종목 매도 감시는 계속 진행합니다.")
+        return
+
+    def get_advanced_sell_list(self):
+        """
+        고급 청산 전략으로 매도 리스트 생성
+
+        ATR 기반 동적 손절/익절, 트레일링 스톱 사용
+        """
+        # logger.debug("get_advanced_sell_list 함수 실행")
+
+        try:
+            from library.exit_strategy import get_exit_signals
+
+            # 현재 보유 종목은 메인 루프에서 이미 check_balance()로 업데이트됨
+
+            if not hasattr(self, 'opw00018_output') or 'multi' not in self.opw00018_output:
+                logger.warning("⚠️  보유 종목 정보가 없습니다")
+                return []
+
+            holdings = self.opw00018_output['multi']
+
+            if len(holdings) == 0:
+                logger.info("💼 현재 보유 종목이 없습니다")
+                return []
+
+            # holdings를 exit_strategy가 요구하는 형식으로 변환
+            positions = []
+            skipped_codes = []
+
+            for holding in holdings:
+                code = holding[7]  # 종목코드 (index 7)
+                code_name = holding[0]  # 종목명 (index 0)
+
+                # all_item_db에서 매수 정보 가져오기
+                sql = """
+                SELECT code, buy_date, purchase_price, holding_amount
+                FROM all_item_db
+                WHERE code = '%s' AND sell_date = '0'
+                ORDER BY buy_date DESC
+                LIMIT 1
+                """
+                result = self.engine_JB.execute(sql % code).fetchone()
+
+                if not result:
+                    skipped_codes.append(f"{code_name}({code})")
+                    continue
+
+                buy_date_str = result[1]
+                entry_price = result[2]
+                shares = result[3]
+
+                # 날짜+시간 변환 (YYYYMMDDHHMI -> datetime)
+                try:
+                    entry_date = datetime.datetime.strptime(str(buy_date_str)[:12], '%Y%m%d%H%M')
+                except:
+                    entry_date = datetime.datetime.now()
+
+                # 현재가
+                current_price = float(holding[3])  # 현재가 (index 3)
+
+                # ✅ realtime_position_monitor에서 highest_price 조회
+                sql_highest = """
+                SELECT highest_price FROM realtime_position_monitor
+                WHERE code = '%s'
+                """
+                highest_result = self.engine_JB.execute(sql_highest % code).fetchone()
+                if highest_result:
+                    highest_price = highest_result[0]
+                else:
+                    # fallback: DB에 없으면 현재가와 매수가 중 높은 값
+                    highest_price = max(current_price, entry_price)
+                    logger.warning(f"⚠️  {code} realtime_position_monitor에 없음 - fallback 사용")
+
+                positions.append({
+                    'code': code,
+                    'entry_price': entry_price,
+                    'entry_date': entry_date,
+                    'shares': shares,
+                    'highest_price': highest_price,
+                    'current_price': current_price
+                })
+
+            # all_item_db에 없는 종목 로그 출력 (중복 경고 억제 — 세션당 1회만 출력)
+            if skipped_codes:
+                already_warned = getattr(self, '_warned_missing_codes', set())
+                new_missing = [c for c in skipped_codes if c not in already_warned]
+                if new_missing:
+                    logger.warning(f"⚠️  all_item_db에 매수 정보가 없는 {len(new_missing)}개 종목 건너뜀: {', '.join(new_missing)}")
+                    logger.warning("💡 수동 매수 종목이거나 DB 동기화 문제 — all_item_db에 수동 INSERT 필요")
+                    logger.warning("   SQL: INSERT INTO all_item_db (code, code_name, buy_date, purchase_price, holding_amount, sell_date, strategy_type) VALUES (...)")
+                    self._warned_missing_codes = already_warned | set(new_missing)
+
+            if len(positions) == 0:
+                logger.warning("⚠️  고급 청산 전략을 적용할 종목이 없습니다")
+                if skipped_codes:
+                    logger.info("💡 모든 보유 종목이 all_item_db에 없습니다. collector로 매수한 종목만 고급 청산이 적용됩니다")
+                return []
+
+            logger.info(f"📊 {len(positions)}개 보유 종목에 대해 고급 청산 전략 분석 중...")
+
+            # exit_strategy 호출
+            sell_signals = get_exit_signals(positions, db_name='daily_buy_list')
+
+            # 매도 시그널 필터링 (should_exit == True만)
+            exit_list = [s for s in sell_signals if s.get('decision', {}).get('should_exit', False)]
+
+            logger.info(f"🎯 고급 청산 시그널: {len(exit_list)}개 종목")
+
+            for signal in exit_list:
+                code = signal['code']
+                reason = signal['decision']['reason']
+                priority = signal['decision']['priority']
+                logger.debug(f"  - {code}: {reason} (우선순위: {priority})")
+
+            return sell_signals
+
+        except Exception as e:
+            logger.error(f"❌ 고급 매도 리스트 생성 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    def get_sell_list(self):
+        """
+        통합 매도 리스트 — Strategy A/B 분기, ATR 기반 트레일링
+        exit_strategy.get_live_sell_signals() 에 위임
+        (get_basic_sell_list + get_advanced_sell_list 통합 대체)
+
+        Returns
+        -------
+        (sell_list, sell_signals_detail)
+          sell_list          : [[code, name, rate, price, profit], ...]
+          sell_signals_detail: [{'code','name','price','profit_rate','reason'}, ...]
+        """
+        from library.exit_strategy import get_live_sell_signals
+
+        # ── 1. 보유 종목 조회 ────────────────────────────────────────────────
+        try:
+            sql = """
+            SELECT a.code, a.code_name, a.buy_date, a.strategy_type,
+                   a.purchase_price, a.present_price,
+                   COALESCE(m.highest_price, a.present_price) AS highest_price
+            FROM all_item_db a
+            LEFT JOIN realtime_position_monitor m ON a.code = m.code
+            WHERE a.sell_date = '0'
+            """
+            rows = self.engine_JB.execute(sql).fetchall()
+        except Exception as e:
+            logger.error(f"[get_sell_list] 보유 종목 조회 실패: {e}")
+            return [], []
+
+        if not rows:
+            return [], []
+
+        # ── 2. ATR / ADX 배치 조회 (daily_buy_list — 가장 가까운 거래일) ────
+        codes = [str(r[0]).zfill(6) for r in rows]
+        indicator_map = {}
+        try:
+            import pymysql as _pymysql
+            for offset in range(5):  # 오늘부터 최대 4거래일 전까지 탐색
+                remaining = [c for c in codes if c not in indicator_map]
+                if not remaining:
+                    break   # 모든 종목 찾음
+                tbl = (datetime.datetime.now() - datetime.timedelta(days=offset)).strftime('%Y%m%d')
+                ph = ','.join(['%s'] * len(remaining))
+                try:
+                    _con = _pymysql.connect(
+                        user=cf.db_id, passwd=cf.db_passwd,
+                        host=cf.db_ip, port=int(cf.db_port),
+                        db='daily_buy_list', charset='utf8'
+                    )
+                    _cur = _con.cursor()
+                    _cur.execute(f"SELECT code, adx, atr14 FROM `{tbl}` WHERE code IN ({ph})", remaining)
+                    for _r in _cur.fetchall():
+                        indicator_map[str(_r[0]).zfill(6)] = {
+                            'adx':   float(_r[1] or 0),
+                            'atr14': float(_r[2] or 0),
+                        }
+                    _cur.close()
+                    _con.close()
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.warning(f"[get_sell_list] ATR/ADX 조회 실패 — 트레일링 고정 fallback: {e}")
+
+        # ── 3. positions 구성 ────────────────────────────────────────────────
+        positions = []
+        for r in rows:
+            code          = str(r[0]).zfill(6)
+            entry_price   = float(r[4] or 0)
+            current_price = float(r[5] or 0)
+            highest_price = float(r[6] or current_price)
+            positions.append({
+                'code':          code,
+                'code_name':     r[1],
+                'buy_date':      str(r[2] or ''),
+                'strategy_type': str(r[3] or 'A'),
+                'entry_price':   entry_price,
+                'current_price': current_price,
+                'highest_price': highest_price,
+            })
+
+        # ── 4. 매도 시그널 생성 ──────────────────────────────────────────────
+        sell_signals = get_live_sell_signals(positions, indicator_map)
+
+        # ── 5. 반환 형식 변환 ────────────────────────────────────────────────
+        sell_list           = []
+        sell_signals_detail = []
+
+        for sig in sell_signals:
+            pct        = sig['profit_pct']
+            rate_value = (100 + pct) if self.mod_gubun != 1 else pct   # 실전=100기준, 모의=그대로
+            sell_list.append([
+                sig['code'],
+                sig['code_name'],
+                rate_value,
+                int(sig['current_price']),
+                0,
+            ])
+            sell_signals_detail.append({
+                'code':        sig['code'],
+                'name':        sig['code_name'],
+                'price':       int(sig['current_price']),
+                'profit_rate': pct,
+                'reason':      sig['reason'],
+                'priority':    50,
+            })
+
+        logger.info(f"🎯 통합 매도 시그널: {len(sell_list)}개 종목")
+        return sell_list, sell_signals_detail
+
+    def get_basic_sell_list(self):
+        """
+        실전 트레이딩 전용 기본 매도 로직
+
+        고급 청산 전략이 실패했을 때 사용하는 fallback 로직
+        - 단순 손익률 기준으로 매도 판단
+        - simulator 코드에 의존하지 않음
+        """
+        logger.debug("get_basic_sell_list 함수 실행")
+
+        try:
+            # all_item_db + realtime_position_monitor JOIN으로 보유 종목 조회
+            # strategy_type, purchase_price, highest_price 함께 가져옴
+            sql = """
+            SELECT a.code, a.code_name, a.rate, a.present_price, a.valuation_profit,
+                   a.buy_date, a.strategy_type, a.purchase_price,
+                   COALESCE(m.highest_price, a.present_price) AS highest_price
+            FROM all_item_db a
+            LEFT JOIN realtime_position_monitor m ON a.code = m.code
+            WHERE a.sell_date = '0'
+            GROUP BY a.code
+            """
+            holdings = self.engine_JB.execute(sql).fetchall()
+
+            if len(holdings) == 0:
+                logger.info("💼 보유 종목이 없습니다")
+                return []
+
+            logger.info(f"📊 {len(holdings)}개 보유 종목 기본 매도 로직 적용")
+
+            LOSSCUT_DELAY_MINUTES = 30  # 매수 후 N분간 손절 비활성화
+            now = datetime.datetime.now()
+            sell_list = []
+
+            for holding in holdings:
+                code          = holding[0]
+                code_name     = holding[1]
+                rate          = holding[2]   # 모의투자: % 값 / 실전: 100 기준
+                present_price = holding[3]
+                valuation_profit = holding[4]
+                buy_date_str  = holding[5]
+                strategy_type = holding[6] if holding[6] else 'A'
+                purchase_price = float(holding[7]) if holding[7] else 0
+                highest_price  = float(holding[8]) if holding[8] else present_price
+
+                # 모의투자/실전 수익률 통일 (% 기준)
+                profit_pct = rate if self.mod_gubun == 1 else rate - 100
+
+                # 매수 후 경과 시간 계산 (손절 유예)
+                losscut_active = True
+                try:
+                    if buy_date_str and len(str(buy_date_str)) >= 12:
+                        buy_dt = datetime.datetime.strptime(str(buy_date_str)[:12], "%Y%m%d%H%M")
+                        elapsed = (now - buy_dt).total_seconds() / 60
+                        if elapsed < LOSSCUT_DELAY_MINUTES:
+                            losscut_active = False
+                except Exception:
+                    pass
+
+                should_sell = False
+                sell_reason = ''
+
+                if strategy_type == 'B':
+                    # ── Strategy B: 하드SL -5% / 트레일링스탑(3%활성화, 5%트레일) / 45일 시간청산
+                    if losscut_active and profit_pct <= -5.0:
+                        should_sell = True
+                        sell_reason = f'B하드SL(-5%): {profit_pct:.2f}%'
+
+                    elif purchase_price > 0 and highest_price / purchase_price >= 1.03:
+                        # 플로어: 트레일링 활성화 이후 최소 +1% 보장 (손실 청산 방지)
+                        # 예) 고점 +3% → trail=max(0.95×high, 1.01×buy) = 1.01×buy (+1% 보장)
+                        trail_stop_price = max(highest_price * 0.95, purchase_price * 1.01)
+                        if present_price <= trail_stop_price:
+                            should_sell = True
+                            peak_pct = (highest_price / purchase_price - 1) * 100
+                            sell_reason = f'B트레일링(고점{peak_pct:.1f}%→현재{profit_pct:.2f}%)'
+
+                    else:
+                        # 45일 시간청산
+                        try:
+                            buy_date_only = str(buy_date_str)[:8]
+                            buy_d = datetime.datetime.strptime(buy_date_only, '%Y%m%d')
+                            holding_days = (now - buy_d).days
+                            if holding_days >= 45:
+                                should_sell = True
+                                sell_reason = f'B시간청산(45일)'
+                        except Exception:
+                            pass
+
+                elif strategy_type == 'E':
+                    # ── Strategy E: 하드SL -10% / 365일 시간청산
+                    # (실전에서 MA20 이탈 체크는 일봉 데이터 필요 — 현재는 SL+시간청산으로 운영)
+                    if losscut_active and profit_pct <= -10.0:
+                        should_sell = True
+                        sell_reason = f'E하드SL(-10%): {profit_pct:.2f}%'
+                    else:
+                        try:
+                            buy_date_only = str(buy_date_str)[:8]
+                            buy_d = datetime.datetime.strptime(buy_date_only, '%Y%m%d')
+                            holding_days = (now - buy_d).days
+                            if holding_days >= 365:
+                                should_sell = True
+                                sell_reason = f'E시간청산(365일)'
+                        except Exception:
+                            pass
+
+                else:
+                    # ── Strategy A: 하드SL -5% / 트레일링스탑(3%활성화, 3%트레일) / 15일 시간청산
+                    if losscut_active and profit_pct <= -5.0:
+                        should_sell = True
+                        sell_reason = f'A하드SL(-5%): {profit_pct:.2f}%'
+
+                    elif purchase_price > 0 and highest_price / purchase_price >= 1.03:
+                        # 플로어: 트레일링 활성화 이후 최소 +1% 보장 (손실 청산 방지)
+                        trail_stop_price = max(highest_price * 0.97, purchase_price * 1.01)
+                        if present_price <= trail_stop_price:
+                            should_sell = True
+                            peak_pct = (highest_price / purchase_price - 1) * 100
+                            sell_reason = f'A트레일링(고점{peak_pct:.1f}%→현재{profit_pct:.2f}%)'
+
+                    else:
+                        # 15일 시간청산 (돌파 전략 — B의 45일보다 짧게)
+                        try:
+                            buy_date_only = str(buy_date_str)[:8]
+                            buy_d = datetime.datetime.strptime(buy_date_only, '%Y%m%d')
+                            holding_days = (now - buy_d).days
+                            if holding_days >= 15:
+                                should_sell = True
+                                sell_reason = f'A시간청산(15일)'
+                        except Exception:
+                            pass
+
+                if should_sell:
+                    logger.info(f"  📉 매도: {code_name}({code}) - {sell_reason}", extra={'no_dedup': True})
+                    sell_list.append(holding)
+
+            logger.info(f"🎯 기본 매도 시그널: {len(sell_list)}개 종목")
+
+            return sell_list
+
+        except Exception as e:
+            logger.error(f"❌ 기본 매도 리스트 생성 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
     # openapi 조회 카운트를 체크 하고 cf.max_api_call 횟수 만큼 카운트 되면 봇이 꺼지게 하는 함수
     def exit_check(self):
@@ -1137,21 +1673,26 @@ class open_api(QAxWidget):
 
         self.rq_count += 1
         # openapi 조회 count 출력
-        logger.debug(self.rq_count)
+        # logger.debug(self.rq_count)
         if self.rq_count == cf.max_api_call:
-            sys.exit(1)
+            if self.py_gubun not in ("trader", "trader_advanced"):
+                logger.warning(f"[exit_check] API 호출 {cf.max_api_call}회 도달 — 종료 (py_gubun={self.py_gubun})")
+                import os as _os
+                _os._exit(1)  # sys.exit(1)은 PyQt5 슬롯 안에서 Qt에 의해 무시됨 → os._exit으로 강제 종료
+            else:
+                logger.warning(f"[exit_check] API 호출 {cf.max_api_call}회 도달 — {self.py_gubun}은 계속 실행")
 
     # 매도 했는데 bot이 꺼져있을때 매도해서 possessed_item 테이블에는 없는데 all_item_db에 sell_date 안찍힌 종목들 처리해준다.
     def final_chegyul_check(self):
         sql = "select code from all_item_db a where (a.sell_date = '%s' or a.sell_date ='%s') and a.code not in ( select code from possessed_item) and a.chegyul_check != '%s'"
 
         rows = self.engine_JB.execute(sql % (0, "", 1)).fetchall()
-        logger.debug("possess_item 테이블에는 없는데 all_item_db에 sell_date가 없는 리스트 처리!!!")
-        logger.debug(rows)
+        # logger.debug("possess_item 테이블에는 없는데 all_item_db에 sell_date가 없는 리스트 처리!!!")
+        # logger.debug(rows)
         num = len(rows)
 
         for t in range(num):
-            logger.debug(f"t!!! {t}")
+            # logger.debug(f"t!!! {t}")
             self.sell_final_check2(rows[t][0])
 
         # 오늘 리스트 다 뽑았으면 today를 setting_data에 체크
@@ -1160,12 +1701,12 @@ class open_api(QAxWidget):
 
     # all_item_db의 rate를 업데이트 한다.
     def rate_check(self):
-        logger.debug("rate_check!!!")
-        sql = "select code ,holding_amount, puchase_price, present_price, valuation_profit, rate,item_total_purchase from possessed_item group by code"
+        # logger.debug("rate_check!!!")
+        sql = "select code ,holding_amount, puchase_price, present_price, valuation_profit, rate from possessed_item group by code"
         rows = self.engine_JB.execute(sql).fetchall()
 
-        logger.debug("rate 업데이트 !!!")
-        logger.debug(rows)
+        # logger.debug("rate 업데이트 !!!")
+        # logger.debug(rows)
         num = len(rows)
 
         for k in range(num):
@@ -1177,22 +1718,21 @@ class open_api(QAxWidget):
             present_price =rows[k][3]
             valuation_profit=rows[k][4]
             rate = rows[k][5]
-            item_total_purchase = rows[k][6]
             # print("rate!!", rate)
-            sql = "update all_item_db set holding_amount ='%s', purchase_price ='%s', present_price='%s',valuation_profit='%s',rate='%s',item_total_purchase='%s' where code='%s' and sell_date = '%s'"
-            self.engine_JB.execute(sql % (holding_amount,purchase_price,present_price,valuation_profit,float(rate),item_total_purchase, code, 0))
+            sql = "update all_item_db set holding_amount ='%s', purchase_price ='%s', present_price='%s',valuation_profit='%s',rate='%s' where code='%s' and sell_date = '%s'"
+            self.engine_JB.execute(sql % (holding_amount,purchase_price,present_price,valuation_profit,float(rate), code, 0))
 
     def chegyul_sync(self):
         # 먼저 possessd_item 테이블에는 있는데 all_item_db에 없는 종목들 추가해준다
         sql = """select code, code_name, rate from possessed_item p
-            where p.code not in (select a.code from all_item_db a
+            where p.code COLLATE utf8mb4_unicode_ci not in (select a.code COLLATE utf8mb4_unicode_ci from all_item_db a
                                  where a.sell_date = '0' group by a.code)
             group by p.code"""
 
         rows = self.engine_JB.execute(sql).fetchall()
 
-        logger.debug("possess_item 테이블에는 있는데 all_item_db에 없는 종목들 처리!!!")
-        logger.debug(rows)
+        # logger.debug("possess_item 테이블에는 있는데 all_item_db에 없는 종목들 처리!!!")
+        # logger.debug(rows)
 
         for r in rows:
             self.set_input_value("종목코드", r.code)
@@ -1226,14 +1766,14 @@ class open_api(QAxWidget):
         sql = "SELECT code FROM all_item_db where chegyul_check='1' and (sell_date = '0' or sell_date= '')"
         rows = self.engine_JB.execute(sql).fetchall()
 
-        logger.debug("in chegyul_check!!!!! all_item_db에서 cheguyl_check가 1인 종목들(미체결상태) 확인!!!")
-        logger.debug(rows)
+        # logger.debug("in chegyul_check!!!!! all_item_db에서 cheguyl_check가 1인 종목들(미체결상태) 확인!!!")
+        # logger.debug(rows)
 
         # 여기서 너무많이 rq_count 올라간다. 매수를 한 만큼, 매도를 한만큼 그 2배의 시간이 걸림 무조건 .
         for r in rows:
             # 1. Open API 조회 함수 입력값을 설정합니다.
             # 	종목코드 = 전문 조회할 종목코드
-            logger.debug(f"chegyul_check code!! : {r.code}")
+            # logger.debug(f"chegyul_check code!! : {r.code}")
             self.set_input_value("종목코드", r.code)
             # 	조회구분 = 0:전체, 1:종목
             self.set_input_value("조회구분", 1)
@@ -1245,19 +1785,27 @@ class open_api(QAxWidget):
             if not self._data['주문번호']: # 과거에 거래한 경우 opt10076 조회 시 주문번호 등의 데이터가 존재하지 않음.
                 logger.debug(f"{r.code} 체결 완료 (과거 거래 한 경우)")
                 self.engine_JB.execute(update_sql)
+                if hasattr(self, '_miche_logged'):
+                    self._miche_logged.discard(r.code)
 
             elif self._data['미체결수량'] == 0:
                 logger.debug(f"{r.code} 체결 완료 (오늘 거래 한 경우)")
                 # 제일 최근 종목하나만 체결정보 업데이트하는거다
                 self.engine_JB.execute(update_sql)
+                if hasattr(self, '_miche_logged'):
+                    self._miche_logged.discard(r.code)
 
             else:
-                logger.debug(f"아직 매수 혹은 매도 중인 종목 !!!! 미체결 수량: {self._data['미체결수량']}")
+                if not hasattr(self, '_miche_logged'):
+                    self._miche_logged = set()
+                if r.code not in self._miche_logged:
+                    logger.debug(f"미체결 대기 중 ({r.code}): {self._data['미체결수량']}주")
+                    self._miche_logged.add(r.code)
 
     # 하나의 종목이 체결이 됐는지 확인
     # 그래야 재매수든, 초기매수든 한번 샀는데 미체결량이 남아서 다시 사는건지 확인이 가능하다.
     def stock_chegyul_check(self, code):
-        logger.debug("stock_chegyul_check 함수에 들어왔다!")
+        # logger.debug("stock_chegyul_check 함수에 들어왔다!")
 
         sql = "SELECT chegyul_check FROM all_item_db where code='%s' and sell_date = '%s' ORDER BY buy_date desc LIMIT 1"
         # 무조건 튜플 형태로 실행해야한다. 따라서 인자 하나를 보내더라도 ( , ) 안에 하나 넣어서 보낸다.
@@ -1276,40 +1824,98 @@ class open_api(QAxWidget):
 
         # sell_price가 없어서 에러가났음
         get_list = self.engine_JB.execute(f"""
-            SELECT valuation_profit, rate, item_total_purchase, present_price 
+            SELECT valuation_profit, rate, present_price
             FROM possessed_item WHERE code='{code}' LIMIT 1
         """).fetchall()
         if get_list:
             item = get_list[0]
+            sell_price = abs(int(item.present_price))
+
+            # purchase_price / holding_amount 조회 → sell_rate, realized_profit 정확 계산
+            buy_row2 = self.engine_JB.execute(
+                f"SELECT purchase_price, holding_amount FROM all_item_db "
+                f"WHERE code='{code}' AND sell_date='0' ORDER BY buy_date DESC LIMIT 1"
+            ).fetchone()
+            if buy_row2 and buy_row2[0] and int(buy_row2[0]) > 0 and sell_price > 0:
+                purchase_price2 = int(buy_row2[0])
+                holding_amount2 = int(buy_row2[1])
+                sell_rate_val2  = (sell_price / purchase_price2 - 1) * 100
+                realized2       = (sell_price - purchase_price2) * holding_amount2
+            else:
+                # fallback: possessed_item.rate (stale 가능) 사용
+                sell_rate_val2 = float(item.rate or 0)
+                realized2      = int(item.valuation_profit or 0)
+
             sql = f"""UPDATE all_item_db
-                SET item_total_purchase = {item.item_total_purchase}, chegyul_check = 0,
+                SET chegyul_check = '0',
                  sell_date = '{self.today_detail}', valuation_profit = {item.valuation_profit},
-                 sell_rate = {item.rate}, sell_price = {item.present_price}
+                 sell_rate = {sell_rate_val2:.4f}, sell_price = {sell_price},
+                 realized_profit = {realized2}
                 WHERE code = '{code}' and sell_date = '0' ORDER BY buy_date desc LIMIT 1"""
             self.engine_JB.execute(sql)
 
             # 팔았으면 즉각 possess db에서 삭제한다. 왜냐하면 checgyul_check 들어가기 직전에 possess_db를 최신화 하긴 하지만 possess db 최신화와 chegyul_check 사이에 매도가 이뤄져서 receive로 가게 되면 sell_date를 찍어버리기 때문에 checgyul_check 입장에서는 possess에는 존재하고 all_db는 sell_date찍혀있다고 판단해서 새롭게 all_db추가해버린다.
             self.engine_JB.execute(f"DELETE FROM possessed_item WHERE code = '{code}'")
 
-            logger.debug(f"delete {code}!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            # ✅ realtime_position_monitor에서도 삭제 (매도 완료)
+            try:
+                self.engine_JB.execute(f"DELETE FROM realtime_position_monitor WHERE code = '{code}'")
+                logger.debug(f"✅ realtime_position_monitor 삭제: {code}")
+            except Exception as e:
+                logger.warning(f"⚠️  realtime_position_monitor 삭제 실패: {e}")
+
         else:
-            logger.debug("possess가 없다!!!!!!!!!!!!!!!!!!!!!")
+            # possessed_item에 없는 경우 = 당일 매수·매도 종목 (오늘 산 주식을 오늘 팜)
+            # chejan 체결가(FID 10)로 직접 all_item_db 업데이트
+            logger.debug("매도 체결 처리: possessed_item에 %s 없음 — chejan 체결가로 직접 기록", code)
+            try:
+                sell_price = abs(int(self.get_chejan_data(10)))  # FID 10: 체결가
+                if sell_price > 0:
+                    buy_row = self.engine_JB.execute(
+                        f"SELECT purchase_price, holding_amount FROM all_item_db "
+                        f"WHERE code='{code}' AND sell_date='0' ORDER BY buy_date DESC LIMIT 1"
+                    ).fetchone()
+                    if buy_row and buy_row[0]:
+                        purchase_price_buy = int(buy_row[0])
+                        holding_amount     = int(buy_row[1])
+                        sell_rate_val  = (sell_price / purchase_price_buy - 1) * 100 \
+                                         if purchase_price_buy > 0 else 0.0
+                        realized       = (sell_price - purchase_price_buy) * holding_amount
+                        self.engine_JB.execute(
+                            f"UPDATE all_item_db "
+                            f"SET chegyul_check='0', sell_date='{self.today_detail}', "
+                            f"sell_price={sell_price}, sell_rate={sell_rate_val:.4f}, "
+                            f"realized_profit={realized} "
+                            f"WHERE code='{code}' AND sell_date='0' "
+                            f"ORDER BY buy_date DESC LIMIT 1"
+                        )
+                        # realtime_position_monitor에서도 삭제
+                        try:
+                            self.engine_JB.execute(
+                                f"DELETE FROM realtime_position_monitor WHERE code='{code}'"
+                            )
+                        except Exception:
+                            pass
+                        logger.info(
+                            f"✅ 당일매수·매도 sell 기록 (possessed 없음): "
+                            f"{code} {sell_price:,}원 {sell_rate_val:.2f}% "
+                            f"실현손익 {realized:+,}원"
+                        )
+                    else:
+                        logger.warning(f"⚠️  sell_final_check: all_item_db에도 {code} 없음")
+                else:
+                    logger.warning(f"⚠️  sell_final_check: chejan 체결가 0 ({code}), 기록 불가")
+            except Exception as _sfc_e:
+                logger.warning(f"⚠️  sell_final_check fallback 실패 ({code}): {_sfc_e}")
 
     def delete_all_item(self, code):
-        logger.debug("delete_all_item!!!!!!!!")
-
         # 팔았으면 즉각 possess db에서 삭제한다. 왜냐하면 checgyul_check 들어가기 직전에 possess_db를 최신화 하긴 하지만 possess db 최신화와 chegyul_check 사이에 매도가 이뤄져서 receive로 가게 되면 sell_date를 찍어버리기 때문에 checgyul_check 입장에서는 possess에는 존재하고 all_db는 sell_date찍혀있다고 판단해서 새롭게 all_db추가해버린다.
         sql = "delete from all_item_db where code = '%s'"
-        # self.engine_JB.execute(sql % (code,))
-        # self.jackbot_db_con.commit()
         self.engine_JB.execute(sql % (code))
-
-        logger.debug("delete_all_item!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        logger.debug(code)
 
     #
     def sell_final_check2(self, code):
-        logger.debug(f"sell_final_check2 possessed_item에는 없는데 all_item_db에 sell_date 추가 안된 종목 처리 !!! {code}")
+        logger.debug(f"sell_final_check2: sell_date 미기록 종목 처리 {code}")
         sql = "UPDATE all_item_db SET chegyul_check='%s', sell_date ='%s' WHERE code='%s' and sell_date ='%s' ORDER BY buy_date desc LIMIT 1"
 
         self.engine_JB.execute(sql % (0, self.today_detail, code, 0))
@@ -1317,7 +1923,6 @@ class open_api(QAxWidget):
     # all_item_db 보유한 종목이 있는지 확인 (sell_date가 0이거나 비어있으면 아직 매도하지 않고 보유한 종목이다)
     # 보유한 경우 true 반환, 보유 하지 않았으면 False 반환
     def is_all_item_db_check(self, code):
-        logger.debug(f"is_all_item_db_check code!! {code}")
         sql = "select code from all_item_db where code='%s' and (sell_date ='%s' or sell_date='%s') ORDER BY buy_date desc LIMIT 1"
 
         rows = self.engine_JB.execute(sql % (code, 0, "")).fetchall()
@@ -1349,22 +1954,22 @@ class open_api(QAxWidget):
     # OnReceiveChejanData이벤트는 주문전용 이벤트로 주문접수, 체결, 잔고발생시 호출됩니다. 
     # 첫번째 매개변수 gubun 값으로 구분하며 체결구분 접수와 체결시 '0'값, 국내주식 잔고전달은 '1'값, 파생잔고 전달은 '4'가 됩니다. 
     def _receive_chejan_data(self, gubun, item_cnt, fid_list):
-        logger.debug("_receive_chejan_data 함수로 들어왔습니다!!!")
-        logger.debug("gubun !!! :" + gubun)
-
         account_num = self.get_chejan_data(9201)
 
         # 선택 계좌가 아닐 시 아무 행동도 하지 않는다
         if self.account_number != account_num:
-            logger.info(f"{self.account_number} != {account_num}")
+            logger.warning("⚠️ chejan 계좌 불일치: self.account_number=%s != chejan_account=%s", self.account_number, account_num)
             return
 
         # 체결구분 접수와 체결
         if gubun == "0":
-            logger.debug("in 체결 data!!!!!")
             # 현재 체결 진행 중인 코드를 키움증권으로 부터 가져온다
             # 종목 코드
-            code = code_pattern.search(self.get_chejan_data(9001)).group(0)  # 주식 코드가 숫자만오지 않아서 정규식으로 필터링
+            code_raw = self.get_chejan_data(9001)
+            code_match = code_pattern.search(code_raw) if code_raw else None
+            if not code_match:
+                return
+            code = code_match.group(0)  # 주식 코드가 숫자만오지 않아서 정규식으로 필터링
             # 주문 번호
             order_num = self.get_chejan_data(9203)
             if not order_num:
@@ -1401,35 +2006,41 @@ class open_api(QAxWidget):
             if code:
                 # 미체결 수량이 ""가 아닌 경우
                 if chegyul_fail_amount_temp != "":
-                    logger.debug("일단 체결은 된 경우!")
                     if self.is_all_item_db_check(code) == False:
-                        logger.debug("all_item_db에 매수한 종목이 없음 ! 즉 신규 매수하는 종목이다!!!!")
-                        if chegyul_fail_amount_temp == "0":
-                            logger.debug("완벽히 싹 다 체결됨!!!!!!!!!!!!!!!!!!!!!!!!!")
-                            self.db_to_all_item(order_num, code, 0, purchase_price, 0)
-                        else:
-                            logger.debug("체결 되었지만 덜 체결 됨!!!!!!!!!!!!!!!!!!")
-                            self.db_to_all_item(order_num, code, 1, purchase_price, 0)
+                        try:
+                            if chegyul_fail_amount_temp == "0":
+                                logger.info("✅ 매수 체결 완료 (신규): %s", code)
+                                fill_qty = abs(int(self.get_chejan_data(911) or 0))
+                                self.db_to_all_item(order_num, code, 0, purchase_price, 0)
+                                # rate_check() 실행 전 당일 매도 시 realized_profit=0 방지
+                                if fill_qty > 0:
+                                    self.engine_JB.execute(
+                                        f"UPDATE all_item_db SET holding_amount={fill_qty} "
+                                        f"WHERE code='{code}' AND sell_date='0' "
+                                        f"ORDER BY buy_date DESC LIMIT 1"
+                                    )
+                            else:
+                                logger.debug("매수 부분 체결 (신규): %s", code)
+                                self.db_to_all_item(order_num, code, 1, purchase_price, 0)
+                        except Exception as e:
+                            logger.error(f"db_to_all_item 오류 ({code}): {e}")
 
                     elif order_gubun == "+매수":
                         if chegyul_fail_amount_temp != "0" and self.stock_chegyul_check(code) == True:
-                            logger.debug("아직 미체결 수량이 남아있다. 매수 진행 중!")
                             pass
                         elif chegyul_fail_amount_temp == "0" and self.stock_chegyul_check(code) == True:
-                            logger.debug("미체결 수량이 없다 / 즉, 매수 끝났다!!!!!!!")
+                            logger.info("✅ 매수 체결 완료: %s", code)
                             self.end_invest_count_check(code)
                         elif self.stock_chegyul_check(code) == False:
-                            logger.debug("현재 all_item_db에 존재하고 체결 체크가 0인 종목, 재매수 하는 경우!!!!!!!")
+                            logger.debug("매수 체결 (재매수): %s", code)
                             # self.reinvest_count_check(code)
                         else:
                             pass
 
                     elif order_gubun == "-매도":
                         if chegyul_fail_amount_temp == "0":
-                            logger.debug("all db에 존재하고 전량 매도하는 경우!!!!!")
                             self.sell_final_check(code)
                         else:
-                            logger.debug("all db에 존재하고 수량 남겨 놓고 매도하는 경우!!!!!")
                             self.sell_chegyul_fail_check(code)
 
                     else:
@@ -1441,7 +2052,6 @@ class open_api(QAxWidget):
 
         # 국내주식 잔고전달
         elif gubun == "1":
-            logger.debug("잔고데이터!!!!!")
             # logger.debug("item_cnt!!!")
             # logger.debug(item_cnt)
             # logger.debug("fid_list!!!")
@@ -1458,7 +2068,6 @@ class open_api(QAxWidget):
             #
             # logger.debug("미체결수량!!!")
             chegyul_fail_amount_temp = self.get_chejan_data(902)
-            logger.debug(chegyul_fail_amount_temp)
             # logger.debug("원주문번호!!!")
             # logger.debug(self.get_chejan_data(904))
             # logger.debug("주문구분!!!")
@@ -1474,12 +2083,11 @@ class open_api(QAxWidget):
             # logger.debug("현재가, 체결가, 실시간종가")
             # logger.debug(self.get_chejan_data(10))
         else:
-            logger.debug(
-                "_receive_chejan_data 에서 아무것도 해당 되지않음!")
+            pass
 
     # 예수금(계좌 잔액) 호출 함수
     def get_d2_deposit(self):
-        logger.debug("get_d2_deposit 함수에 들어왔습니다!")
+        # logger.debug("get_d2_deposit 함수에 들어왔습니다!")
         # 이번에는 예수금 데이터를 얻기 위해 opw00001 TR을 요청하는 코드를 구현해 봅시다. opw00001 TR은 연속적으로 데이터를 요청할 필요가 없으므로 상당히 간단합니다.
         # 비밀번호 입력매체 구분, 조회구분 다 작성해야 된다. 안그러면 0 으로 출력됨
         self.set_input_value("계좌번호", self.account_number)
@@ -1490,14 +2098,277 @@ class open_api(QAxWidget):
 
     # 먼저 OnReceiveTrData 이벤트가 발생할 때 수신 데이터를 가져오는 함수인 _opw00001를 open_api 클래스에 추가합니다.
     def _opw00001(self, rqname, trcode):
-        logger.debug("_opw00001!!!")
+        # logger.debug("_opw00001!!!")
         try:
             self.d2_deposit_before_format = self._get_comm_data(trcode, rqname, 0, "d+2출금가능금액")
             self.d2_deposit = self.change_format(self.d2_deposit_before_format)
-            logger.debug("예수금!!!!")
-            logger.debug(self.d2_deposit_before_format)
+            # logger.debug("예수금!!!!")
+            # logger.debug(self.d2_deposit_before_format)
         except Exception as e:
             logger.critical(e)
+
+    def _opt10001(self, rqname, trcode):
+        """OPT10001 (주식기본정보요청) 수신 처리 — 단일행 TR
+        결과는 self.fundamental_data dict에 저장.
+        tr_event_loop.exit()는 _receive_tr_data에서 자동 처리.
+        """
+        try:
+            def gd(field):
+                return self._get_comm_data(trcode, rqname, 0, field).strip()
+
+            self.fundamental_data = {
+                'per':           gd("PER"),
+                'eps':           gd("EPS"),
+                'roe':           gd("ROE"),
+                'pbr':           gd("PBR"),
+                'ev':            gd("EV"),
+                'bps':           gd("BPS"),
+                'sales':         gd("매출액"),
+                'operating_profit': gd("영업이익"),
+                'net_profit':    gd("당기순이익"),
+                'market_cap':    gd("시가총액"),
+                'foreign_rate':  gd("외인소진률"),
+                'credit_rate':   gd("신용비율"),
+                'float_shares':  gd("유통주식"),
+                'float_rate':    gd("유통비율"),
+                'high_250_rate': gd("250최고가대비율"),
+                'low_250_rate':  gd("250최저가대비율"),
+            }
+        except Exception as e:
+            logger.critical(e)
+            self.fundamental_data = {}
+
+    def _opt20006(self, rqname, trcode):
+        """OPT20006 (업종일봉차트조회) 수신 처리 — 반복행 TR
+        결과는 self.ohlcv dict에 누적 저장 (collector_opt10081과 동일 패턴).
+        tr_event_loop.exit()는 _receive_tr_data에서 자동 처리.
+        """
+        try:
+            ohlcv_cnt = self._get_repeat_cnt(trcode, rqname)
+            for i in range(ohlcv_cnt):
+                date = self._get_comm_data(trcode, rqname, i, "일자")
+                open_val = self._get_comm_data(trcode, rqname, i, "시가")
+                high_val = self._get_comm_data(trcode, rqname, i, "고가")
+                low_val = self._get_comm_data(trcode, rqname, i, "저가")
+                close_val = self._get_comm_data(trcode, rqname, i, "현재가")
+                volume_val = self._get_comm_data(trcode, rqname, i, "거래량")
+
+                self.ohlcv['date'].append(date.strip())
+                self.ohlcv['open'].append(int(open_val) if open_val.strip() else 0)
+                self.ohlcv['high'].append(int(high_val) if high_val.strip() else 0)
+                self.ohlcv['low'].append(int(low_val) if low_val.strip() else 0)
+                self.ohlcv['close'].append(int(close_val) if close_val.strip() else 0)
+                self.ohlcv['volume'].append(int(volume_val) if volume_val.strip() else 0)
+        except Exception as e:
+            logger.critical(e)
+
+    def rq_opt10028(self):
+        """OPT10028 시가대비등락률 상위 요청 (Strategy D 장중 스캔용)"""
+        self.intraday_scan_opt10028 = []
+        self.set_input_value("시장구분", "000")
+        self.set_input_value("등락구분", "1")
+        self.set_input_value("기준시가비율", "2")
+        self.comm_rq_data("opt10028_req", "opt10028", 0, "1028")
+
+    def rq_opt10063(self):
+        """OPT10063 장중투자자별매매 요청 (기관+외국 동시순매수, Strategy D 스캔용)"""
+        self.intraday_scan_opt10063 = []
+        self.set_input_value("시장구분", "000")
+        self.set_input_value("금액수량구분", "1")
+        self.set_input_value("투자자별", "7")
+        self.set_input_value("외국계전체", "0")
+        self.set_input_value("동시순매수구분", "1")
+        self.comm_rq_data("opt10063_req", "opt10063", 0, "1063")
+
+    def _opt10028(self, rqname, trcode):
+        """OPT10028 수신 처리 — GetCommDataEx 인덱스 직접 접근
+        인덱스 확인: [0]종목코드 [1]종목명 [2]현재가 [3]대비기호 [4]전일대비
+                     [5]등락률  [6]시가   [7]고가   [8]저가    [9]시가대비율
+                     [10]거래량 [11]거래량비율
+        """
+        try:
+            raw_data = self.dynamicCall("GetCommDataEx(QString,QString)", trcode, rqname)
+            if not raw_data:
+                return
+            for row in raw_data:
+                if len(row) < 11:
+                    continue
+                code      = str(row[0]).strip()
+                code_name = str(row[1]).strip()
+                price_raw = str(row[2]).strip()
+                rate_raw  = str(row[5]).strip()
+                vol_raw   = str(row[10]).strip()
+                if not code:
+                    continue
+                try:
+                    price = abs(int(price_raw.replace('+', '').replace('-', '').replace(',', ''))) if price_raw else 0
+                except ValueError:
+                    price = 0
+                try:
+                    rate = float(rate_raw.replace('+', '').replace(',', '')) if rate_raw else 0.0
+                except ValueError:
+                    rate = 0.0
+                try:
+                    vol = int(vol_raw.replace(',', '')) if vol_raw else 0
+                except ValueError:
+                    vol = 0
+                self.intraday_scan_opt10028.append({
+                    'code':          code.zfill(6),
+                    'code_name':     code_name,
+                    'current_price': price,
+                    'change_rate':   rate,
+                    'volume':        vol,
+                })
+        except Exception as e:
+            logger.error(f"_opt10028 오류: {e}")
+
+    def _opt10063(self, rqname, trcode):
+        """OPT10063 수신 처리 — 투자자별=7(기관+외국 동시순매수 스크리닝)
+        동시순매수구분=1 → 기관과 외국 모두 순매수인 종목만 반환.
+        순매수금액(=기관순매수금액): 기관 순매수 금액.
+        외국계 금액은 별도 rq_opt10063_foreign() 로 취득 후 합산.
+        """
+        def _to_int(raw):
+            try:
+                return int(raw.replace('+', '').replace(',', '')) if raw.strip() else 0
+            except ValueError:
+                return 0
+
+        try:
+            cnt = self._get_repeat_cnt(trcode, rqname)
+            for i in range(cnt):
+                code      = self._get_comm_data(trcode, rqname, i, "종목코드").strip()
+                code_name = self._get_comm_data(trcode, rqname, i, "종목명").strip()
+                if not code:
+                    continue
+                inst_raw = self._get_comm_data(trcode, rqname, i, "기관순매수금액").strip()
+                if not inst_raw:
+                    inst_raw = self._get_comm_data(trcode, rqname, i, "순매수금액").strip()
+                self.intraday_scan_opt10063.append({
+                    'code':         code.zfill(6),
+                    'code_name':    code_name,
+                    'inst_net_buy': _to_int(inst_raw),
+                })
+        except Exception as e:
+            logger.error(f"_opt10063 오류: {e}")
+
+    def rq_opt10063_foreign(self):
+        """OPT10063 외국계 장중 순매수 요청 (투자자별=6, 외국계전체=2)"""
+        self.intraday_scan_opt10063_foreign = []
+        self.set_input_value("시장구분", "000")
+        self.set_input_value("금액수량구분", "1")
+        self.set_input_value("투자자별", "6")
+        self.set_input_value("외국계전체", "2")
+        self.set_input_value("동시순매수구분", "0")
+        self.comm_rq_data("opt10063_foreign_req", "opt10063", 0, "1064")
+
+    def _opt10063_foreign(self, rqname, trcode):
+        """OPT10063 외국계 순매수 수신 — 순매수금액 = 외국계 순매수금액."""
+        def _to_int(raw):
+            try:
+                return int(raw.replace('+', '').replace(',', '')) if raw.strip() else 0
+            except ValueError:
+                return 0
+
+        try:
+            cnt = self._get_repeat_cnt(trcode, rqname)
+            for i in range(cnt):
+                code    = self._get_comm_data(trcode, rqname, i, "종목코드").strip()
+                net_raw = self._get_comm_data(trcode, rqname, i, "순매수금액").strip()
+                if not code:
+                    continue
+                self.intraday_scan_opt10063_foreign.append({
+                    'code':            code.zfill(6),
+                    'foreign_net_buy': _to_int(net_raw),
+                })
+        except Exception as e:
+            logger.error(f"_opt10063_foreign 오류: {e}")
+
+    def _collect_opt10045(self, rqname, trcode):
+        """OPT10045 (종목별기관매매추이) 수신 — 첫 행에서 기관/외국인 당일 순매수량 추출.
+        GetCommDataEx 인덱스: [7]=기관당일순매수, [9]=외국인당일순매수 (test_opt_inst.py 실증).
+        """
+        try:
+            data = self.dynamicCall("GetCommDataEx(QString,QString)", trcode, rqname)
+            if not data or len(data) == 0:
+                return
+            row = data[0]
+            if len(row) < 10:
+                return
+
+            def _parse_int(s):
+                try:
+                    return int(str(s).replace('+', '').replace(' ', '').replace(',', ''))
+                except (ValueError, TypeError):
+                    return None
+
+            self.inst_today['inst_net_buy'] = _parse_int(row[7])
+            self.inst_today['foreign_net_buy'] = _parse_int(row[9])
+        except Exception as e:
+            logger.error(f"_collect_opt10045 오류: {e}")
+
+    def _backfill_opt10045(self, rqname, trcode):
+        """OPT10045 backfill 수신 — 모든 행을 self.inst_history에 누적 저장.
+        페이지가 여러 개일 때도 호출될 때마다 기존 dict에 추가된다.
+        """
+        try:
+            data = self.dynamicCall("GetCommDataEx(QString,QString)", trcode, rqname)
+            if not data:
+                return
+
+            def _parse_int(s):
+                try:
+                    return int(str(s).replace('+', '').replace(' ', '').replace(',', ''))
+                except (ValueError, TypeError):
+                    return None
+
+            for row in data:
+                if len(row) < 10:
+                    continue
+                date_str = str(row[0]).strip()
+                if not date_str or len(date_str) != 8:
+                    continue
+                self.inst_history[date_str] = {
+                    'inst_net_buy':    _parse_int(row[7]),
+                    'foreign_net_buy': _parse_int(row[9]),
+                }
+        except Exception as e:
+            logger.error(f"_backfill_opt10045 오류: {e}")
+
+    def get_inst_history(self, code, start_date, end_date):
+        """OPT10045로 start_date~end_date 전 기간 기관/외국인 순매수 수집 (페이지 자동 처리).
+        Returns: {date_str: {'inst_net_buy': int|None, 'foreign_net_buy': int|None}, ...}
+        """
+        self.inst_history = {}
+        self.set_input_value("종목코드", code)
+        self.set_input_value("시작일자", start_date)
+        self.set_input_value("종료일자", end_date)
+        self.set_input_value("기관추정단가구분", "1")
+        self.set_input_value("외인추정단가구분", "1")
+        self.comm_rq_data("opt10045_backfill_req", "OPT10045", 0, "0103")
+
+        while self.remained_data:
+            self.set_input_value("종목코드", code)
+            self.set_input_value("시작일자", start_date)
+            self.set_input_value("종료일자", end_date)
+            self.set_input_value("기관추정단가구분", "1")
+            self.set_input_value("외인추정단가구분", "1")
+            self.comm_rq_data("opt10045_backfill_req", "OPT10045", 2, "0103")
+
+        return dict(self.inst_history)
+
+    def get_inst_data_today(self, code, date):
+        """OPT10045로 특정 날짜의 기관/외국인 당일 순매수량 조회 (collector 모드 전용).
+        Returns: {'inst_net_buy': int|None, 'foreign_net_buy': int|None}
+        """
+        self.inst_today = {'inst_net_buy': None, 'foreign_net_buy': None}
+        self.set_input_value("종목코드", code)
+        self.set_input_value("시작일자", date)
+        self.set_input_value("종료일자", date)
+        self.set_input_value("기관추정단가구분", "1")
+        self.set_input_value("외인추정단가구분", "1")
+        self.comm_rq_data("opt10045_coll_req", "OPT10045", 0, "0102")
+        return dict(self.inst_today)
 
     # 보통 금액은 천의 자리마다 콤마를 사용해서 표시합니다. 이를 위해 open_api 클래스에 change_format이라는 정적 메서드(static method)를 추가합니다. change_format 메서드는 입력된 문자열에 대해 lstrip 메서드를 통해 문자열 왼쪽에 존재하는 '-' 또는 '0'을 제거합니다. 그리고 format 함수를 통해 천의 자리마다 콤마를 추가한 문자열로 변경합니다.
     # startswith(prefix, [start, [end]])
@@ -1507,7 +2378,6 @@ class open_api(QAxWidget):
 
     # 일별실현손익
     def _opt10074(self, rqname, trcode):
-        logger.debug("_opt10074!!!")
         try:
             rows = self._get_repeat_cnt(trcode, rqname)
             # total 실현손익
@@ -1533,7 +2403,6 @@ class open_api(QAxWidget):
             #     [name, quantity, purchase_price, current_price, eval_profit_loss_price, earning_rate])
 
     def _opw00015(self, rqname, trcode):
-        logger.debug("_opw00015!!!")
         try:
 
             rows = self._get_repeat_cnt(trcode, rqname)
@@ -1609,8 +2478,6 @@ class open_api(QAxWidget):
             logger.critical(e)
 
     def _opt10073(self, rqname, trcode):
-        logger.debug("_opt10073!!!")
-
         # multi data
         rows = self._get_repeat_cnt(trcode, rqname)
         for i in range(rows):
@@ -1630,8 +2497,6 @@ class open_api(QAxWidget):
 
             self.opt10073_output['multi'].append([date, code, code_name, amount, today_profit, earning_rate])
 
-        logger.debug("_opt10073 end!!!")
-
     # 이번에는 opw00018 TR을 통해 얻어온 데이터를 인스턴스 변수에 저장해 보겠습니다. 먼저 open_api 클래스에 다음 메서드를 추가합니다.
     # 싱글 데이터는 1차원 리스트로 데이터를 저장하며, 멀티 데이터는 2차원 리스트로 데이터를 저장합니다.
 
@@ -1643,7 +2508,7 @@ class open_api(QAxWidget):
     # 이번에는 opw00018 TR을 위한 코드를 추가하겠습니다. opw00018 TR은 싱글 데이터를 통해 계좌에 대한 평가 잔고 데이터를 제공하며 멀티 데이터를 통해 보유 종목별 평가 잔고 데이터를 제공합니다.
     # 먼저 총매입금액, 총평가금액, 총평가손익금액, 총수익률, 추정예탁자산을 _get_comm_data 메서드를 통해 얻어옵니다. 얻어온 데이터는 change_format 메서드를 통해 포맷을 문자열로 변경합니다.
     def _opw00018(self, rqname, trcode):
-        logger.debug("_opw00018!!!")
+        # logger.debug("_opw00018!!!")
         # try:
         # 전역변수로 사용하기 위해서 총매입금액은 self로 선언
         # logger.debug(1)
@@ -1680,7 +2545,11 @@ class open_api(QAxWidget):
         rows = self._get_repeat_cnt(trcode, rqname)
 
         for i in range(rows):
-            code = code_pattern.search(self._get_comm_data(trcode, rqname, i, "종목번호")).group(0)
+            code_raw = self._get_comm_data(trcode, rqname, i, "종목번호")
+            code_match = code_pattern.search(code_raw) if code_raw else None
+            if not code_match:
+                continue
+            code = code_match.group(0)
             name = self._get_comm_data(trcode, rqname, i, "종목명")
             quantity = self._get_comm_data(trcode, rqname, i, "보유수량")
             purchase_price = self._get_comm_data(trcode, rqname, i, "매입가")
@@ -1701,6 +2570,9 @@ class open_api(QAxWidget):
                  eval_profit_loss_price, earning_rate, item_total_purchase, code]
             )
 
+        # ✅ realtime_position_monitor 업데이트 (10초마다)
+        self.update_realtime_position_monitor()
+
     # 이번에는 opw00018 TR을 통해 얻어온 데이터를 인스턴스 변수에 저장해 보겠습니다.
     # 먼저 open_api 클래스에 다음 메서드를 추가합니다.
     # 싱글 데이터는 1차원 리스트로 데이터를 저장하며, 멀티 데이터는 2차원 리스트로 데이터를 저장합니다.
@@ -1710,9 +2582,206 @@ class open_api(QAxWidget):
         except Exception as e:
             logger.critical(e)
 
+    def update_realtime_position_monitor(self):
+        """
+        realtime_position_monitor 테이블 업데이트 (10초마다)
+
+        보유 종목의 highest_price를 추적하여 트레일링 스톱에 사용
+        """
+        try:
+            from datetime import datetime, timedelta
+
+            now = datetime.now()
+            if not hasattr(self, '_last_monitor_update'):
+                self._last_monitor_update = now - timedelta(seconds=11)
+
+            time_diff = (now - self._last_monitor_update).total_seconds()
+            if time_diff < 10:
+                return
+
+            if not hasattr(self, 'opw00018_output') or 'multi' not in self.opw00018_output:
+                return
+
+            holdings = self.opw00018_output['multi']
+            if len(holdings) == 0:
+                return
+
+            # intraday_tracker 초기화 (최초 1회)
+            if not hasattr(self, '_intraday_initialized'):
+                self._init_intraday_tracker()
+
+            # 매도된 종목 candle flush 및 캐시 정리
+            current_codes = {holding[7] for holding in holdings}
+            if hasattr(self, '_prev_intraday_codes'):
+                for code in self._prev_intraday_codes - current_codes:
+                    if code in getattr(self, '_intraday_candles', {}):
+                        self._flush_intraday_candle(code, self._intraday_candles[code])
+                        del self._intraday_candles[code]
+                    getattr(self, '_entry_price_cache', {}).pop(code, None)
+                    # _receive_chejan_data DELETE 실패 대비 안전망
+                    try:
+                        self.engine_JB.execute(
+                            f"DELETE FROM realtime_position_monitor WHERE code = '{code}'"
+                        )
+                    except Exception:
+                        pass
+            self._prev_intraday_codes = current_codes
+
+            for holding in holdings:
+                code = holding[7]
+                current_price = holding[3]
+
+                sql_update = """
+                UPDATE realtime_position_monitor
+                SET current_price = %d,
+                    highest_price = GREATEST(highest_price, %d),
+                    last_update = NOW()
+                WHERE code = '%s'
+                """
+                self.engine_JB.execute(sql_update % (current_price, current_price, code))
+
+                if getattr(self, '_intraday_initialized', False):
+                    if code not in self._entry_price_cache:
+                        row = self.engine_JB.execute(
+                            f"SELECT entry_price FROM realtime_position_monitor WHERE code = '{code}'"
+                        ).fetchone()
+                        self._entry_price_cache[code] = int(row[0]) if row else current_price
+                    self._update_intraday_candle(code, current_price, self._entry_price_cache[code], now)
+
+            self._last_monitor_update = now
+
+        except Exception as e:
+            logger.warning(f"⚠️  realtime_position_monitor 업데이트 실패: {e}")
+
+    def _init_intraday_tracker(self):
+        """intraday_tracker 테이블 생성 및 5일 이전 데이터 정리"""
+        try:
+            self.engine_JB.execute("""
+                CREATE TABLE IF NOT EXISTS intraday_tracker (
+                    code           VARCHAR(10)   NOT NULL,
+                    ts             DATETIME      NOT NULL,
+                    open           INT           DEFAULT 0,
+                    high           INT           DEFAULT 0,
+                    low            INT           DEFAULT 0,
+                    close          INT           DEFAULT 0,
+                    rsi            DECIMAL(5,2)  DEFAULT NULL,
+                    vwap           DECIMAL(12,2) DEFAULT NULL,
+                    highest_price  INT           DEFAULT 0,
+                    rsi_at_highest DECIMAL(5,2)  DEFAULT NULL,
+                    highest_ts     DATETIME      DEFAULT NULL,
+                    entry_price    INT           DEFAULT 0,
+                    PRIMARY KEY (code, ts),
+                    INDEX idx_ts (ts)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            self.engine_JB.execute(
+                "DELETE FROM intraday_tracker WHERE ts < DATE_SUB(NOW(), INTERVAL 5 DAY)"
+            )
+            self._intraday_candles = {}
+            self._entry_price_cache = {}
+            self._intraday_initialized = True
+            logger.info("✅ intraday_tracker 초기화 완료")
+        except Exception as e:
+            logger.warning(f"⚠️  intraday_tracker 초기화 실패: {e}")
+            self._intraday_initialized = False
+
+    def _update_intraday_candle(self, code, price, entry_price, now):
+        """10초 틱을 1분 캔들로 집계. 분 전환 시 완성 캔들을 DB에 flush."""
+        current_minute = now.replace(second=0, microsecond=0)
+
+        if code not in self._intraday_candles:
+            self._intraday_candles[code] = {
+                'minute': current_minute,
+                'open': price, 'high': price, 'low': price, 'close': price,
+                'tick_count': 1, 'vwap_sum': price,
+                'entry_price': entry_price,
+                'highest_price': price,
+                'highest_ts': now,
+                'highest_updated': True,
+                'rsi_at_highest': None,
+            }
+            return
+
+        candle = self._intraday_candles[code]
+
+        if current_minute > candle['minute']:
+            rsi_at_highest = self._flush_intraday_candle(code, candle)
+            self._intraday_candles[code] = {
+                'minute': current_minute,
+                'open': price, 'high': price, 'low': price, 'close': price,
+                'tick_count': 1, 'vwap_sum': price,
+                'entry_price': entry_price,
+                'highest_price': candle['highest_price'],
+                'highest_ts': candle['highest_ts'],
+                'highest_updated': False,
+                'rsi_at_highest': rsi_at_highest,
+            }
+            return
+
+        candle['high'] = max(candle['high'], price)
+        candle['low'] = min(candle['low'], price)
+        candle['close'] = price
+        candle['tick_count'] += 1
+        candle['vwap_sum'] += price
+
+        if price > candle['highest_price']:
+            candle['highest_price'] = price
+            candle['highest_ts'] = now
+            candle['highest_updated'] = True
+
+    def _flush_intraday_candle(self, code, candle):
+        """완성된 1분 캔들을 DB에 저장. 계산된 rsi_at_highest를 반환."""
+        rsi_at_highest = candle.get('rsi_at_highest')
+        try:
+            vwap = candle['vwap_sum'] / candle['tick_count']
+
+            rows = self.engine_JB.execute(
+                f"SELECT close FROM intraday_tracker WHERE code = '{code}' ORDER BY ts DESC LIMIT 30"
+            ).fetchall()
+            closes = [r[0] for r in reversed(rows)] + [candle['close']]
+            rsi = self._compute_rsi_wilder(closes)
+
+            if candle.get('highest_updated'):
+                rsi_at_highest = rsi
+
+            minute_str = candle['minute'].strftime('%Y-%m-%d %H:%M:%S')
+            rsi_str = f'{rsi}' if rsi is not None else 'NULL'
+            rsi_at_highest_str = f'{rsi_at_highest}' if rsi_at_highest is not None else 'NULL'
+            vwap_str = f'{round(vwap, 2)}'
+            ht = candle.get('highest_ts')
+            highest_ts_str = f"'{ht.strftime('%Y-%m-%d %H:%M:%S')}'" if ht else 'NULL'
+
+            self.engine_JB.execute(f"""
+                REPLACE INTO intraday_tracker
+                (code, ts, open, high, low, close, rsi, vwap,
+                 highest_price, rsi_at_highest, highest_ts, entry_price)
+                VALUES ('{code}', '{minute_str}', {candle['open']}, {candle['high']},
+                        {candle['low']}, {candle['close']}, {rsi_str}, {vwap_str},
+                        {candle['highest_price']}, {rsi_at_highest_str}, {highest_ts_str},
+                        {candle['entry_price']})
+            """)
+        except Exception as e:
+            logger.warning(f"⚠️  intraday_tracker flush 실패 ({code}): {e}")
+        return rsi_at_highest
+
+    def _compute_rsi_wilder(self, closes):
+        """Wilder RSI(14). closes: oldest→newest 순서. 최소 15개 필요."""
+        if len(closes) < 15:
+            return None
+        deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+        gains  = [max(d, 0.0) for d in deltas]
+        losses = [max(-d, 0.0) for d in deltas]
+        avg_gain = sum(gains[:14]) / 14
+        avg_loss = sum(losses[:14]) / 14
+        for i in range(14, len(deltas)):
+            avg_gain = (avg_gain * 13 + gains[i]) / 14
+            avg_loss = (avg_loss * 13 + losses[i]) / 14
+        if avg_loss == 0:
+            return 100.0
+        return round(100 - (100 / (1 + avg_gain / avg_loss)), 2)
+
     #   일자별 종목별 실현손익
     def reset_opt10073_output(self):
-        logger.debug("reset_opt10073_output!!!")
         try:
             self.opt10073_output = {'single': [], 'multi': []}
         except Exception as e:
@@ -1720,7 +2789,6 @@ class open_api(QAxWidget):
 
     #   미체결 정보
     def _opt10076(self, rqname, trcode):
-        logger.debug("func in !!! _opt10076!!!!!!!!! ")
         output_keys = ['주문번호', '종목명', '주문구분', '주문가격', '주문수량', '체결가', '체결량', '미체결수량',
                        '당일매매수수료', '당일매매세금', '주문상태', '매매구분', '원주문번호', '주문시간', '종목코드']
         self._data = {}
