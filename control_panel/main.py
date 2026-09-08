@@ -87,6 +87,10 @@ class MainWindow(QMainWindow):
         self._timer.timeout.connect(self._refresh_all)
         self._timer.start(REFRESH_INTERVAL_MS)
 
+        # 설정 탭(index=8): 탭 전환 시 1회 로드 (타이머 루프에서 제외)
+        # 타이머마다 refresh()가 호출되면 편집 중인 스핀박스 값이 덮어써짐
+        self._tabs.currentChanged.connect(self._on_tab_changed)
+
         # 즉시 첫 갱신
         self._refresh_all()
 
@@ -171,6 +175,15 @@ class MainWindow(QMainWindow):
             QStatusBar { background: #e0e0e0; color: #333333; }
         """)
 
+    # ── 탭 전환 ──────────────────────────────────────────────────
+    def _on_tab_changed(self, idx):
+        """설정 탭(8)으로 전환될 때만 1회 로드 — 타이머에서는 제외."""
+        if idx == 8:
+            try:
+                self._tab_set.refresh()
+            except Exception:
+                pass
+
     # ── 갱신 ─────────────────────────────────────────────────────
     def _refresh_all(self):
         try:
@@ -194,8 +207,7 @@ class MainWindow(QMainWindow):
                     pass
             elif active == 7:
                 self._tab_orders.refresh(kpis)
-            elif active == 8:
-                self._tab_set.refresh()
+            # 설정 탭(8)은 타이머 갱신 제외 — 탭 전환 시(_on_tab_changed)만 로드
             # 로그 탭(5)은 자체 QTimer(2s)로 갱신 — 여기서 호출 불필요
 
             self._status_lbl.setText(
