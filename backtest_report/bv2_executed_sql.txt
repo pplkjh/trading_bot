@@ -1,0 +1,55 @@
+======================================================================
+baseline_v2 실행 구성 덤프  [2026-08-19 09:26:54]
+======================================================================
+
+[파라미터]
+  simul_num          = 10
+  simul_start_date   = 20230905
+  simul_end_date     = 20260810
+  e_invest_unit      = 2,000,000원
+  e_max_positions    = 5
+  e_regime_gate_on   = True
+  buy_list_num       = 23
+  sell_list_num      = 50
+  초기 자본          = 10000000
+
+[매수 SQL — value_strategy_e.py ValueStrategyE.screen()]
+SELECT a.*, ROUND((a.vol120+0.0)*a.close/100000000,1) AS liq_cap_100m
+FROM `{date_str}` a
+WHERE
+    -- ① vol120*close >= 30,000,000,000 (300억)  [v1: vol20 100억]
+    (a.vol120 + 0.0) * a.close >= 30000000000
+    -- ② 단기 거래량 급증 배제  vol20 <= vol120 * 2.5  [v1: 없음]
+    AND a.vol20 <= a.vol120 * 2.5
+    -- ③ 3단 정배열 (close>clo20>clo60>clo120)
+    AND a.close > a.clo20 AND a.clo20 > a.clo60 AND a.clo60 > a.clo120
+    -- ④ DMI  plus_di > minus_di
+    AND a.plus_di > a.minus_di
+    -- ⑤ ATR/close <= 0.06 (6%)  [v1: 없음]
+    AND a.atr14 <= a.close * 0.06
+    -- ⑥~⑩ 위험종목 제외 (caution/warning/danger/managing/konex)
+    AND NOT EXISTS (SELECT 1 FROM stock_invest_caution  c WHERE c.code=a.code ...)
+    AND NOT EXISTS (SELECT 1 FROM stock_invest_warning  w WHERE w.code=a.code ...)
+    AND NOT EXISTS (SELECT 1 FROM stock_invest_danger   d WHERE d.code=a.code ...)
+    AND NOT EXISTS (SELECT 1 FROM stock_managing        m WHERE m.code=a.code)
+    AND NOT EXISTS (SELECT 1 FROM stock_konex           k WHERE k.code=a.code)
+ORDER BY (a.vol120 + 0.0) * a.close DESC   -- v1: clo120 모멘텀
+LIMIT 5   -- ValueStrategyE.MAX_POSITIONS (실제 치환값)
+
+  ★ LIMIT 치환 확인: screen() 실제 LIMIT = 5  (cf.e_max_positions = 5)
+  ✓  LIMIT 일치: MAX_POSITIONS=5 = cf.e_max_positions=5
+
+[매도 규칙 (sell_list_num=50) — 활성 플래그]
+  [OFF ✗]  A1 | SL -12%            (e_sell_sl12_on)       
+  [ON  ✓]  ①  SL_HARD -15.0%       (e_sell_sl_hard_on)    
+  [OFF ✗]  A2 | MA120 이탈          (e_sell_ma120_on)      
+  [ON  ✓]  ②  TREND_BREAK MA60     (e_sell_ma60_on)       
+  [OFF ✗]  A3 | MA60+MA20 이중확인  (e_sell_ma60_double_on)
+  [OFF ✗]  A4 | RSI78+수익20%       (e_sell_rsi78_rate_on) 
+  [OFF ✗]  ③  TP_OVERHEAT RSI>=80  (e_sell_rsi80_on)      
+  [OFF ✗]  A5 | 목표TP +35%         (e_sell_tp35_on)       
+  [OFF ✗]  A6 | 110일 시간청산      (e_sell_time110_on)    
+
+  레짐 게이트 (e_regime_gate_on) = ON  ✓
+
+======================================================================

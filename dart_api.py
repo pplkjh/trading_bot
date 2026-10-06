@@ -146,7 +146,7 @@ class DARTApi:
                 reprt_code:
                     1분기보고서 : 11013, 반기보고서 : 11012, 3분기보고서 : 11014, 사업보고서 : 11011
                 """
-                res = dart.api.finance.fnltt_singl_acnt(corp_code, str(year), '11011')
+                res = dart.api.finance.get_single_corp(corp_code, str(year), '11011')
 
             except NoDataReceived as e:
                 print("{} 년도 {} ({}) 데이터는 조회되지 않습니다.".format(year, code_name, code))
