@@ -9,6 +9,7 @@ from PyQt5.QtGui import QFont
 
 from control_panel.widgets.colored_table import ColoredTable, RED, BLUE, GRAY
 from control_panel import db
+from control_panel.db import STRATEGY_LIST
 
 HEADERS = ['매도일', '매도시간', '종목명', '전략', '매수가', '매도가',
            '수익률%', '실현손익', '보유일', '매도사유']
@@ -105,8 +106,8 @@ class HistoryTab(QWidget):
         quick_lay.addSpacing(8)
         quick_lay.addWidget(QLabel('전략:'))
         self._strat = QComboBox()
-        self._strat.addItems(['전체', 'A', 'B'])
-        self._strat.setFixedWidth(55)
+        self._strat.addItems(STRATEGY_LIST)   # sim=11이면 A/B/E 포함
+        self._strat.setFixedWidth(65)
         quick_lay.addWidget(self._strat)
 
         quick_lay.addWidget(QLabel('최대:'))

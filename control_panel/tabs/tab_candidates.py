@@ -12,13 +12,24 @@ from control_panel.widgets.colored_table import ColoredTable, RED, BLUE, GRAY
 from control_panel.widgets.price_chart import PriceChart
 from PyQt5.QtGui import QColor
 from control_panel import db
+from control_panel.db import SIMUL_NUM, STRATEGY_LIST, SCORE_IS_BINARY
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from library.cf import v4_min_score_a, invest_unit as cf_invest_unit
 
-HEADERS = ['상태', '종목명', '종목코드', '전략', '복합점수', 'A모멘텀', 'B평균회귀', 'C추세강도',
-           'D수급', 'E시장RS', 'F다중TF', 'G패널티', '현재가', '거래량비율', 'RSI']
+# sim=6: 점수형 헤더 / sim=11: 조건통과형 헤더
+HEADERS_SIM6  = ['상태', '종목명', '종목코드', '전략', '복합점수',
+                 'A모멘텀', 'B평균회귀', 'C추세강도', 'D수급', 'E시장RS', 'F다중TF', 'G패널티',
+                 '현재가', '거래량비율', 'RSI']
+HEADERS_SIM11 = ['상태', '종목명', '종목코드', '전략', '복합점수',
+                 '조건①', '조건②', '조건③', '조건④', '조건⑤', '조건⑥', '조건⑦',
+                 '현재가', '거래량비율', 'RSI']
+
+HEADERS = HEADERS_SIM11 if SIMUL_NUM == 11 else HEADERS_SIM6
+
+# E전략 행 색상 (틸 계열)
+TEAL = QColor('#006655')
 
 
 class CandidatesTab(QWidget):
@@ -41,10 +52,20 @@ class CandidatesTab(QWidget):
 
         filter_lay.addWidget(QLabel('전략:'))
         self._strat_combo = QComboBox()
-        self._strat_combo.addItems(['전체', 'A', 'B'])
-        self._strat_combo.setFixedWidth(70)
+        self._strat_combo.addItems(STRATEGY_LIST)   # sim=11이면 A/B/E 포함
+        self._strat_combo.setFixedWidth(80 if SIMUL_NUM == 11 else 70)
         self._strat_combo.currentTextChanged.connect(self._apply_filter)
         filter_lay.addWidget(self._strat_combo)
+
+        # sim 배지 — 우측 상단에 현재 전략 모드 표시
+        _sim_badge = QLabel(f'sim={SIMUL_NUM}  {"조건형" if SCORE_IS_BINARY else "점수형"}')
+        _sim_badge.setFont(QFont('Malgun Gothic', 8))
+        _sim_badge.setStyleSheet(
+            'color:#fff;background:#006655;border-radius:3px;padding:1px 6px;border:none;'
+            if SCORE_IS_BINARY else
+            'color:#fff;background:#444;border-radius:3px;padding:1px 6px;border:none;'
+        )
+        filter_lay.addWidget(_sim_badge)
 
         filter_lay.addWidget(QLabel('최소 점수:'))
         self._min_score = QSpinBox()
@@ -142,28 +163,50 @@ class CandidatesTab(QWidget):
             else:
                 status = ('미달', GRAY)
 
-            dim = GRAY  # 매수완료·미달 종목 회색
             fade = (not passed) or bought
+            strat_type = str(c.get('strategy_type', ''))
+            is_e = strat_type == 'E'
 
+            # 기본 셀 색: E전략은 틸, 일반은 GRAY(fade) 또는 None
             def cell(val):
-                return (val, GRAY) if fade else (val, None)
+                if fade:
+                    return (val, GRAY)
+                if is_e:
+                    return (val, TEAL)
+                return (val, None)
 
-            sc = GRAY if fade else (RED if score >= 120 else (
-                QColor('#e07b00') if score >= 90 else BLUE))
+            # 복합점수 색상
+            if fade:
+                sc = GRAY
+            elif is_e:
+                sc = TEAL   # E전략은 틸로 구분
+            elif SCORE_IS_BINARY:
+                sc = RED if score >= 4 else (QColor('#e07b00') if score >= 2 else BLUE)
+            else:
+                sc = RED if score >= 120 else (QColor('#e07b00') if score >= 90 else BLUE)
+
+            # 점수 셀: sim=11이면 이진(✓/—), sim=6이면 수치
+            def score_cell(key):
+                raw = float(c.get(key) or 0)
+                if SCORE_IS_BINARY and not is_e:
+                    txt = '✓' if raw >= 1.0 else '—'
+                    col = (QColor('#006655') if raw >= 1.0 else GRAY) if not fade else GRAY
+                    return (txt, col)
+                return cell(f'{raw:.1f}')
 
             rows.append([
                 status,
                 cell(str(c.get('code_name', ''))),
                 cell(str(c.get('code', ''))),
-                cell(str(c.get('strategy_type', ''))),
+                cell(strat_type),
                 (str(score), sc),
-                cell(f"{float(c.get('score_a') or 0):.1f}"),
-                cell(f"{float(c.get('score_b') or 0):.1f}"),
-                cell(f"{float(c.get('score_c') or 0):.1f}"),
-                cell(f"{float(c.get('score_d') or 0):.1f}"),
-                cell(f"{float(c.get('score_e') or 0):.1f}"),
-                cell(f"{float(c.get('score_f') or 0):.1f}"),
-                cell(f"{float(c.get('score_g') or 0):.1f}"),
+                score_cell('score_a'),
+                score_cell('score_b'),
+                score_cell('score_c'),
+                score_cell('score_d'),
+                score_cell('score_e'),
+                score_cell('score_f'),
+                score_cell('score_g'),
                 cell(f"{int(c.get('close') or 0):,}"),
                 cell(f"{float(c.get('vol5') or 0) / max(float(c.get('vol20') or 1), 1):.2f}"),
                 cell(f"{float(c.get('rsi14') or 0):.1f}"),

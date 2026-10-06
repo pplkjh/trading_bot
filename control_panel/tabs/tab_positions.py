@@ -12,6 +12,7 @@ from PyQt5.QtGui import QFont, QColor
 from control_panel.widgets.colored_table import ColoredTable, RED, BLUE, GRAY
 from control_panel.widgets.price_chart import PriceChart
 from control_panel import db
+from control_panel.db import SIMUL_NUM, SCORE_IS_BINARY
 
 HEADERS = ['종목명', '전략', '매수점수', '현재가', '매수가', '수익률%', '미실현손익',
            '수량', '보유일', '최고가', '트레일링스톱', '여유%', '트레일링']
@@ -179,8 +180,10 @@ class PositionsTab(QWidget):
             ts      = _trailing_stop(strat, highest, entry)
             margin  = ((price - ts) / ts * 100) if ts > 0 else 99.0
             is_dng  = 0 < margin < DANGER_PCT
-            # 트레일링 활성 여부: 최고가가 매수가+3% 이상이면 트레일링 발동 중
-            trail_on = entry > 0 and highest >= entry * 1.03
+            # 트레일링 활성 여부
+            # E전략(sim=11): MA60 이탈 청산 기준 — 트레일링 없음
+            # A/B전략: 최고가 >= 매수가×1.03이면 트레일링 발동
+            trail_on = (strat != 'E') and entry > 0 and highest >= entry * 1.03
 
             total_unreal   += unreal
             total_rate     += rate
@@ -199,7 +202,12 @@ class PositionsTab(QWidget):
             sc_c   = RED if score >= 120 else (
                      QColor('#e07b00') if score >= 90 else None)
 
-            trail_txt = ('ON', QColor('#cc4400')) if trail_on else ('—', GRAY)
+            if strat == 'E':
+                trail_txt = ('MA60', QColor('#006655'))   # E전략: MA60 이탈 청산
+            elif trail_on:
+                trail_txt = ('ON', QColor('#cc4400'))
+            else:
+                trail_txt = ('—', GRAY)
 
             rows.append([
                 str(p.get('code_name', '')),
