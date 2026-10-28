@@ -13,6 +13,7 @@ from library.cf import (
     db_id, db_passwd, db_ip, db_port,
     imi1_db_name, initial_capital,
     imi1_simul_num as SIMUL_NUM,
+    real_daily_buy_list_db_name as BUYLIST_DB,
 )
 
 # 현재 운영 중인 전략 목록 (simul_num 기반 자동 감지)
@@ -148,6 +149,13 @@ def get_kpis():
     )
     total_value = int(val_rows[0]['tot'] or 0) if val_rows else 0
 
+    # 현재 총 투자금 (매수가 × 수량 합산)
+    inv_rows = _fetch(
+        "SELECT COALESCE(SUM(purchase_price * holding_amount), 0) AS tot "
+        "FROM all_item_db WHERE sell_date='0'"
+    )
+    total_invested = int(inv_rows[0]['tot'] or 0) if inv_rows else 0
+
     # 총자산 결정: Kiwoom API 직접값 우선, 없으면 근사값
     if jango_total_asset > 0:
         total_asset = jango_total_asset                       # opw00018 실측값
@@ -186,8 +194,9 @@ def get_kpis():
         'avg_win':     avg_w,
         'avg_loss':    avg_l,
         'pf':          pf,
-        'd2_deposit':  d2_deposit,
-        'total_value': total_value,
+        'd2_deposit':    d2_deposit,
+        'total_value':   total_value,
+        'total_invested': total_invested,
         'cand_count':  cand_count,
         'trader_status': trader_status,
         'buy_stop_val':  buy_stop,
@@ -226,7 +235,7 @@ def get_candidates(min_score=0, strategy='전체'):
     if min_score > 0:
         where.append("composite_score >= %s")
         args.append(min_score)
-    if strategy in ('A', 'B'):
+    if strategy in ('A', 'B', 'E'):
         where.append("strategy_type = %s")
         args.append(strategy)
     where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
@@ -240,11 +249,13 @@ def get_candidates(min_score=0, strategy='전체'):
                    a.score_e, a.score_f, a.score_g, a.score_h,
                    a.score_penalty, a.vol5, a.vol20, a.rsi14, a.close,
                    a.passed,
-                   CASE WHEN bought.code IS NOT NULL THEN '1' ELSE '0' END AS check_item
+                   CASE WHEN bought.code IS NOT NULL THEN '1' ELSE '0' END AS check_item,
+                   COALESCE(rdl.check_item, 0) AS raw_check_item
             FROM realtime_all_scored a
             LEFT JOIN (SELECT DISTINCT code FROM all_item_db
                        WHERE buy_date LIKE '{_today()}%%') bought
                    ON a.code = bought.code
+            LEFT JOIN realtime_daily_buy_list rdl ON a.code = rdl.code
             {where_clause}
             ORDER BY a.composite_score DESC
             LIMIT 50
@@ -256,7 +267,8 @@ def get_candidates(min_score=0, strategy='전체'):
                    r.score_a, r.score_b, r.score_c, r.score_d, r.score_e, r.score_f, r.score_g,
                    0 AS score_h, r.score_penalty, r.vol5, r.vol20, r.rsi14, r.close,
                    1 AS passed,
-                   CASE WHEN bought.code IS NOT NULL THEN '1' ELSE '0' END AS check_item
+                   CASE WHEN bought.code IS NOT NULL THEN '1' ELSE '0' END AS check_item,
+                   r.check_item AS raw_check_item
             FROM realtime_daily_buy_list r
             LEFT JOIN (SELECT DISTINCT code FROM all_item_db
                        WHERE buy_date LIKE '{_today()}%%') bought
@@ -266,6 +278,41 @@ def get_candidates(min_score=0, strategy='전체'):
             LIMIT 50
         """
     return _fetch(sql, args)
+
+
+# ── 거래일 판별 ───────────────────────────────────────────────────
+def is_trading_day(date_str: str) -> bool:
+    """주어진 날짜(YYYYMMDD)가 거래일인지 확인.
+    1) 주말(토·일) → False
+    2) daily_buy_list에 해당 날짜 테이블 없음 → 공휴일로 판단 False
+    3) 미래 날짜 → 주말만 제외, 공휴일 알 수 없으므로 True 반환"""
+    from datetime import datetime as _dt
+    try:
+        d = _dt.strptime(date_str, '%Y%m%d')
+    except Exception:
+        return False
+    if d.weekday() >= 5:   # 토=5, 일=6
+        return False
+    # 오늘 이후 날짜는 테이블 미생성 → 주말만 제외 후 통과
+    if date_str > datetime.now().strftime('%Y%m%d'):
+        return True
+    try:
+        conn = pymysql.connect(
+            host=db_ip, port=int(db_port), user=db_id, passwd=db_passwd,
+            db='information_schema', charset='utf8', autocommit=True,
+            cursorclass=pymysql.cursors.DictCursor,
+        )
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) AS cn FROM TABLES "
+                    "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
+                    [BUYLIST_DB, date_str]
+                )
+                row = cur.fetchone()
+                return bool(row and int(row.get('cn', 0)) > 0)
+    except Exception:
+        return True   # DB 오류 시 거래일로 간주
 
 
 # ── 거래 내역 ─────────────────────────────────────────────────────
@@ -278,7 +325,7 @@ def get_history(date_from='', date_to='', strategy='전체', limit=200):
     if date_to:
         where.append("sell_date <= %s")
         args.append(date_to + '9')
-    if strategy in ('A', 'B'):
+    if strategy in ('A', 'B', 'E'):
         where.append("strategy_type = %s")
         args.append(strategy)
     sql = f"""

@@ -152,14 +152,18 @@ class CandidatesTab(QWidget):
         self._displayed_rows = list(data)
         rows = []
         for c in data:
-            passed  = int(c.get('passed', 1))  # 0=임계점미달, 1=합격
-            bought  = str(c.get('check_item', '0')) not in ('0', '', 'False', 'None')
-            score   = int(c.get('composite_score') or 0)
+            passed   = int(c.get('passed', 1))  # 0=임계점미달, 1=합격
+            bought   = str(c.get('check_item', '0')) not in ('0', '', 'False', 'None')
+            raw_done = str(c.get('raw_check_item', '0')) not in ('0', '', 'False', 'None')
+            skipped  = passed and raw_done and not bought
+            score    = int(c.get('composite_score') or 0)
 
             if bought:
                 status = ('매수완료', GRAY)
+            elif skipped:
+                status = ('매수스킵', QColor('#c47600'))
             elif passed:
-                status = ('합격', RED)
+                status = ('합격대기', RED)
             else:
                 status = ('미달', GRAY)
 
@@ -222,11 +226,16 @@ class CandidatesTab(QWidget):
                     break
         self._table.blockSignals(False)
 
-        passed_n = sum(1 for c in data if int(c.get('passed', 1)) == 1)
-        bought_n = sum(1 for c in data if str(c.get('check_item', '0')) not in ('0', '', 'False', 'None'))
-        fail_n   = len(data) - passed_n
+        passed_n  = sum(1 for c in data if int(c.get('passed', 1)) == 1)
+        bought_n  = sum(1 for c in data if str(c.get('check_item', '0')) not in ('0', '', 'False', 'None'))
+        skip_n    = sum(1 for c in data
+                        if int(c.get('passed', 1)) == 1
+                        and str(c.get('raw_check_item', '0')) not in ('0', '', 'False', 'None')
+                        and str(c.get('check_item', '0')) in ('0', '', 'False', 'None'))
+        wait_n    = passed_n - bought_n - skip_n
+        fail_n    = len(data) - passed_n
         self._count_lbl.setText(
-            f'전체 {len(data)}건  |  합격 {passed_n}건  |  매수완료 {bought_n}건  |  미달 {fail_n}건'
+            f'전체 {len(data)}건  |  합격대기 {wait_n}건  |  매수스킵 {skip_n}건  |  매수완료 {bought_n}건  |  미달 {fail_n}건'
         )
 
     def _show_context_menu(self, pos):

@@ -108,12 +108,13 @@ class DashboardTab(QWidget):
 
         self._det = {}
         det_items = [
-            ('initial',     '초기 자금'),
-            ('deposit',     '예수금 (D+2)'),
-            ('total_val',   '총평가금액'),
-            ('realized',    '실현 누계'),
-            ('unrealized2', '미실현'),
-            ('invest_unit', '종목당 투자금'),
+            ('initial',        '초기 자금'),
+            ('deposit',        '예수금 (D+2)'),
+            ('total_invested', '현재 총 투자금'),
+            ('total_val',      '총평가금액'),
+            ('realized',       '실현 누계'),
+            ('unrealized2',    '미실현'),
+            ('invest_unit',    '종목당 투자금'),
         ]
         for i, (k, label) in enumerate(det_items):
             if i > 0:
@@ -269,9 +270,11 @@ class DashboardTab(QWidget):
         dep   = kpis.get('d2_deposit', 0)
         tval  = kpis.get('total_value', 0)
         dep_c = '#0044bb' if dep == 0 else '#111'
+        total_invested = kpis.get('total_invested', 0)
         self._det['initial'].setText(f'{INITIAL_CAPITAL:,}원')
         self._det['deposit'].setText(f'{dep:,}원')
         self._det['deposit'].setStyleSheet(f'color:{dep_c};font-weight:bold;border:none;')
+        self._det['total_invested'].setText(f'{total_invested:,}원')
         self._det['total_val'].setText(f'{tval:,}원')
         self._det['realized'].setText(_won(kpis['realized']))
         self._det['realized'].setTextFormat(Qt.RichText)

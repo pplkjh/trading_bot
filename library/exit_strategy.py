@@ -852,9 +852,27 @@ def _live_holding_days(buy_date_str: str) -> int:
         return 0
 
 
-def _live_check_hard_sl(profit_pct: float, losscut_active: bool):
-    """공통: 하드 손절 -5%  →  (triggered, reason)"""
-    if losscut_active and profit_pct <= (_HARD_SL_PCT * 100):
+def _load_live_config() -> dict:
+    """bot_config 테이블에서 매도 파라미터 로드 (jackbot6_imi1).
+    실패 시 빈 dict 반환 → 호출부가 기본값(_HARD_SL_PCT 등) 사용."""
+    try:
+        conn = pymysql.connect(
+            host=db_ip, port=int(db_port), user=db_id,
+            password=db_passwd, db=imi1_db_name,
+            charset='utf8mb4', connect_timeout=2,
+        )
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT param_key, param_value FROM bot_config")
+                return {row[0]: row[1] for row in cur.fetchall()}
+    except Exception:
+        return {}
+
+
+def _live_check_hard_sl(profit_pct: float, losscut_active: bool, sl_pct: float = None):
+    """공통: 하드 손절 체크. sl_pct가 주어지면 그 값을, 없으면 기본 -5% 사용."""
+    threshold = sl_pct if sl_pct is not None else (_HARD_SL_PCT * 100)
+    if losscut_active and profit_pct <= threshold:
         return True, f'하드SL({profit_pct:.2f}%)'
     return False, ''
 
@@ -912,15 +930,18 @@ def _live_check_atr_target(entry: float, current: float,
 
 # ── 전략별 매도 함수 ───────────────────────────────────────────────────────────
 
-def strategy_a_exit(pos: dict, ind: dict) -> tuple:
+def strategy_a_exit(pos: dict, ind: dict, cfg: dict = None) -> tuple:
     """
     Strategy A — 돌파 전략 매도
-    하드SL(-5%) → 트레일링(ATR×mult, floor+1%) → 15일 시간청산
+    하드SL → 트레일링(ATR×mult, floor+1%) → 시간청산
 
     pos: {'entry_price', 'highest_price', 'current_price', 'buy_date'}
     ind: {'atr14', 'adx'}
+    cfg: bot_config dict (없으면 기본값 사용)
     반환: (should_sell: bool, reason: str, stop_price: float)
     """
+    if cfg is None:
+        cfg = {}
     entry    = float(pos.get('entry_price',   0))
     highest  = float(pos.get('highest_price', entry))
     current  = float(pos.get('current_price', entry))
@@ -928,31 +949,39 @@ def strategy_a_exit(pos: dict, ind: dict) -> tuple:
     atr      = float(ind.get('atr14', 0))
     adx      = float(ind.get('adx',   0))
 
+    sl_pct       = float(cfg.get('a_sl_pct',    _HARD_SL_PCT * 100))  # e.g. -8.0
+    time_stop    = int(cfg.get('a_time_stop',   15))
+    tp_pct       = float(cfg.get('a_tp_pct',    6.0))
+
     profit_pct     = (current / entry - 1) * 100 if entry > 0 else 0
     losscut_active = _live_losscut_active(buy_date)
     holding_days   = _live_holding_days(buy_date)
 
-    # 1. 하드 SL -5%
-    hit, reason = _live_check_hard_sl(profit_pct, losscut_active)
-    if hit:
-        return True, f'A_{reason}', entry * (1 + _HARD_SL_PCT)
+    # 1. 익절 TP
+    if profit_pct >= tp_pct:
+        return True, f'A_익절TP({profit_pct:.2f}%)', current
 
-    # 2. 트레일링 스톱 (ADX 기반 배율 — 추세 강할수록 넓게)
+    # 2. 하드 SL (bot_config 값 우선)
+    hit, reason = _live_check_hard_sl(profit_pct, losscut_active, sl_pct)
+    if hit:
+        return True, f'A_{reason}', entry * (1 + sl_pct / 100)
+
+    # 3. 트레일링 스톱 (ADX 기반 배율 — 추세 강할수록 넓게)
     hit, stop, reason = _live_check_trailing(entry, highest, current, atr, _live_atr_mult(adx))
     if hit:
         return True, f'A_{reason}', stop
 
-    # 3. 시간청산 15일 (돌파 모멘텀 소멸 기준)
-    if holding_days >= 15:
+    # 4. 시간청산 (bot_config 값 우선)
+    if holding_days >= time_stop:
         return True, f'A_시간청산({holding_days}일)', 0.0
 
     return False, '', 0.0
 
 
-def strategy_b_exit(pos: dict, ind: dict) -> tuple:
+def strategy_b_exit(pos: dict, ind: dict, cfg: dict = None) -> tuple:
     """
     Strategy B — 반전 전략 매도
-    하드SL(-5%) → 트레일링(ATR×1.0 고정, 타이트) → 45일 시간청산
+    하드SL → 트레일링(ATR×1.0 고정, 타이트) → 시간청산
 
     트레일링 배율 _B_TRAILING_MULT=1.0 고정:
       - 반전 종목은 상승 조짐 꺾이면 빠르게 수익 보호
@@ -961,30 +990,36 @@ def strategy_b_exit(pos: dict, ind: dict) -> tuple:
 
     pos: {'entry_price', 'highest_price', 'current_price', 'buy_date'}
     ind: {'atr14', 'adx'}
+    cfg: bot_config dict (없으면 기본값 사용)
     반환: (should_sell: bool, reason: str, stop_price: float)
     """
+    if cfg is None:
+        cfg = {}
     entry    = float(pos.get('entry_price',   0))
     highest  = float(pos.get('highest_price', entry))
     current  = float(pos.get('current_price', entry))
     buy_date = pos.get('buy_date', '')
     atr      = float(ind.get('atr14', 0))
 
+    sl_pct    = float(cfg.get('b_sl_pct',    _HARD_SL_PCT * 100))  # e.g. -8.0
+    time_stop = int(cfg.get('b_time_stop',   45))
+
     profit_pct     = (current / entry - 1) * 100 if entry > 0 else 0
     losscut_active = _live_losscut_active(buy_date)
     holding_days   = _live_holding_days(buy_date)
 
-    # 1. 하드 SL -5%
-    hit, reason = _live_check_hard_sl(profit_pct, losscut_active)
+    # 1. 하드 SL (bot_config 값 우선)
+    hit, reason = _live_check_hard_sl(profit_pct, losscut_active, sl_pct)
     if hit:
-        return True, f'B_{reason}', entry * (1 + _HARD_SL_PCT)
+        return True, f'B_{reason}', entry * (1 + sl_pct / 100)
 
     # 2. 트레일링 스톱 (ATR×1.0 고정 — 상승세 꺾이면 빠르게 대응)
     hit, stop, reason = _live_check_trailing(entry, highest, current, atr, _B_TRAILING_MULT)
     if hit:
         return True, f'B_{reason}', stop
 
-    # 3. 시간청산 45일
-    if holding_days >= 45:
+    # 3. 시간청산 (bot_config 값 우선)
+    if holding_days >= time_stop:
         return True, f'B_시간청산({holding_days}일)', 0.0
 
     return False, '', 0.0
@@ -1022,11 +1057,50 @@ def strategy_d_exit(pos: dict, ind: dict) -> tuple:
     return False, '', 0.0
 
 
+def strategy_e_exit(pos: dict, ind: dict, cfg: dict = None) -> tuple:
+    """
+    Strategy E — 가치투자 전략 매도
+    하드SL(기본 -15%) → MA60 이탈 → 시간청산 없음(장기 보유)
+
+    pos: {'entry_price', 'current_price', 'buy_date'}
+    ind: {'ma60': float}  (없으면 MA60 체크 생략)
+    cfg: bot_config dict (없으면 기본값 사용)
+    반환: (should_sell: bool, reason: str, stop_price: float)
+    """
+    if cfg is None:
+        cfg = {}
+    entry    = float(pos.get('entry_price',   0))
+    current  = float(pos.get('current_price', entry))
+    buy_date = pos.get('buy_date', '')
+
+    sl_pct      = float(cfg.get('e_sl_pct',     -15.0))
+    sl_hard_on  = cfg.get('e_sl_hard_on', '1') == '1'
+    ma60_on     = cfg.get('e_ma60_on',    '1') == '1'
+
+    profit_pct     = (current / entry - 1) * 100 if entry > 0 else 0
+    losscut_active = _live_losscut_active(buy_date)
+
+    # 1. 하드 SL (활성화된 경우)
+    if sl_hard_on:
+        hit, reason = _live_check_hard_sl(profit_pct, losscut_active, sl_pct)
+        if hit:
+            return True, f'E_{reason}', entry * (1 + sl_pct / 100)
+
+    # 2. MA60 이탈 (indicator_map에서 ma60 제공 시)
+    if ma60_on:
+        ma60 = float(ind.get('ma60', 0))
+        if ma60 > 0 and current < ma60:
+            return True, f'E_MA60이탈(현재{current:,.0f}<MA60{ma60:,.0f})', ma60
+
+    return False, '', 0.0
+
+
 # ── 전략 레지스트리 — 새 전략 추가 시 여기에만 등록 ───────────────────────────
 LIVE_EXIT_STRATEGY_MAP = {
     'A': strategy_a_exit,
     'B': strategy_b_exit,
     'D': strategy_d_exit,
+    'E': strategy_e_exit,
 }
 
 
@@ -1052,6 +1126,7 @@ def get_live_sell_signals(positions: list, indicator_map: dict = None) -> list:
     if indicator_map is None:
         indicator_map = {}
 
+    live_cfg = _load_live_config()
     sell_signals = []
 
     for pos in positions:
@@ -1062,7 +1137,7 @@ def get_live_sell_signals(positions: list, indicator_map: dict = None) -> list:
         exit_fn = LIVE_EXIT_STRATEGY_MAP.get(strategy_type, strategy_a_exit)
 
         try:
-            should_sell, reason, stop_price = exit_fn(pos, ind)
+            should_sell, reason, stop_price = exit_fn(pos, ind, live_cfg)
         except Exception as e:
             logger.warning(f"[exit_live] {code} 매도 체크 오류: {e}")
             continue

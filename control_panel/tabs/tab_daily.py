@@ -224,10 +224,20 @@ class DailyTab(QWidget):
         self._load()
 
     def _prev_day(self):
-        self._date_edit.setDate(self._date_edit.date().addDays(-1))
+        qd = self._date_edit.date()
+        for _ in range(10):   # 최대 10일 역방향 탐색 (연휴 대비)
+            qd = qd.addDays(-1)
+            if db.is_trading_day(qd.toString('yyyyMMdd')):
+                break
+        self._date_edit.setDate(qd)
 
     def _next_day(self):
-        self._date_edit.setDate(self._date_edit.date().addDays(1))
+        qd = self._date_edit.date()
+        for _ in range(10):   # 최대 10일 순방향 탐색
+            qd = qd.addDays(1)
+            if db.is_trading_day(qd.toString('yyyyMMdd')):
+                break
+        self._date_edit.setDate(qd)
 
     def _go_today(self):
         self._date_edit.setDate(QDate.currentDate())
@@ -514,15 +524,27 @@ class DailyTab(QWidget):
             ax.axhline(entry, color='#0044bb', linewidth=0.8,
                        linestyle=':', alpha=0.5)
 
-        # x축 날짜 레이블
+        # x축 날짜 레이블 — 일반 눈금 + 매수·매도 날짜 강조
         n = len(raw_dates)
         step = max(1, n // 6)
-        tick_xs = list(range(0, n, step))
+        tick_set = set(range(0, n, step))
+        if buy_idx is not None:
+            tick_set.add(buy_idx)
+        if sell_idx is not None:
+            tick_set.add(sell_idx)
+        tick_xs = sorted(tick_set)
         ax.set_xticks(tick_xs)
         ax.set_xticklabels(
-            [raw_dates[i][4:6] + '/' + raw_dates[i][6:8]
-             for i in tick_xs if i < n],
+            [raw_dates[i][4:6] + '/' + raw_dates[i][6:8] for i in tick_xs],
             fontsize=6)
+        # 매수/매도 눈금 색상 강조
+        for lbl, xi in zip(ax.get_xticklabels(), tick_xs):
+            if xi == buy_idx and xi == sell_idx:   # 당일 매매
+                lbl.set_color('#880088'); lbl.set_fontweight('bold'); lbl.set_fontsize(7.5)
+            elif xi == buy_idx:
+                lbl.set_color('#0044bb'); lbl.set_fontweight('bold'); lbl.set_fontsize(7.5)
+            elif xi == sell_idx:
+                lbl.set_color('#cc0000'); lbl.set_fontweight('bold'); lbl.set_fontsize(7.5)
         ax.set_xlim(-1, n)
         ax.yaxis.set_major_formatter(
             matplotlib.ticker.FuncFormatter(lambda v, _: f'{v:,.0f}'))
