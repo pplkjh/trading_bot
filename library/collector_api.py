@@ -27,105 +27,1328 @@ class collector_api():
         self.variable_setting()
         self.kind = KINDCrawler()
 
+        # 진행률 표시용 변수
+        self.current_stock_name = ""
+        self.current_stock_code = ""
+        self.current_status = ""
+        self._progress_lines = 0
+
     def variable_setting(self):
         self.open_api.py_gubun = "collector"
         self.dc = daily_crawler(self.open_api.cf.real_db_name, self.open_api.cf.real_daily_craw_db_name,
                                 self.open_api.cf.real_daily_buy_list_db_name)
         self.dbl = daily_buy_list()
 
+    def print_progress(self, current, total, task_name, start_time=None, stock_name="", stock_code="", status=""):
+        """
+        진행률 표시 함수 (실시간 업데이트)
+
+        Parameters:
+        -----------
+        current : int - 현재 진행 수
+        total : int - 전체 수
+        task_name : str - 작업명
+        start_time : float - 시작 시간
+        stock_name : str - 현재 처리 중인 종목명
+        stock_code : str - 현재 처리 중인 종목코드
+        status : str - 현재 상태 메시지
+        """
+        # 현재 종목 정보 업데이트
+        if stock_name:
+            self.current_stock_name = stock_name
+        if stock_code:
+            self.current_stock_code = stock_code
+        if status:
+            self.current_status = status
+
+        # 0으로 나누기 방지
+        if total <= 0:
+            total = 1
+        percent = (current / total) * 100
+        bar_length = 50
+        filled = int(bar_length * current / total)
+        bar = '█' * filled + '░' * (bar_length - filled)
+
+        # 예상 종료 시간 계산
+        eta_str = ""
+        if start_time and current > 0:
+            elapsed = time.time() - start_time
+            if elapsed > 0:
+                rate = current / elapsed
+                remaining = (total - current) / rate if rate > 0 else 0
+                eta_str = f" | ETA: {int(remaining//60)}분 {int(remaining%60)}초"
+
+        # 이전 출력 지우기 (커서를 위로 이동)
+        if self._progress_lines > 0:
+            print(f"\033[{self._progress_lines}A", end='')
+
+        # 진행률 바
+        line1 = f"{task_name}: [{bar}] {percent:>5.1f}% ({current}/{total}){eta_str}"
+
+        # 현재 종목 정보
+        stock_info = ""
+        if self.current_stock_name:
+            stock_info = f"  📌 현재: {self.current_stock_name}"
+            if self.current_stock_code:
+                stock_info += f" ({self.current_stock_code})"
+
+        # 상태 메시지
+        status_info = ""
+        if self.current_status:
+            # 상태 메시지가 너무 길면 자르기
+            max_len = 80
+            if len(self.current_status) > max_len:
+                status_info = f"  💬 {self.current_status[:max_len]}..."
+            else:
+                status_info = f"  💬 {self.current_status}"
+
+        # 출력 (각 줄 끝에 공백으로 이전 텍스트 덮어쓰기)
+        print(f"\033[K{line1}")
+        if stock_info:
+            print(f"\033[K{stock_info}")
+        if status_info:
+            print(f"\033[K{status_info}")
+
+        # 출력한 줄 수 계산
+        self._progress_lines = 1
+        if stock_info:
+            self._progress_lines += 1
+        if status_info:
+            self._progress_lines += 1
+
+        # 완료 시
+        if current == total:
+            self._progress_lines = 0
+            self.current_stock_name = ""
+            self.current_stock_code = ""
+            self.current_status = ""
+            print()  # 완료 시 줄바꿈
+
+    def update_status(self, status):
+        """상태 메시지만 실시간 업데이트 (진행률 표시 중일 때)"""
+        self.current_status = status
+        if self._progress_lines >= 3:  # 상태 줄이 표시되고 있을 때만
+            max_len = 80
+            if len(status) > max_len:
+                status_info = f"  💬 {status[:max_len]}..."
+            else:
+                status_info = f"  💬 {status}"
+            # 상태 줄로 이동 후 업데이트
+            print(f"\033[1A\033[K{status_info}")
+
     # 콜렉팅을 실행하는 함수
-    def code_update_check(self):
-        logger.debug("code_update_check 함수에 들어왔습니다.")
+    def code_update_check(self, phase=None):
+        # Phase 2 전용: 펀더멘탈 수집만 실행 (rq_count 리셋 활용)
+        if phase == 2:
+            print("\n" + "="*100)
+            print("📊 [Phase 2] 펀더멘탈 수집")
+            print("="*100 + "\n")
+            overall_start = time.time()
+            try:
+                self.collect_market_index()
+                self.collect_stock_fundamental()
+            except Exception as e:
+                logger.warning(f"펀더멘탈 수집 실패: {e}")
+            total_time = time.time() - overall_start
+            print("\n" + "="*100)
+            print(f"✅ Phase 2 완료! ({int(total_time//60)}분 {int(total_time%60)}초)")
+            print("="*100)
+            logger.info("collecting 완료")
+            return
+
+        # Phase 3 전용: 스코어링만 실행 (rq_count 리셋 활용)
+        if phase == 3:
+            print("\n" + "="*100)
+            print("📊 [Phase 3] 스코어링 (realtime_daily_buy_list)")
+            print("="*100 + "\n")
+            overall_start = time.time()
+            try:
+                self.realtime_daily_buy_list_check()
+            except Exception as e:
+                logger.warning(f"스코어링 실패: {e}")
+            total_time = time.time() - overall_start
+            print("\n" + "="*100)
+            print(f"✅ Phase 3 완료! ({int(total_time//60)}분 {int(total_time%60)}초)")
+            print("="*100)
+            logger.info("collecting 완료")
+            return
+
+        # Phase 1 또는 전체 실행 (기본)
+        if phase == 1:
+            print("\n" + "="*100)
+            print("📊 [Phase 1] 종가 수집 + 기술지표")
+            print("="*100 + "\n")
+        else:
+            print("\n" + "="*100)
+            print("📊 데이터 수집 시작")
+            print("="*100 + "\n")
+
+        overall_start = time.time()
+
         sql = "select code_update,jango_data_db_check, possessed_item, today_profit, final_chegyul_check, db_to_buy_list,today_buy_list, daily_crawler , min_crawler, daily_buy_list from setting_data limit 1"
 
         rows = self.engine_JB.execute(sql).fetchall()
+
+        # daily_crawler 시간 체크 함수
+        def should_collect_daily_craw(daily_crawler_value):
+            """
+            daily_crawler 재수집 필요 여부 판단
+
+            Returns:
+                True: 수집 필요, False: 스킵 가능
+            """
+            if not daily_crawler_value:
+                return True
+
+            # 타임스탬프 형식 체크 (yyyyMMddHHmm = 12자리)
+            if len(daily_crawler_value) < 12:
+                # 기존 날짜 형식 (yyyyMMdd = 8자리) → 수집 필요
+                return daily_crawler_value != self.open_api.today
+
+            # 타임스탬프에서 날짜와 시간 추출
+            collected_date = daily_crawler_value[:8]
+            collected_time = daily_crawler_value[8:12]  # HHmm
+
+            # 다른 날짜면 수집 필요
+            if collected_date != self.open_api.today:
+                return True
+
+            # 오늘 날짜인데 오후 4시(1600) 이전에 수집했으면 재수집 필요
+            if int(collected_time) < 1600:
+                logger.debug(f"오후 4시 이전 수집({collected_time}) → 종가 업데이트 필요")
+                return True
+
+            # 오후 4시 이후 수집했으면 스킵
+            logger.debug(f"오후 4시 이후 수집({collected_time}) → 이미 종가 반영됨")
+            return False
+
+        # daily_buy_list 시간 체크 함수
+        def should_collect_daily_buy_list(daily_buy_list_value):
+            """daily_buy_list 재수집 필요 여부 판단"""
+            if not daily_buy_list_value:
+                return True
+
+            if len(daily_buy_list_value) < 12:
+                return daily_buy_list_value != self.open_api.today
+
+            collected_date = daily_buy_list_value[:8]
+            collected_time = daily_buy_list_value[8:12]
+
+            if collected_date != self.open_api.today:
+                return True
+
+            if int(collected_time) < 1600:
+                logger.debug(f"오후 4시 이전 수집({collected_time}) → 종가 업데이트 필요")
+                return True
+
+            logger.debug(f"오후 4시 이후 수집({collected_time}) → 이미 종가 반영됨")
+            return False
+
+        # 전체 작업 수 계산
+        total_tasks = 0
+        current_task = 0
+
+        # 수집 필요 여부 체크
+        need_daily_crawler = should_collect_daily_craw(rows[0][7])
+        need_daily_buy_list = should_collect_daily_buy_list(rows[0][9])
+
+        if rows[0][0] != self.open_api.today:
+            total_tasks += 1
+        if rows[0][1] != self.open_api.today or rows[0][2] != self.open_api.today:
+            total_tasks += 3
+        if rows[0][2] != self.open_api.today:
+            total_tasks += 1
+        # daily_crawler와 daily_buy_list는 시간 체크 후 필요시에만 실행
+        if need_daily_crawler:
+            total_tasks += 1
+        if need_daily_buy_list:
+            total_tasks += 1
+        if rows[0][4] != self.open_api.today:
+            total_tasks += 1
+        if rows[0][6] != self.open_api.today:
+            total_tasks += 1
+        if self.open_api.cf.use_min_crawler and rows[0][8] != self.open_api.today:
+            total_tasks += 1
+        total_tasks += 1  # kind.craw()
+
+        if total_tasks == 0:
+            print("✅ 모든 데이터가 최신 상태입니다. 수집할 항목이 없습니다.\n")
+            return
 
         # stock_item_all(kospi,kosdaq,konex)
         # kospi(stock_kospi), kosdaq(stock_kosdaq), konex(stock_konex)
         # 관리종목(stock_managing), 불성실법인종목(stock_insincerity) 업데이트
         if rows[0][0] != self.open_api.today:
-            self.get_code_list()  # 촬영 후 일부 업데이트 되었습니다.
-            
-            # stock info 테이블 추가 수집 : 시장 구분, 종목 분류 등 
-            # stcok info 테이블 만드는 방법 text 참고
-            # self._create_stock_info()
-            # check_sql = f"UPDATE setting_data SET code_update='{self.open_api.today}' limit 1"
-            # self.engine_JB.execute(check_sql)
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 📋 종목 코드 업데이트 중...")
+            task_start = time.time()
+            self.get_code_list()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
 
         # 촬영 후 콜렉팅 순서가 일부 업데이트 되었습니다.
         # 잔고 및 보유종목 현황 db setting  & 당일 종목별 실현 손익
         if rows[0][1] != self.open_api.today or rows[0][2] != self.open_api.today:
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 💰 투자 단위 설정 중...")
+            task_start = time.time()
             self.open_api.set_invest_unit()
+            # 결과 출력
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
+            print(f"    📊 투자 단위: {self.open_api.change_format(str(self.open_api.invest_unit))}원")
+            print(f"    💵 예수금(D+2): {self.open_api.change_format(str(self.open_api.d2_deposit_before_format))}원")
+            print(f"    💰 총 투자금: {self.open_api.change_format(str(self.open_api.total_invest))}원")
+
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 📊 당일 손익 리스트 업데이트 중...")
+            task_start = time.time()
             self.db_to_today_profit_list()
             self.py_check_balance()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
+            # 결과 출력 (테이블이 없을 수 있음)
+            try:
+                profit_sql = "SELECT COUNT(*) FROM today_profit WHERE date = '%s'"
+                profit_count = self.engine_JB.execute(profit_sql % self.open_api.today).fetchone()[0]
+                print(f"    📈 당일 손익 종목 수: {profit_count}개")
+            except Exception:
+                pass  # 테이블이 아직 없거나 데이터가 없는 경우
+
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 💼 잔고 데이터 업데이트 중...")
+            task_start = time.time()
             self.db_to_jango()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
+            # 결과 출력 (테이블이 없을 수 있음)
+            try:
+                jango_sql = "SELECT total_asset, d2_deposit, today_profit, today_earning_rate FROM jango_data WHERE date = '%s' LIMIT 1"
+                jango_result = self.engine_JB.execute(jango_sql % self.open_api.today).fetchone()
+                if jango_result:
+                    # None 값 처리 (기본값 0)
+                    total_asset = jango_result[0] if jango_result[0] is not None else 0
+                    d2_deposit = jango_result[1] if jango_result[1] is not None else 0
+                    today_profit = jango_result[2] if jango_result[2] is not None else 0
+                    today_rate = jango_result[3] if jango_result[3] is not None else 0.0
+
+                    print(f"    💼 총 자산: {self.open_api.change_format(str(total_asset))}원")
+                    print(f"    💵 예수금: {self.open_api.change_format(str(d2_deposit))}원")
+                    print(f"    {'📈' if today_profit >= 0 else '📉'} 당일 손익: {self.open_api.change_format(str(today_profit))}원 ({today_rate:.2f}%)")
+            except Exception:
+                pass  # 테이블이 아직 없거나 데이터가 없는 경우
 
         # possessed_item(현재 보유종목) 테이블 업데이트
         if rows[0][2] != self.open_api.today:
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 📌 보유 종목 업데이트 중...")
+            task_start = time.time()
             self.open_api.db_to_possesed_item()
             self.open_api.setting_data_possesed_item()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
+            # 결과 출력 (테이블이 없을 수 있음)
+            try:
+                possessed_sql = "SELECT COUNT(*), SUM(hold_quantity * current_price) FROM possessed_item WHERE sell_date IS NULL"
+                possessed_result = self.engine_JB.execute(possessed_sql).fetchone()
+                if possessed_result and possessed_result[0]:
+                    print(f"    📌 보유 종목 수: {possessed_result[0]}개")
+                    print(f"    💰 보유 종목 평가액: {self.open_api.change_format(str(int(possessed_result[1] or 0)))}원")
+                else:
+                    print(f"    📌 보유 종목: 없음")
+            except Exception:
+                pass  # 테이블이 아직 없거나 데이터가 없는 경우
 
-        # daily_craw db 업데이트
-        if rows[0][7] != self.open_api.today:
+        # daily_craw db 업데이터 (시간 체크 후 필요시에만 실행)
+        if need_daily_crawler:
+            current_task += 1
+            if rows[0][7] and len(rows[0][7]) >= 8 and rows[0][7][:8] == self.open_api.today:
+                print(f"\n[{current_task}/{total_tasks}] 📈 일봉 데이터 재수집 중 (종가 업데이트)...")
+            else:
+                print(f"\n[{current_task}/{total_tasks}] 📈 일봉 데이터 수집 중...")
+            task_start = time.time()
             self.daily_crawler_check()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
+            # 결과 출력 (테이블이 없을 수 있음)
+            try:
+                collected_sql = "SELECT COUNT(*) FROM stock_item_all WHERE check_daily_crawler IN ('1', '3')"
+                total_sql = "SELECT COUNT(*) FROM stock_item_all"
+                collected_count = self.open_api.engine_daily_buy_list.execute(collected_sql).fetchone()[0]
+                total_count = self.open_api.engine_daily_buy_list.execute(total_sql).fetchone()[0]
+                print(f"    📈 수집 완료 종목: {collected_count}/{total_count}개")
+            except Exception:
+                pass  # 테이블이 아직 없는 경우
+        else:
+            logger.debug("daily_crawler 스킵 (이미 종가 수집 완료)")
 
-        # daily_buy_list db 업데이트
-        if rows[0][9] != self.open_api.today:
+        # daily_buy_list db 업데이트 (시간 체크 후 필요시에만 실행)
+        if need_daily_buy_list:
+            current_task += 1
+            if rows[0][9] and len(rows[0][9]) >= 8 and rows[0][9][:8] == self.open_api.today:
+                print(f"\n[{current_task}/{total_tasks}] 🎯 매수 후보 재분석 중 (종가 업데이트)...")
+            else:
+                print(f"\n[{current_task}/{total_tasks}] 🎯 매수 후보 분석 중...")
+            task_start = time.time()
+            logger.debug("[collector] daily_buy_list_check 시작")
             self.daily_buy_list_check()
+            logger.debug("[collector] daily_buy_list_check 완료")
+            # 결과 출력
+            try:
+                from library.utils import get_latest_complete_date
+                _target = get_latest_complete_date()
+                buy_list_sql = f"SELECT COUNT(*) FROM daily_buy_list.`{_target}`"
+                buy_list_count = self.open_api.engine_daily_buy_list.execute(buy_list_sql).fetchone()[0]
+                logger.debug(f"[collector] daily_buy_list 종목수: {buy_list_count}")
+                print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
+                print(f"    🎯 매수 후보 종목: {buy_list_count}개")
+                print(f"    📊 기술적 지표 분석 완료 (RSI, Bollinger Bands, ATR)")
+            except Exception:
+                print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
+        else:
+            logger.debug("daily_buy_list 스킵 (이미 종가 수집 완료)")
 
         # daily_buy_list db업데이트 이 후에 들어가야함
         if rows[0][4] != self.open_api.today:
-            # 매수했는데 all_item_db에 없는 종목들 넣어준다.
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 🔍 체결 확인 및 업데이트 중...")
+            logger.debug("[collector] chegyul_check 시작")
+            task_start = time.time()
             self.open_api.chegyul_check()
-            # 매도 했는데 bot이 꺼져있을때 매도해서 all_item_db에 sell_date에 오늘 일자가 안 찍힌 종목들에 date 값을 넣어 준다. (이때 sell_rate는 0.0으로 찍힌다.)
+            logger.debug("[collector] chegyul_check 완료 → final_chegyul_check 시작")
             self.open_api.final_chegyul_check()
+            logger.debug("[collector] final_chegyul_check 완료")
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
-        # 내일 매수 종목 업데이트 (realtime_daily_buy_list)
-        if rows[0][6] != self.open_api.today:
+        # 내일 매수 종목 업데이트 (realtime_daily_buy_list) — phase=1이면 스킵 (phase 3에서 처리)
+        if phase == 1:
+            pass
+        elif rows[0][6] != self.open_api.today or need_daily_buy_list:
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] 🚀 실시간 매수 리스트 생성 중...")
+            logger.debug(f"[collector] realtime_daily_buy_list_check 시작")
+            task_start = time.time()
             self.realtime_daily_buy_list_check()
+            logger.debug(f"[collector] realtime_daily_buy_list_check 완료")
+            # 결과 출력
+            try:
+                realtime_sql = "SELECT COUNT(*) FROM realtime_daily_buy_list"
+                realtime_count = self.engine_JB.execute(realtime_sql).fetchone()[0]
+                print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
+                print(f"    🚀 실시간 매수 대기 종목: {realtime_count}개")
+            except Exception:
+                print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
         # min_craw db (분별 데이터) 업데이트
-        if rows[0][8] != self.open_api.today:
+        # cf.use_min_crawler = True일 때만 실행
+        if self.open_api.cf.use_min_crawler and rows[0][8] != self.open_api.today:
+            current_task += 1
+            print(f"\n[{current_task}/{total_tasks}] ⏱️  분봉 데이터 수집 중...")
+            task_start = time.time()
             self.min_crawler_check()
+            print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
 
-        self.kind.craw()
+        current_task += 1
+        print(f"\n[{current_task}/{total_tasks}] 🌐 KIND 데이터 크롤링 중...")
+        task_start = time.time()
+        try:
+            # kind_crawler 컬럼 없으면 추가 (최초 1회)
+            try:
+                self.engine_JB.execute(
+                    "ALTER TABLE setting_data ADD COLUMN kind_crawler VARCHAR(20) DEFAULT '0'"
+                )
+            except Exception:
+                pass  # 이미 있으면 무시
 
-        logger.debug("collecting 작업을 모두 정상적으로 마쳤습니다.")
+            # 오늘 이미 완료했으면 스킵
+            _kind_done = False
+            try:
+                row = self.engine_JB.execute(
+                    "SELECT kind_crawler FROM setting_data LIMIT 1"
+                ).fetchone()
+                if row and str(row[0])[:8] == self.open_api.today:
+                    _kind_done = True
+            except Exception:
+                pass
 
-        # cmd 콘솔창 종료
-        os.system("@taskkill /f /im cmd.exe")
+            if _kind_done:
+                print(f"✅ KIND 크롤링 스킵 (오늘 이미 완료)")
+            else:
+                self.kind.craw()
+                try:
+                    self.engine_JB.execute(
+                        "UPDATE setting_data SET kind_crawler='%s' LIMIT 1" % self.open_api.today
+                    )
+                except Exception:
+                    pass
+                print(f"✅ 완료 ({time.time() - task_start:.1f}초)")
+        except Exception as e:
+            print(f"⚠️  KIND 크롤링 실패 (무시하고 계속 진행)")
+            print(f"    사유: {str(e)[:100]}")
+            logger.warning(f"KIND 크롤링 실패: {e}")
+
+        # v2 확장 데이터 수집 — phase 없는 레거시 전체 실행 모드에서만 수행
+        # phase=1: 종가 수집 전용 (펀더멘탈은 phase 2에서 처리)
+        # phase=2,3: 각자 early return으로 이미 처리됨
+        if phase is None:
+            try:
+                self.collect_market_index()
+                self.collect_stock_fundamental()
+            except Exception as e:
+                logger.warning(f"v2 확장 데이터 수집 실패 (무시하고 계속): {e}")
+
+        # 전체 완료
+        total_time = time.time() - overall_start
+        print("\n" + "="*100)
+        print(f"✅ 모든 데이터 수집 완료! (총 소요 시간: {int(total_time//60)}분 {int(total_time%60)}초)")
+        print("="*100)
+
+        logger.info("collecting 완료")
+
+        # cmd 콘솔창 종료 - 주석 처리 (collector_v3.py의 60초 대기를 방해함)
+        # os.system("@taskkill /f /im cmd.exe")
 
         # # AI 알고리즘 적용
         if self.open_api.sf.use_ai:
             path = pathlib.Path(__file__).parent.parent.absolute() / 'bat' / 'ai_filter.bat'
             os.system(f"start {path} {self.open_api.db_name} {self.open_api.simul_num}")
 
+    # ── v2 확장 데이터 수집 메서드 ──────────────────────────────────────────
+
+    def collect_market_index(self):
+        """OPT20006 (업종일봉차트조회)으로 코스피/코스닥 지수 일봉 수집
+        → daily_craw DB의 kospi_index, kosdaq_index 테이블에 저장
+        오늘 데이터가 이미 있으면 스킵.
+        """
+        today = self.open_api.today
+        engine_craw = self.open_api.engine_daily_craw
+
+        for index_code, table_name in [("001", "kospi_index"), ("101", "kosdaq_index")]:
+            # 오늘 데이터 이미 있으면 스킵
+            try:
+                check_sql = f"SELECT 1 FROM `{table_name}` WHERE date = '{today}' LIMIT 1"
+                if engine_craw.execute(check_sql).fetchone():
+                    logger.debug(f"{table_name} 오늘 데이터 존재, 스킵")
+                    continue
+            except Exception:
+                pass  # 테이블 없으면 계속 진행
+
+            # OPT20006 호출
+            self.open_api.ohlcv = defaultdict(list)
+            self.open_api.set_input_value("업종코드", index_code)
+            self.open_api.set_input_value("기준일자", today)
+            self.open_api.set_input_value("수정주가구분", 1)
+            self.open_api.comm_rq_data("opt20006_req", "opt20006", 0, "0102")
+            time.sleep(cf.TR_REQ_TIME_INTERVAL)
+
+            if not self.open_api.ohlcv or not self.open_api.ohlcv.get('date'):
+                continue
+
+            df = DataFrame(
+                self.open_api.ohlcv,
+                columns=['date', 'open', 'high', 'low', 'close', 'volume']
+            )
+            df = df[df['date'].str.strip() != '']
+            if len(df) == 0:
+                continue
+
+            # 이미 존재하는 날짜 제외 후 신규 데이터만 INSERT (UNIQUE 제약 대비)
+            try:
+                existing = pd.read_sql(
+                    f"SELECT date FROM `{table_name}`", engine_craw)['date'].tolist()
+                df = df[~df['date'].isin(existing)]
+            except Exception:
+                pass
+            if len(df) == 0:
+                logger.debug(f"{table_name} 신규 데이터 없음, 스킵")
+                continue
+            df.to_sql(table_name, engine_craw, if_exists='append', index=False)
+            logger.debug(f"{table_name} {len(df)}행 저장 완료")
+
+    def collect_nasdaq_index(self):
+        """Yahoo Finance v8 API로 NASDAQ/SOX 지수 최신 데이터 수집
+        → daily_craw DB의 nasdaq_index, sox_index 테이블에 저장.
+        최근 10일치 pull 후 신규 날짜만 삽입 (yfinance 미사용 — requests만 사용).
+        """
+        import datetime as _dt
+        import pandas as pd
+        import requests as _req
+
+        engine_craw = self.open_api.engine_daily_craw
+        end_ts   = int((_dt.datetime.now() + _dt.timedelta(days=1)).timestamp())
+        start_ts = int((_dt.datetime.now() - _dt.timedelta(days=10)).timestamp())
+        headers  = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+
+        for ticker, table_name in [('^IXIC', 'nasdaq_index'), ('^SOX', 'sox_index')]:
+            try:
+                encoded = ticker.replace('^', '%5E')
+                url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{encoded}"
+                       f"?period1={start_ts}&period2={end_ts}&interval=1d")
+                resp = _req.get(url, headers=headers, timeout=30)
+                resp.raise_for_status()
+                result = resp.json()['chart']['result'][0]
+                timestamps = result['timestamp']
+                q = result['indicators']['quote'][0]
+
+                df = pd.DataFrame({
+                    'date':   pd.to_datetime(timestamps, unit='s').strftime('%Y%m%d'),
+                    'open':   q.get('open'),
+                    'high':   q.get('high'),
+                    'low':    q.get('low'),
+                    'close':  q.get('close'),
+                    'volume': q.get('volume'),
+                }).dropna(subset=['close'])
+
+                # 이미 있는 날짜 제외
+                try:
+                    existing = pd.read_sql(f"SELECT date FROM `{table_name}`", engine_craw)
+                    existing_dates = set(existing['date'].astype(str).tolist())
+                    df = df[~df['date'].isin(existing_dates)]
+                except Exception:
+                    pass
+
+                if not df.empty:
+                    df.to_sql(table_name, engine_craw, if_exists='append', index=False)
+                    logger.debug(f"{table_name} {len(df)}행 저장 ({df['date'].min()}~{df['date'].max()})")
+
+            except Exception as e:
+                logger.warning(f"collect_nasdaq_index [{ticker}] 실패: {e}")
+
+    def collect_stock_fundamental(self):
+        """OPT10001 (주식기본정보요청)으로 전 종목 펀더멘털 수집
+        → daily_buy_list DB의 sf_YYYYMMDD 날짜별 테이블에 저장
+        cf.v2_fundamental_collect_interval일 미경과 시 스킵.
+        """
+        import datetime as _dt
+        import pandas as pd
+        today = self.open_api.today
+        table_name = f'sf_{today}'  # e.g. sf_20260406
+        engine_buy = self.open_api.engine_daily_buy_list
+
+        # 주기 미경과 + 오늘 완전 수집 완료 시 스킵
+        try:
+            # 가장 최근 sf_YYYYMMDD 테이블 찾기
+            rows = engine_buy.execute(
+                "SELECT TABLE_NAME FROM information_schema.tables "
+                "WHERE table_schema = 'daily_buy_list' AND TABLE_NAME LIKE 'sf_2%' "
+                "ORDER BY TABLE_NAME DESC LIMIT 1"
+            ).fetchone()
+            if rows:
+                last_date = rows[0].replace('sf_', '')  # 'sf_20260406' → '20260406'
+                today_dt = _dt.datetime.strptime(today, "%Y%m%d")
+                last_dt = _dt.datetime.strptime(last_date, "%Y%m%d")
+                days_since = (today_dt - last_dt).days
+                if days_since < cf.v2_fundamental_collect_interval:
+                    if last_date == today:
+                        # 오늘 테이블 있음 — 건수 검증 (체크포인트 부분 저장이면 재수집)
+                        today_count = engine_buy.execute(
+                            f"SELECT COUNT(*) FROM `{table_name}`"
+                        ).scalar()
+                        total_count = engine_buy.execute(
+                            "SELECT COUNT(*) FROM stock_item_all"
+                        ).scalar()
+                        if total_count and today_count >= total_count * 0.95:
+                            logger.debug(f"펀더멘털 수집 스킵 (오늘 완료: {today_count}/{total_count})")
+                            return
+                        logger.info(f"펀더멘털 수집 재개 (오늘 저장 {today_count}/{total_count}, 미완료)")
+                    else:
+                        logger.debug(f"펀더멘털 수집 스킵 (주기 미경과, 마지막: {last_date})")
+                        return
+        except Exception:
+            pass  # 테이블 없으면 진행
+
+        # 전 종목 코드 조회
+        stocks = engine_buy.execute(
+            "SELECT code_name, code FROM stock_item_all"
+        ).fetchall()
+        total = len(stocks)
+
+        # 재시작 재개: 오늘 테이블에 이미 수집된 코드 조회 → 건너뜀
+        already_done = set()
+        try:
+            rows = engine_buy.execute(f"SELECT code FROM `{table_name}`").fetchall()
+            already_done = {r[0] for r in rows}
+        except Exception:
+            pass  # 오늘 테이블 없으면 처음부터
+
+        if already_done:
+            logger.info(f"펀더멘털 재개 모드: {len(already_done)}/{total} 이미 수집 → 나머지 {total - len(already_done)}개 수집")
+            print(f"[펀더멘털] 재개: {len(already_done)}개 완료, 나머지 {total - len(already_done)}개 수집", flush=True)
+        else:
+            eta_min = total * cf.TR_REQ_TIME_INTERVAL / 60
+            logger.info(f"펀더멘털 수집 시작 - {total}개 종목 (약 {eta_min:.0f}분 소요 예상) → {table_name}")
+            print(f"[펀더멘털] 수집 시작 - {total}개 종목 (약 {eta_min:.0f}분)", flush=True)
+
+        done_count = len(already_done)
+        records = []
+        empty_streak = 0  # 연속 빈 응답 카운터 (서버 스로틀 감지용)
+        for i, (code_name, code) in enumerate(stocks):
+            if code in already_done:
+                continue
+
+            collected = done_count + len(records)
+            if len(records) > 0 and len(records) % 100 == 0:
+                pct = collected / total * 100
+                remain_min = (total - collected) * cf.TR_REQ_TIME_INTERVAL / 60
+                logger.info(f"펀더멘털 수집 {collected}/{total} ({pct:.0f}%) - 남은시간 약 {remain_min:.0f}분")
+                print(f"[펀더멘털] {collected}/{total} ({pct:.0f}%) 완료 — 남은시간 약 {remain_min:.0f}분", flush=True)
+                # 100건마다 체크포인트 저장 (append — 기존 데이터 보존)
+                df_partial = pd.DataFrame(records)
+                df_partial.to_sql(table_name, engine_buy, if_exists='append', index=False)
+                done_count += len(records)
+                records = []
+
+            fd = {}
+            for retry in range(3):  # 최대 3회 시도 (서버 스로틀 대응)
+                try:
+                    self.open_api.fundamental_data = {}
+                    self.open_api.set_input_value("종목코드", code)
+                    self.open_api.comm_rq_data("opt10001_req", "opt10001", 0, "0103")
+                    time.sleep(cf.TR_REQ_TIME_INTERVAL)
+                    fd = self.open_api.fundamental_data
+                    if fd:
+                        empty_streak = 0
+                        break
+                    else:
+                        empty_streak += 1
+                        if empty_streak >= 5:
+                            logger.warning(f"[펀더멘털] 빈 응답 {empty_streak}연속 — 5초 대기 후 재시도")
+                            print(f"[펀더멘털] 서버 응답 없음 {empty_streak}연속, 5초 대기...", flush=True)
+                            time.sleep(5)
+                        elif retry < 2:
+                            time.sleep(1)
+                except Exception as e:
+                    logger.debug(f"{code} 펀더멘털 수집 실패 (retry {retry}): {e}")
+                    time.sleep(1)
+
+            if fd:
+                fd['code'] = code
+                fd['code_name'] = code_name
+                records.append(fd)
+
+        if records:
+            df = pd.DataFrame(records)
+            df.to_sql(table_name, engine_buy, if_exists='append', index=False)
+
+        try:
+            final_count = engine_buy.execute(f"SELECT COUNT(*) FROM `{table_name}`").scalar()
+        except Exception:
+            final_count = done_count + len(records)
+        logger.info(f"펀더멘털 저장 완료: {table_name} {final_count}개")
+        print(f"[펀더멘털] 저장 완료 - {final_count}개 종목 ({table_name})", flush=True)
+
     # 실전 봇, 모의 봇 매수 종목 세팅 + all_item_db 업데이트 함수
+    # 고급 전략 통합 버전 (date_based_strategy 사용)
     def realtime_daily_buy_list_check(self):
-        if self.open_api.sf.is_date_exist(self.open_api.today):
-            logger.debug("daily_buy_list DB에 {} 테이블이 있습니다. jackbot DB에 realtime_daily_buy_list 테이블을 생성합니다".format(self.open_api.today))
-
+        # simul_num=3: HybridStrategyV2 Python 점수 기반 선정
+        # (simulator_func_mysql.db_to_realtime_daily_buy_list_num=21 분기에서 처리)
+        if self.open_api.simul_num == 3:
+            from library.utils import get_latest_complete_date
             self.open_api.sf.get_date_for_simul()
-            # 첫 번째 파라미터는 여기서는 의미가 없다.
-            # 두 번째 파라미터에 오늘 일자를 넣는 이유는 매수를 하는 시점인 내일 기준으로 date_rows_yesterday가 오늘 이기 때문
-            self.open_api.sf.db_to_realtime_daily_buy_list(self.open_api.today, self.open_api.today, len(self.open_api.sf.date_rows))
+            target_date = get_latest_complete_date(self.open_api.sf.date_rows)
+            logger.debug(f"[simul_num=3] 스코어링 기준날짜: {target_date}")
+            self.open_api.sf.db_to_realtime_daily_buy_list(
+                target_date, target_date, len(self.open_api.sf.date_rows)
+            )
+            # check_collector_done.py가 확인하는 값 — 오늘 날짜로 업데이트 (스코어링 완료 표시)
+            sql = "UPDATE setting_data SET today_buy_list='%s' limit 1"
+            self.engine_JB.execute(sql % (self.open_api.today))
+            return
 
+        # simul_num=4/5/6: BreakoutStrategyV3/ReversalStrategyV3 (buy_list_num=22)
+        # simul_num=10:    Strategy E / ValueStrategyE       (buy_list_num=23)
+        # simul_num=11:    A+B+E 혼합                        (buy_list_num=24)
+        # → simulator_func_mysql.db_to_realtime_daily_buy_list() 내부 num 분기에서 처리
+        if self.open_api.simul_num in (4, 5, 6, 10, 11):
+            from library.utils import get_latest_complete_date
+            label = {4: 'Strategy A (Breakout)', 5: 'Strategy B (Reversal)',
+                     6: 'Strategy A+B (sim=6)', 10: 'Strategy E (ValueE)',
+                     11: 'Strategy A+B+E (sim=11)'}
+            print(f"\n🚀 [{label.get(self.open_api.simul_num, str(self.open_api.simul_num))}] 스코어링 시작")
+            self.open_api.sf.get_date_for_simul()
+            target_date = get_latest_complete_date(self.open_api.sf.date_rows)
+            logger.debug(f"[simul_num={self.open_api.simul_num}] 스코어링 기준날짜: {target_date}")
+            self.open_api.sf.db_to_realtime_daily_buy_list(
+                target_date, target_date, len(self.open_api.sf.date_rows)
+            )
+            sql = "UPDATE setting_data SET today_buy_list='%s' limit 1"
+            self.engine_JB.execute(sql % (self.open_api.today))
+            print(f"✅ [simul_num={self.open_api.simul_num}] 스코어링 완료")
+            return
 
-            # all_item_db에서 open, clo5~120, volume 등을 오늘 일자 데이터로 업데이트 한다.
-            self.open_api.sf.update_all_db_by_date(self.open_api.today)
+        # 최근 영업일 테이블 찾기 (simul_num=1,2 기존 전략)
+        from library.date_based_strategy import get_latest_date_table
+
+        latest_date = get_latest_date_table('daily_buy_list')
+
+        if latest_date:
+            logger.info("realtime_daily_buy_list 생성 시작 (기준: %s)", latest_date)
+
+            try:
+                # 고급 전략으로 매수 후보 종목 스캔
+                from library.date_based_strategy import generate_buy_signals as date_based_signals
+                from library.hybrid_strategy import get_buy_candidates as hybrid_signals
+                import pymysql
+
+                print("\n🚀 고급 전략으로 매수 후보 스캔 중...")
+                print(f"📅 기준 날짜: {latest_date}")
+
+                # 포트폴리오 가치 및 설정
+                portfolio_value = self.open_api.sf.start_invest_price if hasattr(self.open_api.sf, 'start_invest_price') else 10000000
+                top_n = 20  # 최대 20개 종목
+                min_hybrid_score = 90.0  # 하이브리드 전략 최소 90점
+
+                # 🚀 하이브리드 전략: Momentum 60% + Mean Reversion 40%
+                print("  🚀 하이브리드 전략 스캔 (Momentum 60% + Mean Reversion 40%)...")
+                buy_signals = self._hybrid_strategy_sql(latest_date, min_hybrid_score, top_n)
+
+                print(f"  🎯 최종 선정: {len(buy_signals)}개 종목 (하이브리드 점수 {min_hybrid_score}점 이상)")
+
+                if buy_signals.empty:
+                    print("⚠️  매수 조건을 만족하는 종목이 없습니다.")
+
+                    # 빈 DataFrame을 전략 컬럼 구조와 함께 생성
+                    empty_columns = {
+                        'code': pd.Series(dtype='str'),
+                        'code_name': pd.Series(dtype='str'),
+                        'date': pd.Series(dtype='str'),
+                        'check_item': pd.Series(dtype='int'),
+                        'd1_diff_rate': pd.Series(dtype='float'),
+                        'close': pd.Series(dtype='float'),
+                        'open': pd.Series(dtype='float'),
+                        'high': pd.Series(dtype='float'),
+                        'low': pd.Series(dtype='float'),
+                        'volume': pd.Series(dtype='float'),
+                        'clo5': pd.Series(dtype='float'),
+                        'clo10': pd.Series(dtype='float'),
+                        'clo20': pd.Series(dtype='float'),
+                        'clo40': pd.Series(dtype='float'),
+                        'clo60': pd.Series(dtype='float'),
+                        'clo80': pd.Series(dtype='float'),
+                        'clo100': pd.Series(dtype='float'),
+                        'clo120': pd.Series(dtype='float'),
+                        'clo5_diff_rate': pd.Series(dtype='float'),
+                        'clo10_diff_rate': pd.Series(dtype='float'),
+                        'clo20_diff_rate': pd.Series(dtype='float'),
+                        'clo40_diff_rate': pd.Series(dtype='float'),
+                        'clo60_diff_rate': pd.Series(dtype='float'),
+                        'clo80_diff_rate': pd.Series(dtype='float'),
+                        'clo100_diff_rate': pd.Series(dtype='float'),
+                        'clo120_diff_rate': pd.Series(dtype='float'),
+                        'yes_clo5': pd.Series(dtype='float'),
+                        'yes_clo10': pd.Series(dtype='float'),
+                        'yes_clo20': pd.Series(dtype='float'),
+                        'yes_clo40': pd.Series(dtype='float'),
+                        'yes_clo60': pd.Series(dtype='float'),
+                        'yes_clo80': pd.Series(dtype='float'),
+                        'yes_clo100': pd.Series(dtype='float'),
+                        'yes_clo120': pd.Series(dtype='float'),
+                        'vol5': pd.Series(dtype='float'),
+                        'vol10': pd.Series(dtype='float'),
+                        'vol20': pd.Series(dtype='float'),
+                        'vol40': pd.Series(dtype='float'),
+                        'vol60': pd.Series(dtype='float'),
+                        'vol80': pd.Series(dtype='float'),
+                        'vol100': pd.Series(dtype='float'),
+                        'vol120': pd.Series(dtype='float'),
+                        'strategy_type': pd.Series(dtype='str'),
+                        'composite_score': pd.Series(dtype='float'),
+                        'volume_ratio': pd.Series(dtype='float')
+                    }
+                    df_realtime_daily_buy_list = pd.DataFrame(empty_columns)
+
+                    # 빈 테이블 생성 (컬럼 구조 유지)
+                    df_realtime_daily_buy_list.to_sql('realtime_daily_buy_list', self.engine_JB, if_exists='replace', index=False)
+                    print("✅ realtime_daily_buy_list 테이블 생성 완료 (0개 종목)")
+
+                else:
+                    print(f"✅ 고급 전략으로 {len(buy_signals)}개 종목 선정 완료")
+
+                    # 선정된 종목 코드 리스트
+                    selected_codes = buy_signals['code'].tolist()
+
+                    # 날짜 테이블에서 전체 데이터 가져오기
+                    con = pymysql.connect(
+                        user=self.open_api.cf.db_id,
+                        passwd=self.open_api.cf.db_passwd,
+                        host=self.open_api.cf.db_ip,
+                        db='daily_buy_list',
+                        charset='utf8',
+                        port=int(self.open_api.cf.db_port)
+                    )
+
+                    # IN 절을 위한 코드 리스트 문자열 생성
+                    codes_str = "','".join(selected_codes)
+
+                    query = f"""
+                    SELECT
+                        code, code_name, date, check_item,
+                        d1_diff_rate, close, open, high, low, volume,
+                        clo5, clo10, clo20, clo40, clo60, clo80, clo100, clo120,
+                        clo5_diff_rate, clo10_diff_rate, clo20_diff_rate, clo40_diff_rate,
+                        clo60_diff_rate, clo80_diff_rate, clo100_diff_rate, clo120_diff_rate,
+                        yes_clo5, yes_clo10, yes_clo20, yes_clo40, yes_clo60, yes_clo80, yes_clo100, yes_clo120,
+                        vol5, vol10, vol20, vol40, vol60, vol80, vol100, vol120
+                    FROM `{latest_date}`
+                    WHERE code IN ('{codes_str}')
+                    """
+
+                    df_realtime_daily_buy_list = pd.read_sql(query, con)
+                    con.close()
+
+                    # 디버그: 컬럼명 확인
+                    logger.debug(f"  읽어온 컬럼: {list(df_realtime_daily_buy_list.columns)}")
+
+                    # 잘못된 인덱스가 컬럼으로 추가되었는지 확인 및 제거
+                    unwanted_cols = ['level_0', 'index', 'Unnamed: 0']
+                    for col in unwanted_cols:
+                        if col in df_realtime_daily_buy_list.columns:
+                            logger.debug(f"  🗑️  불필요한 컬럼 제거: {col}")
+                            df_realtime_daily_buy_list = df_realtime_daily_buy_list.drop(columns=[col])
+
+                    # check_item 설정
+                    df_realtime_daily_buy_list['check_item'] = 0
+
+                    # 종목코드를 6자리 문자열로 변환
+                    df_realtime_daily_buy_list['code'] = df_realtime_daily_buy_list['code'].astype(str).str.zfill(6)
+
+                    # 전략 정보 추가 (buy_signals와 조인)
+                    strategy_info = buy_signals[['code', 'strategy_type', 'composite_score', 'volume_ratio']].copy()
+                    strategy_info['code'] = strategy_info['code'].astype(str).str.zfill(6)
+
+                    # 전략 정보 병합
+                    df_realtime_daily_buy_list = df_realtime_daily_buy_list.merge(
+                        strategy_info,
+                        on='code',
+                        how='left'
+                    )
+
+                    # 전략 타입이 없는 경우 기본값 설정
+                    df_realtime_daily_buy_list['strategy_type'] = df_realtime_daily_buy_list['strategy_type'].fillna('basic')
+                    df_realtime_daily_buy_list['composite_score'] = df_realtime_daily_buy_list['composite_score'].fillna(0)
+                    df_realtime_daily_buy_list['volume_ratio'] = df_realtime_daily_buy_list['volume_ratio'].fillna(1.0)
+
+                    # 불필요한 인덱스 컬럼 제거 (index, index2, index3, level_0 등)
+                    drop_columns = [col for col in df_realtime_daily_buy_list.columns
+                                   if col.startswith('index') or col.startswith('level_') or col == 'Unnamed: 0']
+                    if drop_columns:
+                        print(f"  🗑️  불필요한 컬럼 제거: {drop_columns}")
+                        df_realtime_daily_buy_list = df_realtime_daily_buy_list.drop(columns=drop_columns)
+
+                    # 인덱스 리셋 (중요: merge 후 인덱스가 컬럼으로 변환될 수 있음)
+                    df_realtime_daily_buy_list = df_realtime_daily_buy_list.reset_index(drop=True)
+
+                    # realtime_daily_buy_list 테이블에 저장
+                    df_realtime_daily_buy_list.to_sql('realtime_daily_buy_list', self.engine_JB, if_exists='replace', index=False)
+
+                    # 현재 보유 중인 종목은 매수 리스트에서 제거
+                    sql = "DELETE FROM realtime_daily_buy_list WHERE code IN (SELECT code FROM possessed_item)"
+                    self.engine_JB.execute(sql)
+
+                    print(f"✅ realtime_daily_buy_list 테이블 생성 완료 ({len(df_realtime_daily_buy_list)}개 종목)")
+
+                    # 선정된 종목 간략 출력
+                    for idx, row in buy_signals.head(5).iterrows():
+                        print(f"  [{idx+1}] {row['code']} {row['code_name']}: {row['composite_score']:.1f}점 ({row['strategy_type']})")
+                    if len(buy_signals) > 5:
+                        print(f"  ... 외 {len(buy_signals) - 5}개 종목")
+
+            except Exception as e:
+                logger.error(f"고급 전략 실행 오류: {e}")
+                import traceback
+                traceback.print_exc()
+                print("\n⚠️  고급 전략 실행 실패. 기본 전략으로 폴백합니다.")
+                # 기본 전략 실행
+                from library.utils import get_latest_complete_date
+                self.open_api.sf.get_date_for_simul()
+                _fallback_date = get_latest_complete_date(self.open_api.sf.date_rows)
+                self.open_api.sf.db_to_realtime_daily_buy_list(_fallback_date, _fallback_date, len(self.open_api.sf.date_rows))
+
+            # all_item_db에서 open, clo5~120, volume 등을 최근 영업일 데이터로 업데이트 한다.
+            self.open_api.sf.update_all_db_by_date(latest_date)
             self.open_api.rate_check()
             # realtime_daily_buy_list(매수 리스트) 테이블 세팅을 완료 했으면 아래 쿼리를 통해 setting_data의 today_buy_list에 오늘 날짜를 찍는다.
             sql = "UPDATE setting_data SET today_buy_list='%s' limit 1"
             self.engine_JB.execute(sql % (self.open_api.today))
         else:
-            logger.debug(
-                """daily_buy_list DB에 {} 테이블이 없습니다. jackbot DB에 realtime_daily_buy_list 테이블을 생성 할 수 없습니다.
-                realtime_daily_buy_list는 daily_buy_list DB 안에 오늘 날짜 테이블이 만들어져야 생성이 됩니다.
-                realtime_daily_buy_list 테이블을 생성할 수 없는 이유는 아래와 같습니다.
-                1. 장이 열리지 않은 날 혹은 15시 30분 ~ 23시 59분 사이에 콜렉터를 돌리지 않은 경우 
-                2. 콜렉터를 오늘 날짜 까지 돌리지 않아 daily_buy_list의 오늘 날짜 테이블이 없는 경우
-                """.format(self.open_api.today))
+            logger.warning("realtime_daily_buy_list 생성 불가: daily_buy_list에 %s 테이블 없음", self.open_api.today)
+
+    def _hybrid_strategy_sql(self, latest_date: str, min_score: float, top_n: int) -> pd.DataFrame:
+        """
+        하이브리드 전략 SQL 구현 (모멘텀 60% + 평균회귀 40%)
+
+        Parameters:
+        -----------
+        latest_date : str
+            스캔할 날짜 테이블명
+        min_score : float
+            최소 스코어
+        top_n : int
+            선정할 종목 수
+
+        Returns:
+        --------
+        pd.DataFrame : 하이브리드 전략 매수 후보
+        """
+        try:
+            # 필터링 테이블 존재 여부 체크
+            con = pymysql.connect(
+                user=cf.db_id,
+                passwd=cf.db_passwd,
+                host=cf.db_ip,
+                db='daily_buy_list',
+                charset='utf8',
+                port=int(cf.db_port)
+            )
+            cursor = con.cursor()
+            cursor.execute("""
+                SELECT TABLE_NAME
+                FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = 'daily_buy_list'
+                AND TABLE_NAME IN ('stock_konex', 'stock_invest_warning', 'stock_invest_danger')
+            """)
+            existing_tables = {row[0] for row in cursor.fetchall()}
+
+            # 코넥스 제외 쿼리
+            konex_exclusion = ""
+            if 'stock_konex' in existing_tables:
+                konex_exclusion = "AND code NOT IN (SELECT code FROM stock_konex WHERE 1=1)"
+
+            # 투자위험 종목 필터 제거 (더 많은 후보 허용)
+            # 날짜 기반 전략과 동일하게 investment warning/danger 필터 비활성화
+            warning_exclusion = ""
+
+            # 하이브리드 전략 SQL 쿼리
+            query = f"""
+            SELECT
+                code,
+                code_name,
+                close,
+                d1_diff_rate,
+                volume,
+                vol5,
+                vol20,
+                clo5,
+                clo10,
+                clo20,
+                clo40,
+                clo60,
+                rsi14,
+                bb_upper,
+                bb_middle,
+                bb_lower,
+                atr14,
+
+                -- 하이브리드 스코어 (모멘텀 60점 + 평균회귀 40점 = 100점 만점)
+                (
+                    -- === 모멘텀 (60점 만점) ===
+                    -- 거래량 조건 (20점)
+                    CASE
+                        WHEN volume > vol20 * 2.0 THEN 20
+                        WHEN volume > vol20 * 1.5 THEN 15
+                        WHEN volume > vol20 * 1.2 THEN 10
+                        ELSE 5
+                    END +
+                    -- 모멘텀 조건 (20점)
+                    CASE
+                        WHEN clo5 > clo20 AND clo20 > clo60 THEN 20
+                        WHEN clo5 > clo20 THEN 15
+                        ELSE 5
+                    END +
+                    -- ATR 기반 변동성 돌파 (20점)
+                    CASE
+                        WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20
+                        WHEN atr14 > 0 AND (high - low) > atr14 THEN 15
+                        ELSE 10
+                    END +
+
+                    -- === 평균회귀 (40점 만점) ===
+                    -- RSI 과매도 (15점)
+                    CASE
+                        WHEN rsi14 <= 30 THEN 15
+                        WHEN rsi14 <= 40 THEN 10
+                        WHEN rsi14 <= 50 THEN 5
+                        ELSE 0
+                    END +
+                    -- 볼린저 밴드 하단 근처 (15점)
+                    CASE
+                        WHEN bb_lower > 0 AND close <= bb_lower THEN 15
+                        WHEN bb_lower > 0 AND close <= bb_lower * 1.02 THEN 10
+                        WHEN bb_middle > 0 AND close < bb_middle THEN 5
+                        ELSE 0
+                    END +
+                    -- 지지선 반등 (10점)
+                    CASE
+                        WHEN close > clo20 * 0.95 AND close < clo20 * 1.0 THEN 10
+                        WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8
+                        ELSE 3
+                    END
+                ) as score,
+
+                'hybrid' as strategy_type
+
+            FROM `{latest_date}`
+            WHERE 1=1
+                -- 기본 필터
+                AND close > 0
+                AND volume > 0
+                AND rsi14 > 0  -- RSI 계산 성공한 종목만
+                AND bb_lower > 0  -- 볼린저 밴드 계산 성공한 종목만
+
+                {konex_exclusion}
+
+                {warning_exclusion}
+
+                -- 하이브리드 조건 (모멘텀 OR 평균회귀)
+                AND (
+                    -- 모멘텀 조건
+                    (clo5 > clo20 AND volume > vol20 * 1.2)
+                    OR
+                    -- 평균회귀 조건
+                    (rsi14 <= 40 AND bb_lower > 0 AND close <= bb_lower * 1.05)
+                )
+
+                -- 가격 범위
+                AND close BETWEEN 1000 AND 500000
+
+            HAVING score >= {min_score}
+            ORDER BY score DESC
+            LIMIT {top_n}
+            """
+
+            df = pd.read_sql(query, con)
+            con.close()
+
+            if df.empty:
+                return pd.DataFrame()
+
+            # 추가 계산 (volume_ratio 등)
+            df['volume_ratio'] = df['volume'] / df['vol20']
+            df['composite_score'] = df['score']  # 호환성을 위해
+
+            return df
+
+        except Exception as e:
+            print(f"하이브리드 전략 SQL 실행 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            return pd.DataFrame()
+
+    def _combined_strategy_sql(self, latest_date: str, min_combined_score: float, top_n: int) -> pd.DataFrame:
+        """
+        혼합 전략 SQL 구현 (날짜 기반 20% + 하이브리드 80%)
+
+        두 전략을 가중 합산한 점수가 min_combined_score 이상인 종목만 선택
+
+        Parameters:
+        -----------
+        latest_date : str
+            스캔할 날짜 테이블명
+        min_combined_score : float
+            최소 합산 스코어 (기본 90점)
+        top_n : int
+            선정할 종목 수
+
+        Returns:
+        --------
+        pd.DataFrame : 혼합 전략 매수 후보
+        """
+        try:
+            # 필터링 테이블 존재 여부 체크
+            con = pymysql.connect(
+                user=cf.db_id,
+                passwd=cf.db_passwd,
+                host=cf.db_ip,
+                db='daily_buy_list',
+                charset='utf8',
+                port=int(cf.db_port)
+            )
+            cursor = con.cursor()
+            cursor.execute("""
+                SELECT TABLE_NAME
+                FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = 'daily_buy_list'
+                AND TABLE_NAME IN ('stock_konex', 'stock_invest_warning', 'stock_invest_danger')
+            """)
+            existing_tables = {row[0] for row in cursor.fetchall()}
+
+            # 코넥스 제외 쿼리
+            konex_exclusion = ""
+            if 'stock_konex' in existing_tables:
+                konex_exclusion = "AND code NOT IN (SELECT code FROM stock_konex WHERE 1=1)"
+
+            # 혼합 전략 SQL 쿼리
+            query = f"""
+            SELECT
+                code,
+                code_name,
+                close,
+                d1_diff_rate,
+                volume,
+                vol5,
+                vol20,
+                clo5,
+                clo10,
+                clo20,
+                clo40,
+                clo60,
+                rsi14,
+                bb_upper,
+                bb_middle,
+                bb_lower,
+                atr14,
+                date_score,
+                hybrid_score,
+                combined_score as score,
+                'hybrid_combined' as strategy_type
+
+            FROM (
+                SELECT
+                    *,
+                    -- 날짜 기반 스코어 (100점 스케일)
+                    (
+                        (volume / NULLIF(vol5, 0)) *
+                        (clo5 / NULLIF(clo20, 0)) *
+                        CASE
+                            WHEN volume > vol20 * 1.5 THEN 1.2
+                            ELSE 1.0
+                        END
+                    ) * 30.0 AS date_score,
+
+                    -- 하이브리드 스코어 (모멘텀 60점 + 평균회귀 40점 = 100점 만점)
+                    (
+                        -- 모멘텀 (60점 만점)
+                        CASE
+                            WHEN volume > vol20 * 2.0 THEN 20
+                            WHEN volume > vol20 * 1.5 THEN 15
+                            WHEN volume > vol20 * 1.2 THEN 10
+                            ELSE 5
+                        END +
+                        CASE
+                            WHEN clo5 > clo20 AND clo20 > clo60 THEN 20
+                            WHEN clo5 > clo20 THEN 15
+                            ELSE 5
+                        END +
+                        CASE
+                            WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20
+                            WHEN atr14 > 0 AND (high - low) > atr14 THEN 15
+                            ELSE 10
+                        END +
+                        -- 평균회귀 (40점 만점)
+                        CASE
+                            WHEN rsi14 <= 30 THEN 15
+                            WHEN rsi14 <= 40 THEN 10
+                            WHEN rsi14 <= 50 THEN 5
+                            ELSE 0
+                        END +
+                        CASE
+                            WHEN bb_lower > 0 AND close <= bb_lower THEN 15
+                            WHEN bb_lower > 0 AND close <= bb_lower * 1.02 THEN 10
+                            WHEN bb_middle > 0 AND close < bb_middle THEN 5
+                            ELSE 0
+                        END +
+                        CASE
+                            WHEN close > clo20 * 0.95 AND close < clo20 * 1.0 THEN 10
+                            WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8
+                            ELSE 3
+                        END
+                    ) AS hybrid_score,
+
+                    -- 최종 혼합 스코어 (날짜 20% + 하이브리드 80% 가중 합산)
+                    (
+                        -- 날짜 기반 (20%)
+                        (
+                            (volume / NULLIF(vol5, 0)) *
+                            (clo5 / NULLIF(clo20, 0)) *
+                            CASE
+                                WHEN volume > vol20 * 1.5 THEN 1.2
+                                ELSE 1.0
+                            END
+                        ) * 30.0 * 0.2
+                        +
+                        -- 하이브리드 (80%)
+                        (
+                            CASE
+                                WHEN volume > vol20 * 2.0 THEN 20
+                                WHEN volume > vol20 * 1.5 THEN 15
+                                WHEN volume > vol20 * 1.2 THEN 10
+                                ELSE 5
+                            END +
+                            CASE
+                                WHEN clo5 > clo20 AND clo20 > clo60 THEN 20
+                                WHEN clo5 > clo20 THEN 15
+                                ELSE 5
+                            END +
+                            CASE
+                                WHEN atr14 > 0 AND (high - low) > atr14 * 1.5 THEN 20
+                                WHEN atr14 > 0 AND (high - low) > atr14 THEN 15
+                                ELSE 10
+                            END +
+                            CASE
+                                WHEN rsi14 <= 30 THEN 15
+                                WHEN rsi14 <= 40 THEN 10
+                                WHEN rsi14 <= 50 THEN 5
+                                ELSE 0
+                            END +
+                            CASE
+                                WHEN bb_lower > 0 AND close <= bb_lower THEN 15
+                                WHEN bb_lower > 0 AND close <= bb_lower * 1.02 THEN 10
+                                WHEN bb_middle > 0 AND close < bb_middle THEN 5
+                                ELSE 0
+                            END +
+                            CASE
+                                WHEN close > clo20 * 0.95 AND close < clo20 * 1.0 THEN 10
+                                WHEN close > clo60 * 0.95 AND close < clo60 * 1.0 THEN 8
+                                ELSE 3
+                            END
+                        ) * 0.8
+                    ) AS combined_score
+
+                FROM `{latest_date}`
+                WHERE 1=1
+                    -- 기본 필터
+                    AND close > 0
+                    AND volume > 0
+
+                    {konex_exclusion}
+
+                    -- 날짜 기반 OR 하이브리드 조건
+                    AND (
+                        -- 날짜 기반 조건
+                        (volume > vol5 * 1.2 AND clo5 > clo20)
+                        OR
+                        -- 하이브리드 조건
+                        (
+                            rsi14 > 0 AND bb_lower > 0 AND
+                            (
+                                (clo5 > clo20 AND volume > vol20 * 1.2)
+                                OR
+                                (rsi14 <= 40 AND close <= bb_lower * 1.05)
+                            )
+                        )
+                    )
+
+                    -- 가격 범위
+                    AND close BETWEEN 1000 AND 500000
+            ) AS scored_table
+            WHERE combined_score >= {min_combined_score}
+            ORDER BY combined_score DESC
+            LIMIT {top_n}
+            """
+
+            df = pd.read_sql(query, con)
+            con.close()
+
+            if df.empty:
+                return pd.DataFrame()
+
+            # 추가 계산 (volume_ratio 등)
+            df['volume_ratio'] = df['volume'] / df['vol20']
+            df['composite_score'] = df['score']  # 호환성을 위해
+            df['weighted_score'] = df['score']  # 가중 점수도 동일
+
+            return df
+
+        except Exception as e:
+            print(f"혼합 전략 SQL 실행 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            return pd.DataFrame()
 
     def is_table_exist_daily_buy_list(self, date):
         sql = "select 1 from information_schema.tables where table_schema ='daily_buy_list' and table_name = '%s'"
@@ -151,8 +1374,12 @@ class collector_api():
         self.dbl.daily_buy_list()
         logger.debug("daily_buy_list success !!!")
 
+        # 타임스탬프 저장 (yyyyMMddHHmm)
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M")
         sql = "UPDATE setting_data SET daily_buy_list='%s' limit 1"
-        self.engine_JB.execute(sql % (self.open_api.today))
+        self.engine_JB.execute(sql % timestamp)
+        logger.debug(f"daily_buy_list 완료 시간 저장: {timestamp}")
 
     # min_craw데이터베이스를 구축
     def db_to_min_craw(self):
@@ -161,7 +1388,15 @@ class collector_api():
         target_code = self.open_api.engine_daily_buy_list.execute(sql).fetchall()
         num = len(target_code)
 
+        # 수집 대상 종목 수 계산
+        targets_to_collect = sum(1 for code in target_code if int(code[2]) == 0)
+
+        print(f"    총 {num}개 종목 중 {targets_to_collect}개 종목 수집 예정")
+
         sql = "UPDATE stock_item_all SET check_min_crawler='%s' WHERE code='%s'"
+
+        collected = 0
+        start_time = time.time()
 
         for i in range(num):
             # check_item 확인
@@ -171,7 +1406,12 @@ class collector_api():
             code = target_code[i][0]
             code_name = target_code[i][1]
 
-            logger.debug("++++++++++++++" + str(code_name) + "++++++++++++++++++++" + str(i + 1) + '/' + str(num))
+            collected += 1
+            logger.debug("++++++++++++++" + str(code_name) + "++++++++++++++++++++" + str(collected) + '/' + str(targets_to_collect))
+
+            # 진행률 표시 (10개마다 또는 마지막)
+            if collected % 10 == 0 or collected == targets_to_collect:
+                self.print_progress(collected, targets_to_collect, "    분봉 수집", start_time)
 
             check_item_gubun = self.set_min_crawler_table(code, code_name)
 
@@ -186,8 +1426,16 @@ class collector_api():
 
         target_code = self.open_api.engine_daily_buy_list.execute(sql).fetchall()
         num = len(target_code)
-        # mark = ".KS"
-        sql = "UPDATE stock_item_all SET check_daily_crawler='%s' WHERE code='%s'"
+
+        # 수집 대상 종목 수 계산
+        targets_to_collect = sum(1 for code in target_code if int(code[2]) not in (1, 3))
+
+        print(f"    총 {num}개 종목 중 {targets_to_collect}개 종목 수집 예정")
+
+        sql = "UPDATE stock_item_all SET check_daily_crawler='%s', last_crawled_at=NOW() WHERE code='%s'"
+
+        collected = 0
+        start_time = time.time()
 
         for i in range(num):
             # check_daily_crawler 확인 후 1, 3이 아닌 경우만 업데이트
@@ -198,7 +1446,12 @@ class collector_api():
             code = target_code[i][0]
             code_name = target_code[i][1]
 
-            logger.debug("++++++++++++++" + str(code_name) + "++++++++++++++++++++" + str(i + 1) + '/' + str(num))
+            collected += 1
+            logger.debug("++++++++++++++" + str(code_name) + "++++++++++++++++++++" + str(collected) + '/' + str(targets_to_collect))
+
+            # 진행률 표시 (매 종목마다 업데이트)
+            self.print_progress(collected, targets_to_collect, "    일봉 수집", start_time,
+                              stock_name=code_name, stock_code=code)
 
             check_item_gubun = self.set_daily_crawler_table(code, code_name)
 
@@ -212,11 +1465,69 @@ class collector_api():
         self.engine_JB.execute(sql % (self.open_api.today))
 
     def daily_crawler_check(self):
+        # last_crawled_at 컬럼 자동 추가 (기존 DB 마이그레이션)
+        try:
+            self.open_api.engine_daily_buy_list.execute(
+                "ALTER TABLE stock_item_all ADD COLUMN last_crawled_at DATETIME DEFAULT NULL "
+                "COMMENT '최근 일봉 수집 시각 (장후 이어받기용)'"
+            )
+            logger.info("stock_item_all.last_crawled_at 컬럼 추가 완료")
+        except Exception:
+            pass  # 이미 존재
+
+        import datetime as _dt
+        _now = _dt.datetime.now()
+        _hour = _now.hour
+        if _hour >= 16:
+            # 장후: 1시간 이내 수집된 종목은 그대로 유지(이어받기), 그 외만 리셋
+            skip_count = self.open_api.engine_daily_buy_list.execute(
+                "SELECT COUNT(*) FROM stock_item_all "
+                "WHERE check_daily_crawler IN ('1','3') "
+                "AND last_crawled_at >= NOW() - INTERVAL 1 HOUR"
+            ).fetchone()[0]
+            sql_reset = (
+                "UPDATE stock_item_all SET check_daily_crawler = '0' "
+                "WHERE check_daily_crawler IN ('1','3') "
+                "AND (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL 1 HOUR)"
+            )
+            logger.debug(f"daily_crawler_check 시작 - 장후 종가 재수집 (최근 1시간 내 수집 {skip_count}개 스킵)")
+        elif _hour >= 9:
+            # 장중(9시~16시): 1시간 이내 수집 종목 유지 — API 한도 재시작 이어받기
+            skip_count = self.open_api.engine_daily_buy_list.execute(
+                "SELECT COUNT(*) FROM stock_item_all "
+                "WHERE check_daily_crawler = '1' "
+                "AND last_crawled_at >= NOW() - INTERVAL 1 HOUR"
+            ).fetchone()[0]
+            sql_reset = (
+                "UPDATE stock_item_all SET check_daily_crawler = '0' "
+                "WHERE check_daily_crawler = '1' "
+                "AND (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL 1 HOUR)"
+            )
+            logger.debug(f"daily_crawler_check 시작 - 장중 재수집 (최근 1시간 내 수집 {skip_count}개 스킵)")
+        else:
+            # 장전(~9시): 1시간 이내 수집 종목 스킵 — API 한도 재시작 시 이어받기
+            skip_count = self.open_api.engine_daily_buy_list.execute(
+                "SELECT COUNT(*) FROM stock_item_all "
+                "WHERE check_daily_crawler IN ('1','3') "
+                "AND last_crawled_at >= NOW() - INTERVAL 1 HOUR"
+            ).fetchone()[0]
+            sql_reset = (
+                "UPDATE stock_item_all SET check_daily_crawler = '0' "
+                "WHERE check_daily_crawler IN ('1','3') "
+                "AND (last_crawled_at IS NULL OR last_crawled_at < NOW() - INTERVAL 1 HOUR)"
+            )
+            logger.debug(f"daily_crawler_check 시작 - 장전 수집 (최근 1시간 내 수집 {skip_count}개 스킵)")
+        self.open_api.engine_daily_buy_list.execute(sql_reset)
+
         self.db_to_daily_craw()
         logger.debug("daily_crawler success !!!")
 
+        # 타임스탬프 저장 (yyyyMMddHHmm)
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M")
         sql = "UPDATE setting_data SET daily_crawler='%s' limit 1"
-        self.engine_JB.execute(sql % (self.open_api.today))
+        self.engine_JB.execute(sql % timestamp)
+        logger.debug(f"daily_crawler 완료 시간 저장: {timestamp}")
 
     def _stock_to_sql(self, origin_df, type):
         checking_stocks = ['kosdaq', 'kospi', 'konex', 'etf']
@@ -225,6 +1536,13 @@ class collector_api():
         name_list = []
         for KIND_info in origin_df.itertuples():
             kiwoom_name = self.open_api.dynamicCall("GetMasterCodeName(QString)", KIND_info.code).strip()
+            # Kiwoom COM API bug: returns CP949 bytes "widened" to Latin-1 code points
+            # e.g. '케이뱅크' CP949 bytes → returned as 'ÄÉÀÌ¹ðÅ©'
+            # Fix: encode back to bytes as Latin-1, then decode as CP949
+            try:
+                kiwoom_name = kiwoom_name.encode('latin-1').decode('cp949')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass  # Already correct Unicode (shouldn't happen, but safe fallback)
             name_list.append(kiwoom_name)
             if not kiwoom_name:
                 if type in checking_stocks:
@@ -498,7 +1816,7 @@ class collector_api():
             except Exception as e:
                 logger.critical(e)
 
-        df_temp.to_sql(name=code_name, con=self.open_api.engine_craw, if_exists='append')
+        df_temp.to_sql(name=code_name, con=self.open_api.engine_craw, if_exists='append', index=False)
         if is_new:
             index_name = ''.join(c for c in code_name if c.isalnum())
             try:
@@ -517,8 +1835,15 @@ class collector_api():
         return check_item_gubun
 
     def set_daily_crawler_table(self, code, code_name):
-        df = self.open_api.get_total_data(code, code_name, self.open_api.today)
+        # 기준일자: 장전이면 전 영업일(어제 종가까지), 장후면 오늘(오늘 종가 포함)
+        # today를 그대로 넘기면 Kiwoom이 pre-market junk row(open=high=low=close=전일종가)를 반환해
+        # daily_craw의 last_date를 오늘로 앞당겨 버려 실제 오늘 OHLCV가 영구 누락됨
+        from library.utils import get_latest_complete_date
+        ref_date = get_latest_complete_date()
+        self.update_status("데이터 조회 중...")
+        df = self.open_api.get_total_data(code, code_name, ref_date)
         if len(df) == 0:
+            self.update_status("데이터 없음 - 스킵")
             return 1
         oldest_row = df.iloc[-1]
         check_row = None
@@ -535,6 +1860,7 @@ class collector_api():
             UPDATE daily_buy_list.stock_item_all SET check_daily_crawler = '4' WHERE code = '{}'
         """
 
+        self.update_status("기존 데이터 확인 중...")
         if self.open_api.engine_daily_craw.dialect.has_table(self.open_api.engine_daily_craw, code_name):
             check_row = self.open_api.engine_daily_craw.execute(f"""
                 SELECT * FROM `{code_name}` WHERE date = '{oldest_row['date']}' LIMIT 1
@@ -574,6 +1900,7 @@ class collector_api():
             deleted = True
 
         if (check_row and (check_row[0]['close'] != oldest_row['close'])) or diff:
+            self.update_status("수정주가 변경 감지 - 재수집 중...")
             logger.info(f'{code} {code_name}의 액면분할/증자 등의 이유로 수정주가가 달라져서 처음부터 다시 콜렉팅')
             # daily_craw 삭제
             logger.info('daily_craw와 min_craw 삭제 중..')
@@ -585,7 +1912,7 @@ class collector_api():
             for com in commands:
                 self.open_api.engine_daily_buy_list.execute(com)
             logger.info('삭제 완료')
-            df = self.open_api.get_total_data(code, code_name, self.open_api.today)
+            df = self.open_api.get_total_data(code, code_name, ref_date)
             self.engine_JB.execute(check_daily_crawler_sql.format(code))
             deleted = True
 
@@ -609,6 +1936,7 @@ class collector_api():
         df_temp = df_temp.sort_values(by=['date'], ascending=True)
         # df_temp = df_temp[1:]
 
+        self.update_status("이동평균 계산 중...")
         df_temp['code'] = code
         df_temp['code_name'] = code_name
         df_temp['d1_diff_rate'] = round(
@@ -661,9 +1989,38 @@ class collector_api():
 
         # 여기 이렇게 추가해야함
         if self.open_api.engine_daily_craw.dialect.has_table(self.open_api.engine_daily_craw, code_name):
-            df_temp = df_temp[df_temp.date > self.open_api.get_daily_craw_db_last_date(code_name)]
+            last_date = self.open_api.get_daily_craw_db_last_date(code_name)
+
+            # 시간대별 재수집 여부 판단:
+            #   07:00~09:00 (장전): ref_date(전 영업일) 데이터가 있어도 오늘 첫 수집이므로 강제 재수집
+            #   09:00~16:00 (장중): ref_date = 전 영업일 → 이미 확정된 과거 데이터, 재수집 불필요
+            #   16:00~24:00 (장후): ref_date = 오늘 → 오늘 장중 stale row 삭제 후 종가로 재수집
+            #   00:00~07:00 (야간): 재수집 불필요
+            import datetime as _dt
+            _now = _dt.datetime.now()
+            _h = _now.hour
+            _should_recollect = (
+                (7 <= _h < 9) or                                          # 장전: 무조건
+                (_h >= 16 and last_date == ref_date and ref_date == self.open_api.today)  # 장후: 오늘 데이터만
+            )
+            if last_date == ref_date and _should_recollect:
+                _reason = "장전 첫 수집" if 7 <= _h < 9 else "장후 종가 업데이트"
+                logger.debug(f"{code_name}: {_reason} → {ref_date} 데이터 삭제 후 재수집.")
+                try:
+                    self.open_api.engine_daily_craw.execute(f"""
+                        DELETE FROM `{code_name}` WHERE date = '{ref_date}'
+                    """)
+                except Exception as e:
+                    logger.error(f"{code_name}: ref_date 데이터 삭제 실패: {e}")
+
+                # ref_date 이후만 필터링 (ref_date는 이미 삭제했으므로 포함됨)
+                df_temp = df_temp[df_temp.date >= ref_date]
+            else:
+                # ref_date 이후만 추가 (last_date 초과 ~ ref_date 이하)
+                df_temp = df_temp[df_temp.date > last_date]
 
         if len(df_temp) == 0 and check_daily_crawler != '4':
+            self.update_status("이미 최신 - 스킵")
             logger.debug("이미 daily_craw db의 " + code_name + " 테이블에 콜렉팅 완료 했다! df_temp가 비었다!!")
 
             # 이렇게 안해주면 아래 프로세스들을 안하고 바로 넘어가기때문에 그만큼 tr 조회 하는 시간이 짧아지고 1초에 5회 이상의 조회를 할 수 가있다 따라서 비었을 경우는 sleep해줘야 안멈춘다
@@ -686,7 +2043,35 @@ class collector_api():
         # inf 를 NaN으로 변경 (inf can not be used with MySQL 에러 방지)
         df_temp = df_temp.replace([numpy.inf, -numpy.inf], numpy.nan)
 
-        df_temp.to_sql(name=code_name, con=self.open_api.engine_daily_craw, if_exists='append')
+        self.update_status("DB 저장 중...")
+        df_temp.to_sql(name=code_name, con=self.open_api.engine_daily_craw, if_exists='append', index=False)
+
+        # OPT10045: 기관/외국인 당일 순매수량 수집 → 최신 행 UPDATE
+        # 컬럼이 없는 테이블은 ALTER TABLE로 자동 추가 (이미 있으면 예외 무시)
+        try:
+            inst = self.open_api.get_inst_data_today(code, ref_date)
+            inst_val = inst.get('inst_net_buy')
+            foreign_val = inst.get('foreign_net_buy')
+            if inst_val is not None or foreign_val is not None:
+                for col in ('inst_net_buy', 'foreign_net_buy'):
+                    try:
+                        self.open_api.engine_daily_craw.execute(
+                            f"ALTER TABLE `{code_name}` ADD COLUMN {col} INT DEFAULT NULL"
+                        )
+                    except Exception:
+                        pass
+                set_parts = []
+                if inst_val is not None:
+                    set_parts.append(f"inst_net_buy = {inst_val}")
+                if foreign_val is not None:
+                    set_parts.append(f"foreign_net_buy = {foreign_val}")
+                if set_parts:
+                    self.open_api.engine_daily_craw.execute(
+                        f"UPDATE `{code_name}` SET {', '.join(set_parts)} WHERE date = '{ref_date}'"
+                    )
+        except Exception as e:
+            logger.error(f"OPT10045 수집 실패 ({code_name}): {e}")
+
         index_name = ''.join(c for c in code_name if c.isalnum())
         if deleted:
             try:
@@ -699,12 +2084,13 @@ class collector_api():
 
         # check_daily_crawler 가 4 인 경우는 액면분할, 증자 등으로 인해 daily_buy_list 업데이트를 해야하는 경우
         if check_daily_crawler == '4':
-            logger.info(f'daily_craw.{code_name} 업데이트 완료 {code}')
-            logger.info('daily_buy_list 업데이트 중..')
+            self.update_status("daily_buy_list 동기화 중...")
+            logger.debug(f'daily_craw.{code_name} 업데이트 완료 {code}')
+            logger.debug('daily_buy_list 업데이트 중..')
 
 
             for row in dbl_dates:
-                logger.info(f'{code} {code_name} - daily_buy_list.`{row.tname}` 업데이트')
+                logger.debug(f'{code} {code_name} - daily_buy_list.`{row.tname}` 업데이트')
                 try:
                     new_data = df_temp[df_temp.date == row.tname]
                 except KeyError:
@@ -714,17 +2100,17 @@ class collector_api():
                         DELETE FROM `{row.tname}` WHERE code = '{code}'
                     """)
                     if not new_data.empty:
-                        new_data.set_index('code')
                         new_data.to_sql(
                             name=row.tname,
                             con=self.open_api.engine_daily_buy_list,
-                            index=True,
+                            index=False,
                             if_exists='append',
                             dtype={'code': String(6)}
                         )
 
-            logger.info('daily_buy_list 업데이트 완료')
+            logger.debug('daily_buy_list 업데이트 완료')
 
+        self.update_status("완료")
         check_item_gubun = 1
         return check_item_gubun
 
@@ -781,7 +2167,7 @@ class collector_api():
         logger.debug(today_profit_item)
 
         if len(today_profit_item) > 0:
-            today_profit_item.to_sql('today_profit_list', self.engine_JB, if_exists='append')
+            today_profit_item.to_sql('today_profit_list', self.engine_JB, if_exists='append', index=False)
         sql = "UPDATE setting_data SET today_profit='%s' limit 1"
         self.engine_JB.execute(sql % (self.open_api.today))
         # self.open_api.jackbot_db_con.commit()
@@ -799,101 +2185,97 @@ class collector_api():
         self.engine_JB.execute(sql % (self.open_api.invest_unit, self.open_api.today))
 
     def db_to_jango(self):
+        """
+        일별 자산 및 매매 성과 데이터를 jango_data 테이블에 저장
+        기존 DB 스키마(18개 컬럼)에 맞춤
+        """
         self.total_invest = self.open_api.change_format(
             str(int(self.open_api.d2_deposit_before_format) + int(self.open_api.total_purchase_price)))
-        jango_temp = {'id': [], 'date': [], 'total_asset': [], 'today_profit': [], 'total_profit': [],
-                      'total_invest': [], 'd2_deposit': [],
-                      'today_purchase': [], 'today_evaluation': [],
-                      'today_invest': [], 'today_rate': [],
-                      'estimate_asset': []}
 
-        jango_col_list = ['date', 'today_earning_rate', 'total_asset', 'today_profit', 'total_profit', 'total_invest',
-                          'd2_deposit', 'today_purchase', 'today_evaluation', 'today_invest', 'today_rate',
-                          'estimate_asset', 'volume_limit', 'ipo_term', 'reinvest_point', 'sell_point',
-                          'max_reinvest_count', 'invest_limit_rate', 'invest_unit', 'min_invest_unit',
-                          'max_invest_unit',
-                          'avg_close_multiply_rate', 'max_reinvest_unit', 'rate_std_sell_point', 'limit_money',
-                          'total_profitcut',
-                          'total_losscut', 'total_profitcut_count', 'total_losscut_count', 'loan_money',
-                          'start_kospi_point',
-                          'start_kosdaq_point', 'end_kospi_point', 'end_kosdaq_point', 'today_buy_count',
-                          'today_buy_total_sell_count',
-                          'today_buy_total_possess_count', 'today_buy_today_profitcut_count',
-                          'today_buy_today_profitcut_rate',
-                          'today_buy_today_losscut_count', 'today_buy_today_losscut_rate',
-                          'today_buy_total_profitcut_count', 'today_buy_total_profitcut_rate',
-                          'today_buy_total_losscut_count',
-                          'today_buy_total_losscut_rate', 'today_buy_reinvest_count0_sell_count',
-                          'today_buy_reinvest_count1_sell_count', 'today_buy_reinvest_count2_sell_count',
-                          'today_buy_reinvest_count3_sell_count', 'today_buy_reinvest_count4_sell_count',
-                          'today_buy_reinvest_count4_sell_profitcut_count',
-                          'today_buy_reinvest_count4_sell_losscut_count', 'today_buy_reinvest_count5_sell_count',
-                          'today_buy_reinvest_count5_sell_profitcut_count',
-                          'today_buy_reinvest_count5_sell_losscut_count',
-                          'today_buy_reinvest_count0_remain_count',
-                          'today_buy_reinvest_count1_remain_count', 'today_buy_reinvest_count2_remain_count',
-                          'today_buy_reinvest_count3_remain_count', 'today_buy_reinvest_count4_remain_count',
-                          'today_buy_reinvest_count5_remain_count']
-        jango = DataFrame(jango_temp,
-                          columns=jango_col_list,
-                          index=jango_temp['id'])
+        # 기존 DB 스키마에 맞는 18개 컬럼만 사용
+        jango_col_list = [
+            'date',
+            'total_asset',
+            'd2_deposit',
+            'total_invest',
+            'today_profit',
+            'today_earning_rate',
+            'today_buy_count',
+            'today_sell_count',
+            'today_buy_total_sell_count',
+            'today_buy_total_possess_count',
+            'today_buy_today_profitcut_count',
+            'today_buy_today_profitcut_rate',
+            'today_buy_today_losscut_count',
+            'today_buy_today_losscut_rate',
+            'today_buy_total_profitcut_count',
+            'today_buy_total_profitcut_rate',
+            'today_buy_total_losscut_count',
+            'today_buy_total_losscut_rate'
+        ]
 
+        jango = DataFrame(columns=jango_col_list)
         jango.loc[0, 'date'] = self.open_api.today
 
         logger.debug("self.open_api.today!!!!!!!!")
         logger.debug(self.open_api.today)
-        jango.loc[0, 'total_asset']
-        # logger.debug("self.open_api.today_profit: " , self.open_api.today_profit)
-        jango.loc[0, 'today_profit'] = self.open_api.today_profit
-        jango.loc[0, 'total_profit'] = self.open_api.total_profit
+
+        # 자산 정보
         jango.loc[0, 'total_invest'] = self.total_invest
         jango.loc[0, 'd2_deposit'] = self.open_api.d2_deposit
-        jango.loc[0, 'today_purchase'] = self.open_api.change_total_purchase_price
-        jango.loc[0, 'today_evaluation'] = self.open_api.change_total_eval_price
-        jango.loc[0, 'today_invest'] = self.open_api.change_total_eval_profit_loss_price
-        jango.loc[0, 'today_rate'] = float(self.open_api.change_total_earning_rate) / self.open_api.mod_gubun
-        jango.loc[0, 'estimate_asset'] = self.open_api.change_estimated_deposit
-        # jango.loc[0, 'volume_limit'] = self.open_api.sf.volume_limit
-        # jango.loc[0, 'ipo_term']=self.open_api.sf.ipo_term
-        # jango.loc[0, 'reinvest_point']=self.open_api.sf.reinvest_point
-        jango.loc[0, 'sell_point'] = self.open_api.sf.sell_point
-        # jango.loc[0, 'max_reinvest_count']=self.open_api.sf.max_reinvest_count
-        jango.loc[0, 'invest_limit_rate'] = self.open_api.sf.invest_limit_rate
-        jango.loc[0, 'invest_unit'] = self.open_api.invest_unit
 
-        jango.loc[0, 'limit_money'] = self.open_api.sf.limit_money
+        # 일일 수익
+        jango.loc[0, 'today_profit'] = self.open_api.today_profit
+        jango.loc[0, 'today_earning_rate'] = float(self.open_api.change_total_earning_rate) / self.open_api.mod_gubun if self.open_api.mod_gubun else 0
 
-        # 처음시작할때는 여기 0으로 나온다.
-        if self.is_table_exist(self.open_api.db_name, "today_profit_list"):
-            sql = "select sum(today_profit) from today_profit_list where today_profit >='%s' and date = '%s'"
-            rows = self.engine_JB.execute(sql % (0, self.open_api.today)).fetchall()
+        # 매수/매도 통계 (기본값 0)
+        jango.loc[0, 'today_buy_count'] = 0
+        jango.loc[0, 'today_sell_count'] = 0
+        jango.loc[0, 'today_buy_total_sell_count'] = 0
+        jango.loc[0, 'today_buy_total_possess_count'] = 0
 
-            if rows[0][0] is not None:
-                jango.loc[0, 'total_profitcut'] = int(rows[0][0])
-            else:
-                logger.debug("today_profit_list total_profitcut 이 비었다!!!! ")
+        # 익절/손절 통계 (당일 매수 → 당일 매도)
+        jango.loc[0, 'today_buy_today_profitcut_count'] = 0
+        jango.loc[0, 'today_buy_today_profitcut_rate'] = 0
+        jango.loc[0, 'today_buy_today_losscut_count'] = 0
+        jango.loc[0, 'today_buy_today_losscut_rate'] = 0
 
-            sql = "select sum(today_profit) from today_profit_list where today_profit < '%s' and date = '%s'"
-            rows = self.engine_JB.execute(sql % (0, self.open_api.today)).fetchall()
-
-            if rows[0][0] is not None:
-                jango.loc[0, 'total_losscut'] = int(rows[0][0])
-            else:
-                logger.debug("today_profit_list total_losscut 이 비었다!!!! ")
-
-        # 이건 오늘 산게 아니더라도 익절한놈들
-        sql = "select count(*) from (select code from all_item_db where sell_rate >='%s' and sell_date like '%s' group by code) temp"
-        rows = self.engine_JB.execute(sql % (0, self.open_api.today + "%%")).fetchall()
-
-        jango.loc[0, 'total_profitcut_count'] = int(rows[0][0])
-
-        sql = "select count(*) from (select code from all_item_db where sell_rate < '%s' and sell_date like '%s' group by code) temp"
-        rows = self.engine_JB.execute(sql % (0, self.open_api.today + "%%")).fetchall()
-
-        jango.loc[0, 'total_losscut_count'] = int(rows[0][0])
+        # 익절/손절 통계 (당일 매수 → 전체 기간)
+        jango.loc[0, 'today_buy_total_profitcut_count'] = 0
+        jango.loc[0, 'today_buy_total_profitcut_rate'] = 0
+        jango.loc[0, 'today_buy_total_losscut_count'] = 0
+        jango.loc[0, 'today_buy_total_losscut_rate'] = 0
 
         # 데이터베이스에 테이블이 존재할 때 수행 동작을 지정한다. 'fail', 'replace', 'append' 중 하나를 사용할 수 있는데 기본값은 'fail'이다. 'fail'은 데이터베이스에 테이블이 있다면 아무 동작도 수행하지 않는다. 'replace'는 테이블이 존재하면 기존 테이블을 삭제하고 새로 테이블을 생성한 후 데이터를 삽입한다. 'append'는 테이블이 존재하면 데이터만을 추가한다.
-        jango.to_sql('jango_data', self.engine_JB, if_exists='append')
+        # 중복 키 에러는 무시 (상위 조건문에서 이미 체크하므로 발생하지 않아야 함)
+        try:
+            jango.to_sql('jango_data', self.engine_JB, if_exists='append', index=False)
+        except Exception as e:
+            logger.debug(f"jango_data 삽입 중 오류 (중복 키일 가능성): {e}")
+
+        # ── opw00018 실제값으로 total_evaluation / total_asset 업데이트 ──────
+        # to_sql 컬럼 목록에 없어서 INSERT 시 NULL로 들어간 두 컬럼을 여기서 채움
+        try:
+            total_eval   = int(self.open_api.change_total_eval_price) \
+                           if hasattr(self.open_api, 'change_total_eval_price') else 0
+            dep_raw      = int(self.open_api.d2_deposit_before_format) \
+                           if hasattr(self.open_api, 'd2_deposit_before_format') else 0
+            actual_total = dep_raw + total_eval
+            # total_evaluation 컬럼이 없으면 먼저 추가 (기존 테이블 호환)
+            try:
+                self.engine_JB.execute(
+                    "ALTER TABLE jango_data ADD COLUMN total_evaluation BIGINT DEFAULT 0"
+                )
+            except Exception:
+                pass  # 이미 존재하면 무시
+            self.engine_JB.execute(
+                "UPDATE jango_data SET total_evaluation=%s, total_asset=%s WHERE date=%s",
+                (total_eval, actual_total, self.open_api.today)
+            )
+            logger.debug(f"jango_data total_asset 업데이트: {actual_total:,}원 "
+                         f"(예수금 {dep_raw:,} + 주식평가 {total_eval:,})")
+        except Exception as _e:
+            logger.debug(f"jango_data total_asset 업데이트 오류: {_e}")
 
         sql = "select date from jango_data"
         rows = self.engine_JB.execute(sql).fetchall()
@@ -920,18 +2302,18 @@ class collector_api():
             self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
 
             # today_buy_total_sell_count ( 익절, 손절 포함)
-            sql = "UPDATE jango_data SET today_buy_total_sell_count=(select count(*) from (select code from all_item_db a where buy_date like '%s' and (a.sell_date is not null or a.rate_std>='%s') group by code ) temp) WHERE date='%s'"
+            sql = "UPDATE jango_data SET today_buy_total_sell_count=(select count(*) from (select code from all_item_db a where buy_date like '%s' and a.sell_date is not null and a.sell_date != '0' group by code ) temp) WHERE date='%s'"
 
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
 
             # today_buy_total_possess_count
             sql = "UPDATE jango_data SET today_buy_total_possess_count=(select count(*) from (select code from all_item_db a where buy_date like '%s' and a.sell_date = '%s' group by code ) temp) WHERE date='%s'"
             self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
 
-            # today_buy_today_profitcut_count      rate_std가 0보다 큰 놈도 추가 (팔지않았더라도)
-            sql = "UPDATE jango_data SET today_buy_today_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date like '%s' and (sell_rate >='%s' or rate_std>='%s'  ) group by code ) temp) WHERE date='%s'"
+            # today_buy_today_profitcut_count (오늘 매수 -> 오늘 매도 중 익절)
+            sql = "UPDATE jango_data SET today_buy_today_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date like '%s' and sell_rate >='%s' group by code ) temp) WHERE date='%s'"
             # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0] + "%%", 0, 0, rows[i][0]))
+            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0] + "%%", 0, rows[i][0]))
             # self.open_api.jackbot_db_con.commit()
 
             # today_buy_today_profitcut_rate , 오늘 산놈들 중에서 오늘 익절한놈
@@ -976,96 +2358,102 @@ class collector_api():
             self.engine_JB.execute(sql % (rows[i][0], rows[i][0]))
             # self.open_api.jackbot_db_con.commit()
 
-            # today_buy_reinvest_count0_sell_count 오늘만 해당되는게 아니고 전체 다
-            sql = "UPDATE jango_data SET today_buy_reinvest_count0_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=0 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # ====================================================================
+            # 아래 reinvest_count 관련 UPDATE들은 DB 스키마에 컬럼이 없어서 주석처리
+            # - jango_data 테이블에 today_buy_reinvest_count* 컬럼들이 없음
+            # - all_item_db 테이블에 reinvest_count 컬럼이 없음
+            # ====================================================================
 
-            # today_buy_reinvest_count1_sell_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count1_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=1 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # # today_buy_reinvest_count0_sell_count 오늘만 해당되는게 아니고 전체 다
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count0_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=0 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
 
-            # today_buy_reinvest_count2_sell_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count2_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=2 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # # today_buy_reinvest_count1_sell_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count1_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=1 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
 
-            # today_buy_reinvest_count3_sell_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count3_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=3 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # # today_buy_reinvest_count2_sell_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count2_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=2 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
 
-            # today_buy_reinvest_count4_sell_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count4_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=4 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # # today_buy_reinvest_count3_sell_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count3_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=3 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
 
-            # today_buy_reinvest_count4_sell_profitcut_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count4_sell_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=4 and sell_rate >='%s' group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # # today_buy_reinvest_count4_sell_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count4_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=4 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
 
-            #   today_buy_reinvest_count4_sell_losscut_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count4_sell_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=4 and sell_rate <'%s' group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # # today_buy_reinvest_count4_sell_profitcut_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count4_sell_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=4 and sell_rate >='%s' group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
 
-            # today_buy_reinvest_count5_sell_count
+            # #   today_buy_reinvest_count4_sell_losscut_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count4_sell_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=4 and sell_rate <'%s' group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
 
-            sql = "UPDATE jango_data SET today_buy_reinvest_count5_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=5 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # # today_buy_reinvest_count5_sell_count
 
-            # today_buy_reinvest_count5_sell_profitcut_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count5_sell_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=5 and sell_rate >='%s' group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count5_sell_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=5 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
 
-            #  today_buy_reinvest_count5_sell_losscut_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count5_sell_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=5 and sell_rate <'%s' group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # # today_buy_reinvest_count5_sell_profitcut_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count5_sell_profitcut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=5 and sell_rate >='%s' group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
 
-            # today_buy_reinvest_count0_remain_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count0_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=0 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # #  today_buy_reinvest_count5_sell_losscut_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count5_sell_losscut_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date is not null and reinvest_count=5 and sell_rate <'%s' group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
 
-            # today_buy_reinvest_count1_remain_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count1_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=1 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # # today_buy_reinvest_count0_remain_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count0_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=0 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
 
-            # today_buy_reinvest_count2_remain_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count2_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=2 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
-            # self.open_api.jackbot_db_con.commit()
+            # # today_buy_reinvest_count1_remain_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count1_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=1 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
 
-            # today_buy_reinvest_count3_remain_count
-            sql = "UPDATE jango_data SET today_buy_reinvest_count3_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=3 group by code ) tmp) WHERE date='%s'"
-            # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # today_buy_reinvest_count2_remain_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count2_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=2 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # self.open_api.jackbot_db_con.commit()
 
-            sql = "UPDATE jango_data SET today_buy_reinvest_count4_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=4 group by code ) tmp) WHERE date='%s'"
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # # today_buy_reinvest_count3_remain_count
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count3_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=3 group by code ) tmp) WHERE date='%s'"
+            # # rows[i][0] 하는 이유는 rows[i]는 튜플로 나온다 그 튜플의 원소를 꺼내기 위해 [0]을 추가
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
 
-            sql = "UPDATE jango_data SET today_buy_reinvest_count5_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=5 group by code ) tmp) WHERE date='%s'"
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count4_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=4 group by code ) tmp) WHERE date='%s'"
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
 
-            self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
+            # sql = "UPDATE jango_data SET today_buy_reinvest_count5_remain_count=(select count(*) from (select code from all_item_db where buy_date like '%s' and sell_date = '%s' and reinvest_count=5 group by code ) tmp) WHERE date='%s'"
+
+            # self.engine_JB.execute(sql % (rows[i][0] + "%%", 0, rows[i][0]))
 
         sql = "UPDATE setting_data SET jango_data_db_check='%s' limit 1"
         self.engine_JB.execute(sql % (self.open_api.today))

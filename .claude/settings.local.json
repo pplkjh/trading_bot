@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(dir:*)",
+      "Bash(ls:*)",
+      "Bash(git checkout:*)",
+      "Bash(grep:*)",
+      "Bash(git rm:*)",
+      "Bash(mysql:*)",
+      "Bash(cat:*)",
+      "Bash(powershell -Command \"cd ''c:\\\\Users\\\\*\\\\Desktop\\\\Personal project\\\\trading_bot''; C:\\\\Users\\\\*\\\\anaconda3\\\\envs\\\\py37_32\\\\python.exe check_buy_list_simple.py\")",
+      "Bash(powershell -Command:*)",
+      "Bash(paste:*)",
+      "Bash(xargs -I {} mysql -u bot -pqwer1232 daily_buy_list -e \"SHOW COLUMNS FROM \\\\`{}\\\\` LIKE ''%score%''\")",
+      "Bash(findstr:*)",
+      "Bash(del \"c:\\\\Users\\\\*\\\\Desktop\\\\Personal project\\\\trading_bot\\\\scheduler\\\\evening_collect.xml\")",
+      "Bash(schtasks:*)",
+      "Bash(C:/Users/*/anaconda3/envs/py37_32/python.exe -c \":*)",
+      "Bash(C:/Users/*/anaconda3/envs/py37_32/python.exe -u check_score_distribution.py)",
+      "Bash(C:/Users/*/anaconda3/envs/py37_32/python.exe -u -c \":*)"
+    ]
+  }
+}

@@ -1,4 +1,16 @@
 # -*- coding: utf-8 -*-
+import os
+import sys
+from datetime import datetime
+
+# import 전에 설정해야 logging_pack.py가 올바른 파일 경로를 사용함
+# 커맨드라인 인자로 simul_num이 전달된 경우에만 backtest 전용 로그 생성
+# 인터랙티브 모드(인자 없음)는 설정 안 함 → 빈 backtest_simX_*.log 방지
+if len(sys.argv) >= 2:
+    _simul_num = sys.argv[1]
+    _date = datetime.now().strftime('%Y%m%d')
+    os.environ['JACKBOT_LOG_FILE'] = f'backtest_sim{_simul_num}_{_date}.log'
+os.environ.setdefault('JACKBOT_LOG_NAME', 'simulator')
 
 from library.simulator_func_mysql import *
 
@@ -32,8 +44,42 @@ class simulator_v2():
             exit(1)
 
     def input_value(self):
+        # 시뮬레이터 시작 헤더
+        print("\n" + "=" * 60)
+        print("🚀 백테스트 시뮬레이터")
+        print("=" * 60)
+        print(f"📊 알고리즘: {self.simul_num}번")
+        print(f"🔄 모드: {'초기화 후 실행' if self.simul_reset == 'reset' else '이어서 실행'}")
+        print("=" * 60 + "\n")
+
         # simulator_func_mysql 라이브러리 클래스 호출
-        simulator_func_mysql(self.simul_num, self.simul_reset, 0)
+        sim = simulator_func_mysql(self.simul_num, self.simul_reset, 0)
+
+        # 시뮬레이터 완료 메시지
+        print("\n" + "=" * 60)
+        print("✅ 백테스트 완료!")
+        print("=" * 60)
+
+        # 그래프 저장 여부 확인
+        print("\n" + "-" * 60)
+        save_graph = input("📊 누적 수익률 그래프를 저장하시겠습니까? (y/n): ").strip().lower()
+        if save_graph == 'y':
+            print("💾 그래프가 이미 저장되었습니다.")
+        else:
+            print("⏭️  그래프 저장을 건너뜁니다.")
+
+        # 상세 분석 레포트 생성 여부 확인
+        print("\n" + "-" * 60)
+        generate_report = input("📝 상세 분석 레포트를 생성하시겠습니까? (y/n): ").strip().lower()
+        if generate_report == 'y':
+            print("\n" + "=" * 60)
+            print("📊 상세 분석 레포트 생성 중...")
+            print("=" * 60 + "\n")
+            sim.generate_detailed_analysis_report()
+        else:
+            print("⏭️  레포트 생성을 건너뜁니다.")
+
+        print("\n" + "=" * 60)
 
 
 if __name__ == "__main__":
