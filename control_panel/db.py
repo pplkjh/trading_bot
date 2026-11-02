@@ -220,10 +220,33 @@ def get_positions():
 
 
 # ── 매수 후보 ─────────────────────────────────────────────────────
+_buy_status_col_ready = False
+
+def _ensure_buy_status_col():
+    global _buy_status_col_ready
+    if _buy_status_col_ready:
+        return
+    _buy_status_col_ready = True
+    try:
+        rows = _fetch(
+            "SELECT COUNT(*) AS cn FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA=%s AND TABLE_NAME='realtime_daily_buy_list' "
+            "AND COLUMN_NAME='buy_status_msg'",
+            (imi1_db_name,)
+        )
+        if not (rows and int(rows[0]['cn'])):
+            _exec("ALTER TABLE realtime_daily_buy_list "
+                  "ADD COLUMN buy_status_msg VARCHAR(200) DEFAULT ''")
+    except Exception:
+        pass
+
+
 def get_candidates(min_score=0, strategy='전체'):
     """
     realtime_all_scored (전체 스코어 결과) 우선, 없으면 realtime_daily_buy_list fallback.
     """
+    _ensure_buy_status_col()
+
     # 테이블 존재 여부 확인
     chk = _fetch("SELECT COUNT(*) AS cnt FROM information_schema.tables "
                  "WHERE table_schema=%s AND table_name='realtime_all_scored'",
@@ -250,7 +273,8 @@ def get_candidates(min_score=0, strategy='전체'):
                    a.score_penalty, a.vol5, a.vol20, a.rsi14, a.close,
                    a.passed,
                    CASE WHEN bought.code IS NOT NULL THEN '1' ELSE '0' END AS check_item,
-                   COALESCE(rdl.check_item, 0) AS raw_check_item
+                   COALESCE(rdl.check_item, 0) AS raw_check_item,
+                   COALESCE(rdl.buy_status_msg, '') AS buy_status_msg
             FROM realtime_all_scored a
             LEFT JOIN (SELECT DISTINCT code FROM all_item_db
                        WHERE buy_date LIKE '{_today()}%%') bought
@@ -268,7 +292,8 @@ def get_candidates(min_score=0, strategy='전체'):
                    0 AS score_h, r.score_penalty, r.vol5, r.vol20, r.rsi14, r.close,
                    1 AS passed,
                    CASE WHEN bought.code IS NOT NULL THEN '1' ELSE '0' END AS check_item,
-                   r.check_item AS raw_check_item
+                   r.check_item AS raw_check_item,
+                   COALESCE(r.buy_status_msg, '') AS buy_status_msg
             FROM realtime_daily_buy_list r
             LEFT JOIN (SELECT DISTINCT code FROM all_item_db
                        WHERE buy_date LIKE '{_today()}%%') bought

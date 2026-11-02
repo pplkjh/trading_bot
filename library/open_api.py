@@ -1155,6 +1155,22 @@ class open_api(QAxWidget):
                 "⛔ 매수 스킵 (가격 범위 초과): %s(%s)[%s] 목표가=%s 현재가=%s 허용범위=[%s~%s]",
                 self.get_today_buy_list_code_name, self.get_today_buy_list_code,
                 strategy_type, self.get_today_buy_list_close, current_price, min_buy_limit, max_buy_limit)
+            skip_msg = "현가=%d원 허용=[%d~%d]" % (int(current_price), int(min_buy_limit), int(max_buy_limit))
+            if not getattr(self.__class__, '_buy_status_col_ensured', False):
+                try:
+                    self.engine_JB.execute(
+                        "ALTER TABLE realtime_daily_buy_list ADD COLUMN buy_status_msg VARCHAR(200) DEFAULT ''"
+                    )
+                except Exception:
+                    pass
+                self.__class__._buy_status_col_ensured = True
+            try:
+                self.engine_JB.execute(
+                    "UPDATE realtime_daily_buy_list SET buy_status_msg='%s' WHERE code='%s'"
+                    % (skip_msg, self.get_today_buy_list_code)
+                )
+            except Exception:
+                pass
 
     # 오늘 매수 할 종목들을 가져오는 함수
     def get_today_buy_list(self):

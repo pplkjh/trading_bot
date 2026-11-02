@@ -161,7 +161,8 @@ class CandidatesTab(QWidget):
             if bought:
                 status = ('매수완료', GRAY)
             elif skipped:
-                status = ('매수스킵', QColor('#c47600'))
+                msg = str(c.get('buy_status_msg') or '').strip()
+                status = (msg if msg else '매수스킵', QColor('#c47600'))
             elif passed:
                 status = ('합격대기', RED)
             else:
