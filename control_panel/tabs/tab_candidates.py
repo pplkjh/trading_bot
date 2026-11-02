@@ -21,10 +21,10 @@ from library.cf import v4_min_score_a, invest_unit as cf_invest_unit
 # sim=6: 점수형 헤더 / sim=11: 조건통과형 헤더
 HEADERS_SIM6  = ['상태', '종목명', '종목코드', '전략', '복합점수',
                  'A모멘텀', 'B평균회귀', 'C추세강도', 'D수급', 'E시장RS', 'F다중TF', 'G패널티',
-                 '현재가', '거래량비율', 'RSI']
+                 '현재가', '거래량비율', 'RSI', '스킵사유']
 HEADERS_SIM11 = ['상태', '종목명', '종목코드', '전략', '복합점수',
                  '조건①', '조건②', '조건③', '조건④', '조건⑤', '조건⑥', '조건⑦',
-                 '현재가', '거래량비율', 'RSI']
+                 '현재가', '거래량비율', 'RSI', '스킵사유']
 
 HEADERS = HEADERS_SIM11 if SIMUL_NUM == 11 else HEADERS_SIM6
 
@@ -161,8 +161,7 @@ class CandidatesTab(QWidget):
             if bought:
                 status = ('매수완료', GRAY)
             elif skipped:
-                msg = str(c.get('buy_status_msg') or '').strip()
-                status = (msg if msg else '매수스킵', QColor('#c47600'))
+                status = ('매수스킵', QColor('#c47600'))
             elif passed:
                 status = ('합격대기', RED)
             else:
@@ -199,6 +198,7 @@ class CandidatesTab(QWidget):
                     return (txt, col)
                 return cell(f'{raw:.1f}')
 
+            skip_reason = str(c.get('buy_status_msg') or '').strip()
             rows.append([
                 status,
                 cell(str(c.get('code_name', ''))),
@@ -215,6 +215,7 @@ class CandidatesTab(QWidget):
                 cell(f"{int(c.get('close') or 0):,}"),
                 cell(f"{float(c.get('vol5') or 0) / max(float(c.get('vol20') or 1), 1):.2f}"),
                 cell(f"{float(c.get('rsi14') or 0):.1f}"),
+                (skip_reason, QColor('#c47600') if skip_reason else None),
             ])
         # 시그널 차단 후 렌더 → itemSelectionChanged가 set_rows 중에 발동하지 않음
         self._table.blockSignals(True)
