@@ -353,7 +353,7 @@ def get_history(date_from='', date_to='', strategy='전체', limit=200):
     if strategy in ('A', 'B', 'D', 'E'):
         where.append("strategy_type = %s")
         args.append(strategy)
-sql = f"""
+    sql = f"""
         SELECT code, code_name, strategy_type,
                buy_date, sell_date, purchase_price, sell_price,
                sell_rate, realized_profit, holding_amount,
