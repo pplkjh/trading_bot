@@ -17,7 +17,7 @@ from library.cf import (
 )
 
 # 현재 운영 중인 전략 목록 (simul_num 기반 자동 감지)
-STRATEGY_LIST = ['전체', 'A', 'B', 'E'] if SIMUL_NUM == 11 else ['전체', 'A', 'B']
+STRATEGY_LIST = ['전체', 'A', 'B', 'D', 'E'] if SIMUL_NUM == 11 else ['전체', 'A', 'B', 'D']
 # sim=11: 조건형(binary), sim=6: 점수형(numeric)
 SCORE_IS_BINARY = SIMUL_NUM == 11
 
@@ -258,7 +258,7 @@ def get_candidates(min_score=0, strategy='전체'):
     if min_score > 0:
         where.append("composite_score >= %s")
         args.append(min_score)
-    if strategy in ('A', 'B', 'E'):
+    if strategy in ('A', 'B', 'D', 'E'):
         where.append("strategy_type = %s")
         args.append(strategy)
     where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
@@ -350,10 +350,10 @@ def get_history(date_from='', date_to='', strategy='전체', limit=200):
     if date_to:
         where.append("sell_date <= %s")
         args.append(date_to + '9')
-    if strategy in ('A', 'B', 'E'):
+    if strategy in ('A', 'B', 'D', 'E'):
         where.append("strategy_type = %s")
         args.append(strategy)
-    sql = f"""
+sql = f"""
         SELECT code, code_name, strategy_type,
                buy_date, sell_date, purchase_price, sell_price,
                sell_rate, realized_profit, holding_amount,
