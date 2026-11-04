@@ -1025,7 +1025,7 @@ def strategy_b_exit(pos: dict, ind: dict, cfg: dict = None) -> tuple:
     return False, '', 0.0
 
 
-def strategy_d_exit(pos: dict, ind: dict) -> tuple:
+def strategy_d_exit(pos: dict, ind: dict, cfg=None) -> tuple:
     """
     Strategy D — 데이트레이딩 매도
     하드SL(-15%) / 트레일링(+5%활성 → 5%트레일 / +1% 플로어)
