@@ -1027,8 +1027,26 @@ def strategy_b_exit(pos: dict, ind: dict, cfg: dict = None) -> tuple:
 
 def strategy_d_exit(pos: dict, ind: dict, cfg=None) -> tuple:
     """
-    Strategy D — 수동 매도 전용. 자동 청산 없음.
+    Strategy D — 급등/급락 종목 매도
+    하드SL(-15%) / 트레일링(+5%활성 → 5%트레일 / +1% 플로어)
     """
+    entry   = float(pos.get('entry_price',  0))
+    current = float(pos.get('current_price', entry))
+    highest = float(pos.get('highest_price', current))
+
+    profit_pct = (current / entry - 1) * 100 if entry > 0 else 0
+
+    # 하드 SL -15%
+    if profit_pct <= -15.0:
+        return True, f'D_하드SL({profit_pct:.2f}%)', entry * 0.85
+
+    # 트레일링 활성: 최고가 >= 매수가 +5%
+    if entry > 0 and highest >= entry * 1.05:
+        trail_stop = max(highest * 0.95, entry * 1.01)
+        if current <= trail_stop:
+            peak_pct = (highest / entry - 1) * 100
+            return True, f'D_트레일링(고점+{peak_pct:.1f}%→현재{profit_pct:.2f}%)', trail_stop
+
     return False, '', 0.0
 
 
