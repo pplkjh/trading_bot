@@ -4,10 +4,20 @@ import pymysql
 import datetime
 from sqlalchemy import create_engine
 import pandas as pd
+from io import StringIO
 
 pymysql.install_as_MySQLdb()
 from library import cf
 from PyQt5.QtCore import *
+
+
+def _read_html_krx(url):
+    """KRX kind 사이트 HTML 파싱 — requests로 HTTP→HTTPS 리다이렉트 처리."""
+    import requests
+    resp = requests.get(url, verify=False, timeout=30,
+                        headers={'User-Agent': 'Mozilla/5.0'})
+    resp.encoding = 'euc-kr'
+    return pd.read_html(StringIO(resp.text), header=0)[0]
 
 
 class daily_craw_config():
@@ -57,11 +67,11 @@ class daily_craw_config():
     def get_item_insincerity(self):
         print("get_item_insincerity!!")
 
-        self.code_df_insincerity = pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=05', header=0)[0]
+        self.code_df_insincerity = _read_html_krx('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=05')
         # print(self.code_df_insincerity)
 
         # 6자리 만들고 앞에 0을 붙인다.
-        self.code_df_insincerity.종목코드 = self.code_df_insincerity.종목코드.map('{:06d}'.format)
+        self.code_df_insincerity.종목코드 = self.code_df_insincerity.종목코드.astype(str).str.zfill(6)
 
         # 우리가 필요한 것은 회사명과 종목코드이기 때문에 필요없는 column들은 제외해준다.
         self.code_df_insincerity = self.code_df_insincerity[['회사명', '종목코드']]
@@ -72,10 +82,10 @@ class daily_craw_config():
     # 관리 종목을 가져오는 함수
     def get_item_managing(self):
         print("get_item_managing!!")
-        self.code_df_managing = pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=01', header=0)[0]  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
+        self.code_df_managing = _read_html_krx('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=01')
 
         # 6자리 만들고 앞에 0을 붙인다.strPath --> str(unicode(strPath))
-        self.code_df_managing.종목코드 = self.code_df_managing.종목코드.map('{:06d}'.format)
+        self.code_df_managing.종목코드 = self.code_df_managing.종목코드.astype(str).str.zfill(6)
 
         # 우리가 필요한 것은 회사명과 종목코드이기 때문에 필요없는 column들은 제외해준다.
         self.code_df_managing = self.code_df_managing[['회사명', '종목코드']]
@@ -86,10 +96,10 @@ class daily_craw_config():
     # 코넥스 종목을 가져오는 함수
     def get_item_konex(self):
         print("get_item_konex!!")
-        self.code_df_konex = pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=konexMkt',header=0)[0]  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
+        self.code_df_konex = _read_html_krx('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=konexMkt')
 
         # 6자리 만들고 앞에 0을 붙인다.
-        self.code_df_konex.종목코드 = self.code_df_konex.종목코드.map('{:06d}'.format)
+        self.code_df_konex.종목코드 = self.code_df_konex.종목코드.astype(str).str.zfill(6)
 
         # 우리가 필요한 것은 회사명과 종목코드이기 때문에 필요없는 column들은 제외해준다.
         self.code_df_konex = self.code_df_konex[['회사명', '종목코드']]
@@ -100,11 +110,10 @@ class daily_craw_config():
     # 코스피 종목을 가져오는 함수
     def get_item_kospi(self):
         print("get_item_kospi!!")
-        self.code_df_kospi = \
-        pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=stockMkt',header=0)[0]  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
+        self.code_df_kospi = _read_html_krx('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=stockMkt')
 
         # 6자리 만들고 앞에 0을 붙인다.
-        self.code_df_kospi.종목코드 = self.code_df_kospi.종목코드.map('{:06d}'.format)
+        self.code_df_kospi.종목코드 = self.code_df_kospi.종목코드.astype(str).str.zfill(6)
 
         # 우리가 필요한 것은 회사명과 종목코드이기 때문에 필요없는 column들은 제외해준다.
         self.code_df_kospi = self.code_df_kospi[['회사명', '종목코드']]
@@ -115,10 +124,10 @@ class daily_craw_config():
     # 코스닥 종목을 가져오는 함수
     def get_item_kosdaq(self):
         print("get_item_kosdaq!!")
-        self.code_df_kosdaq = pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=kosdaqMkt',header=0)[0]  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
+        self.code_df_kosdaq = _read_html_krx('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=kosdaqMkt')
 
         # 6자리 만들고 앞에 0을 붙인다.
-        self.code_df_kosdaq.종목코드 = self.code_df_kosdaq.종목코드.map('{:06d}'.format)
+        self.code_df_kosdaq.종목코드 = self.code_df_kosdaq.종목코드.astype(str).str.zfill(6)
 
         # 우리가 필요한 것은 회사명과 종목코드이기 때문에 필요없는 column들은 제외해준다.
         self.code_df_kosdaq = self.code_df_kosdaq[['회사명', '종목코드']]
@@ -129,10 +138,10 @@ class daily_craw_config():
     # 코스피, 코스닥, 코넥스 모든 정보를 가져오는 함수
     def get_item(self):
         # print("get_item!!")
-        self.code_df = pd.read_html('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13', header=0)[0]  # 종목코드가 6자리이기 때문에 6자리를 맞춰주기 위해 설정해줌
+        self.code_df = _read_html_krx('http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13')
 
         # 6자리 만들고 앞에 0을 붙인다.
-        self.code_df.종목코드 = self.code_df.종목코드.map('{:06d}'.format)
+        self.code_df.종목코드 = self.code_df.종목코드.astype(str).str.zfill(6)
 
         # 우리가 필요한 것은 회사명과 종목코드이기 때문에 필요없는 column들은 제외해준다.
         self.code_df = self.code_df[['회사명', '종목코드']]
